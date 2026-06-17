@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { TransformControlsMode } from "three/addons/controls/TransformControls.js";
+import type { GLBImportOptions } from "../assets/GLBColliderExtractor";
 import { AudioSystem } from "../audio/AudioSystem";
 import { EditorController } from "../editor/EditorController";
 import {
@@ -13,11 +14,13 @@ import {
   type ColliderTransformPatch,
 } from "../physics/PhysicsWorld";
 import { GaussianWorld, type LoadProgress } from "../render/GaussianWorld";
+import { VisualModelSystem } from "../render/VisualModelSystem";
 import type {
   BoxColliderData,
   CapsuleColliderData,
   ColliderData,
   ColliderType,
+  ConvexColliderData,
   MeshColliderData,
   WorldManifest,
 } from "../types/world";
@@ -31,6 +34,7 @@ export interface SceneTreeState {
     bodyMode: "fixed" | "dynamic";
     interactable: boolean;
     audio: boolean;
+    visual: boolean;
     sourceName?: string;
   }>;
   selectedId: string | null;
@@ -67,6 +71,7 @@ export class Engine {
   readonly editor: EditorController;
   readonly gameplay: GameplaySystem;
   readonly audio: AudioSystem;
+  readonly visuals: VisualModelSystem;
 
   private readonly clock = new THREE.Clock();
   private readonly events: EngineEvents;
@@ -118,6 +123,11 @@ export class Engine {
     this.scene.add(this.gaussianWorld.root);
     this.scene.add(physics.debugGroup);
 
+    this.visuals = new VisualModelSystem({
+      onStatus: (message) => events.onStatus?.(message),
+    });
+    this.scene.add(this.visuals.root);
+
     this.addLighting();
     const character = physics.createCharacter(manifest.spawn.position);
     this.player = new FirstPersonController(
@@ -142,6 +152,7 @@ export class Engine {
         this.emitSceneTree();
       },
       onColliderChange: () => {
+        this.syncObjectSystems();
         events.onStatus?.("对象已更新");
         this.emitSceneTree();
       },
@@ -187,7 +198,7 @@ export class Engine {
     );
     events.onStatus?.("世界已就绪");
     events.onHistoryChange?.(false, false);
-    engine.audio.update();
+    engine.syncObjectSystems();
     engine.emitSceneTree();
     return engine;
   }
@@ -224,7 +235,7 @@ export class Engine {
       this.gameplay.setEnabled(false);
       this.audio.setEnabled(false);
       this.editor.setEnabled(true);
-      this.events.onStatus?.("编辑模式：GLB、动态刚体和 Audio Source 可用");
+      this.events.onStatus?.("编辑模式：GLB Visual、TriMesh 与 Convex Hull 可用");
     } else {
       this.editor.setEnabled(false);
       this.editor.select(null);
@@ -234,7 +245,7 @@ export class Engine {
       this.player.setEnabled(true);
       this.gameplay.setEnabled(true);
       this.audio.setEnabled(true);
-      this.audio.update();
+      this.syncObjectSystems();
       this.events.onStatus?.("游玩模式已就绪");
     }
     this.events.onEditorMode?.(enabled);
@@ -278,13 +289,31 @@ export class Engine {
     return collider;
   }
 
-  async importGLBCollider(file: File): Promise<MeshColliderData | null> {
+  addConvexCollider(): ConvexColliderData | null {
+    if (!this.editorEnabled) return null;
+    this.beginHistoryMutation();
+    const collider = this.editor.addConvexCollider();
+    this.commitHistoryMutation();
+    return collider;
+  }
+
+  async importGLBWorldObject(
+    file: File,
+    options: GLBImportOptions,
+  ): Promise<ColliderData | null> {
     if (!this.editorEnabled) return null;
     this.beginHistoryMutation();
     try {
-      const collider = await this.editor.importGLBMeshCollider(file);
+      const collider = await this.editor.importGLBWorldObject(file, options);
       this.commitHistoryMutation();
-      this.events.onStatus?.(`已从 ${file.name} 提取 ${collider.indices.length / 3} 个三角形`);
+      this.syncObjectSystems();
+      const triangleCount = collider.type === "mesh" ? collider.indices.length / 3 : null;
+      const detail = Math.round(options.detail * 100);
+      this.events.onStatus?.(
+        triangleCount === null
+          ? `已从 ${file.name} 创建 Convex Hull · ${collider.vertices.length} 点 · ${detail}% 细节`
+          : `已从 ${file.name} 创建 TriMesh · ${triangleCount} 三角形 · ${detail}% 细节`,
+      );
       return collider;
     } catch (error) {
       this.cancelHistoryMutation();
@@ -301,6 +330,7 @@ export class Engine {
       return null;
     }
     this.commitHistoryMutation();
+    this.syncObjectSystems();
     this.events.onStatus?.(`已复制为 ${collider.id}`);
     return collider;
   }
@@ -314,6 +344,7 @@ export class Engine {
       return null;
     }
     this.commitHistoryMutation();
+    this.syncObjectSystems();
     this.events.onStatus?.(`已删除对象 ${id}`);
     this.emitSceneTree();
     return id;
@@ -328,7 +359,7 @@ export class Engine {
       return null;
     }
     this.commitHistoryMutation();
-    this.audio.update();
+    this.syncObjectSystems();
     return collider;
   }
 
@@ -401,6 +432,7 @@ export class Engine {
     this.editor.dispose();
     this.gameplay.dispose();
     this.audio.dispose();
+    this.visuals.dispose();
     this.player.dispose();
     this.gaussianWorld.dispose();
     this.renderer.dispose();
@@ -446,11 +478,17 @@ export class Engine {
           ? snapshot.selectedId
           : null;
       this.editor.select(selectedId);
-      this.audio.update();
+      this.syncObjectSystems();
       this.emitSceneTree();
     } finally {
       this.restoringHistory = false;
     }
+  }
+
+  private syncObjectSystems(): void {
+    const colliders = this.physics.getAllColliderData();
+    this.audio.update();
+    this.visuals.update(colliders);
   }
 
   private emitHistoryState(): void {
@@ -467,7 +505,11 @@ export class Engine {
         bodyMode: collider.body?.mode ?? "fixed",
         interactable: Boolean(collider.interactable),
         audio: Boolean(collider.audio),
-        sourceName: collider.type === "mesh" ? collider.sourceName : undefined,
+        visual: Boolean(collider.visual),
+        sourceName:
+          collider.type === "mesh" || collider.type === "convex"
+            ? collider.sourceName
+            : undefined,
       })),
       selectedId: this.editor.getSelectedId(),
     });
@@ -496,13 +538,16 @@ export class Engine {
 
     if (this.editorEnabled) {
       this.editor.update();
+      this.visuals.update(this.physics.getAllColliderData());
     } else {
       this.player.updateBeforePhysics(delta);
       this.physics.step(delta);
       this.physics.syncDynamicMeshes();
       this.player.syncCamera();
+      const colliders = this.physics.getAllColliderData();
       this.gameplay.update(this.player.getFeetPosition(this.feet));
       this.audio.update();
+      this.visuals.update(colliders);
     }
     this.renderer.render(this.scene, this.camera);
 

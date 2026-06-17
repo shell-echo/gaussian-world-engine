@@ -48,6 +48,12 @@ export interface AudioSourceData {
   refDistance?: number;
 }
 
+export interface VisualModelData {
+  url: string;
+  sourceName?: string;
+  visible?: boolean;
+}
+
 export interface ColliderBaseData {
   id: string;
   position?: Vec3Tuple;
@@ -57,6 +63,7 @@ export interface ColliderBaseData {
   interactable?: InteractableData;
   body?: RigidBodyData;
   audio?: AudioSourceData;
+  visual?: VisualModelData;
 }
 
 export interface BoxColliderData extends ColliderBaseData {
@@ -66,9 +73,7 @@ export interface BoxColliderData extends ColliderBaseData {
 
 export interface CapsuleColliderData extends ColliderBaseData {
   type: "capsule";
-  /** Radius of each hemispherical cap in world-space meters. */
   radius: number;
-  /** Half the length of the cylindrical section in world-space meters. */
   halfHeight: number;
 }
 
@@ -80,11 +85,21 @@ export interface MeshColliderData extends ColliderBaseData {
   sourceName?: string;
 }
 
-export type ColliderData = BoxColliderData | CapsuleColliderData | MeshColliderData;
+export interface ConvexColliderData extends ColliderBaseData {
+  type: "convex";
+  vertices: Vec3Tuple[];
+  scale3?: Vec3Tuple;
+  sourceName?: string;
+}
+
+export type ColliderData =
+  | BoxColliderData
+  | CapsuleColliderData
+  | MeshColliderData
+  | ConvexColliderData;
 export type ColliderType = ColliderData["type"];
 
 export interface SpawnPoint {
-  /** Feet position in world-space meters. */
   position: Vec3Tuple;
   yawDeg?: number;
 }
@@ -158,6 +173,7 @@ export function assertColliderData(value: unknown): asserts value is ColliderDat
   assertInteractable(collider.id, collider.interactable);
   assertBody(collider.id, collider.body);
   assertAudio(collider.id, collider.audio);
+  assertVisual(collider.id, collider.visual);
 
   if (collider.type === "box") {
     if (!isPositiveVec3(collider.size)) {
@@ -182,41 +198,54 @@ export function assertColliderData(value: unknown): asserts value is ColliderDat
     if (collider.body?.mode === "dynamic") {
       throw new Error(`Mesh collider ${collider.id} cannot be dynamic.`);
     }
-    if (!Array.isArray(collider.vertices) || collider.vertices.length < 3) {
-      throw new Error(`Mesh collider ${collider.id} needs at least three vertices.`);
-    }
-    const vertices = collider.vertices;
-    if (!vertices.every(isVec3)) {
-      throw new Error(`Mesh collider ${collider.id} has invalid vertices.`);
-    }
-    if (!Array.isArray(collider.indices)) {
-      throw new Error(`Mesh collider ${collider.id} has invalid triangle indices.`);
-    }
-    const indices = collider.indices;
-    if (
-      indices.length < 3 ||
-      indices.length % 3 !== 0 ||
-      !indices.every(
-        (index) => Number.isInteger(index) && index >= 0 && index < vertices.length,
-      )
-    ) {
-      throw new Error(`Mesh collider ${collider.id} has invalid triangle indices.`);
-    }
+    assertTriangleGeometry(collider.id, collider.vertices, collider.indices);
     if (collider.scale3 !== undefined && !isPositiveVec3(collider.scale3)) {
       throw new Error(`Mesh collider ${collider.id} has an invalid scale.`);
     }
-    if (collider.sourceName !== undefined && !isNonEmptyString(collider.sourceName)) {
-      throw new Error(`Mesh collider ${collider.id} has an invalid source name.`);
+    assertSourceName(collider.id, collider.sourceName);
+    return;
+  }
+
+  if (collider.type === "convex") {
+    if (!Array.isArray(collider.vertices) || collider.vertices.length < 4) {
+      throw new Error(`Convex collider ${collider.id} needs at least four vertices.`);
     }
+    if (!collider.vertices.every(isVec3)) {
+      throw new Error(`Convex collider ${collider.id} has invalid vertices.`);
+    }
+    if (collider.scale3 !== undefined && !isPositiveVec3(collider.scale3)) {
+      throw new Error(`Convex collider ${collider.id} has an invalid scale.`);
+    }
+    assertSourceName(collider.id, collider.sourceName);
+    assertBodyCompatibility(collider.id, collider.type, collider.behavior, collider.body);
     return;
   }
 
   throw new Error(`Collider ${collider.id} has an unsupported type.`);
 }
 
+function assertTriangleGeometry(
+  id: string,
+  vertices: Vec3Tuple[] | undefined,
+  indices: number[] | undefined,
+): void {
+  if (!Array.isArray(vertices) || vertices.length < 3 || !vertices.every(isVec3)) {
+    throw new Error(`Mesh collider ${id} has invalid vertices.`);
+  }
+  if (
+    !Array.isArray(indices) ||
+    indices.length < 3 ||
+    indices.length % 3 !== 0 ||
+    !indices.every(
+      (index) => Number.isInteger(index) && index >= 0 && index < vertices.length,
+    )
+  ) {
+    throw new Error(`Mesh collider ${id} has invalid triangle indices.`);
+  }
+}
+
 function assertBehavior(id: string, behavior: ColliderBehavior | undefined): void {
-  if (!behavior) return;
-  if (behavior.mode === "solid") return;
+  if (!behavior || behavior.mode === "solid") return;
   if (
     behavior.mode !== "trigger" ||
     !isNonEmptyString(behavior.event) ||
@@ -274,9 +303,28 @@ function assertAudio(id: string, audio: AudioSourceData | undefined): void {
   }
 }
 
+function assertVisual(id: string, visual: VisualModelData | undefined): void {
+  if (!visual) return;
+  if (!isNonEmptyString(visual.url)) {
+    throw new Error(`Collider ${id} has an invalid visual model URL.`);
+  }
+  if (visual.sourceName !== undefined && !isNonEmptyString(visual.sourceName)) {
+    throw new Error(`Collider ${id} has an invalid visual model source name.`);
+  }
+  if (visual.visible !== undefined && typeof visual.visible !== "boolean") {
+    throw new Error(`Collider ${id} has an invalid visual visibility flag.`);
+  }
+}
+
+function assertSourceName(id: string, sourceName: string | undefined): void {
+  if (sourceName !== undefined && !isNonEmptyString(sourceName)) {
+    throw new Error(`Collider ${id} has an invalid source name.`);
+  }
+}
+
 function assertBodyCompatibility(
   id: string,
-  type: "box" | "capsule",
+  type: "box" | "capsule" | "convex",
   behavior: ColliderBehavior | undefined,
   body: RigidBodyData | undefined,
 ): void {

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { PhysicsWorld } from "../physics/PhysicsWorld";
-import type { ColliderData } from "../types/world";
+import type { ColliderData, ConvexColliderData } from "../types/world";
 import { quaternionFromDegrees } from "../utils/transform";
 
 export interface GameplayEvent {
@@ -134,7 +134,10 @@ export class GameplaySystem {
   };
 }
 
-function containsPoint(collider: Exclude<ColliderData, { type: "mesh" }>, point: THREE.Vector3): boolean {
+function containsPoint(
+  collider: Exclude<ColliderData, { type: "mesh" }>,
+  point: THREE.Vector3,
+): boolean {
   const position = collider.position ?? [0, 0, 0];
   const local = point
     .clone()
@@ -149,9 +152,27 @@ function containsPoint(collider: Exclude<ColliderData, { type: "mesh" }>, point:
     );
   }
 
-  const closestY = THREE.MathUtils.clamp(local.y, -collider.halfHeight, collider.halfHeight);
-  const dx = local.x;
-  const dy = local.y - closestY;
-  const dz = local.z;
-  return dx * dx + dy * dy + dz * dz <= collider.radius * collider.radius;
+  if (collider.type === "capsule") {
+    const closestY = THREE.MathUtils.clamp(local.y, -collider.halfHeight, collider.halfHeight);
+    const dx = local.x;
+    const dy = local.y - closestY;
+    const dz = local.z;
+    return dx * dx + dy * dy + dz * dz <= collider.radius * collider.radius;
+  }
+
+  return containsConvexBounds(collider, local);
+}
+
+function containsConvexBounds(collider: ConvexColliderData, local: THREE.Vector3): boolean {
+  const scale = collider.scale3 ?? [1, 1, 1];
+  local.set(
+    local.x / Math.max(scale[0], 1e-6),
+    local.y / Math.max(scale[1], 1e-6),
+    local.z / Math.max(scale[2], 1e-6),
+  );
+  const bounds = new THREE.Box3();
+  for (const vertex of collider.vertices) {
+    bounds.expandByPoint(new THREE.Vector3(vertex[0], vertex[1], vertex[2]));
+  }
+  return bounds.containsPoint(local);
 }

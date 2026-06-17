@@ -11,14 +11,24 @@
       <canvas id="viewport" aria-label="Splat World viewport"></canvas>
 
       <header class="topbar panel">
-        <div>
+        <div class="brand">
           <strong>SPLAT WORLD</strong>
-          <span class="version">runtime 0.6</span>
+          <span class="version">runtime 0.7</span>
         </div>
         <div class="actions">
           <button id="mode-button" type="button">进入编辑</button>
           <button id="toggle-colliders" type="button">碰撞层：开</button>
-          <button id="import-glb" type="button">导入 GLB 碰撞</button>
+          <select id="glb-mode" class="top-select" title="GLB collision mode">
+            <option value="trimesh">GLB → TriMesh</option>
+            <option value="convex">GLB → Convex</option>
+          </select>
+          <select id="glb-detail" class="top-select" title="Proxy detail">
+            <option value="1">细节 100%</option>
+            <option value="0.5">细节 50%</option>
+            <option value="0.25" selected>细节 25%</option>
+            <option value="0.1">细节 10%</option>
+          </select>
+          <button id="import-glb" type="button">导入 GLB 世界对象</button>
           <input id="glb-file" type="file" accept=".glb,model/gltf-binary" hidden />
           <button id="import-splat" type="button">导入 Splat</button>
           <input id="splat-file" type="file" accept=".ply,.spz,.splat,.ksplat,.sog,.zip,.rad" hidden />
@@ -28,7 +38,7 @@
       <section id="launch-panel" class="launch panel">
         <div class="eyebrow">GAUSSIAN-FIRST PLAYABLE WORLD</div>
         <h1>走进高斯场景</h1>
-        <p>Gaussian Splats 负责视觉，代理碰撞、动态刚体、Trigger、交互和位置音频负责游戏世界。</p>
+        <p>Gaussian Splats 构成世界，GLB 可视模型、简化碰撞代理和 Rapier 刚体让它真正可玩。</p>
         <button id="enter-button" class="primary" type="button">进入世界</button>
         <small>WASD 移动 · Shift 加速 · Space 跳跃 · E 交互 · Esc 释放鼠标</small>
       </section>
@@ -45,7 +55,7 @@
           <div id="splat-tree-list" class="tree-list"></div>
         </div>
         <div class="tree-section">
-          <div class="tree-section-title">Physics Objects <span id="collider-count">0</span></div>
+          <div class="tree-section-title">World Objects <span id="collider-count">0</span></div>
           <div id="collider-tree-list" class="tree-list"></div>
         </div>
       </aside>
@@ -96,13 +106,25 @@
             <label>Radius<input id="capsule-radius" type="number" min="0.05" step="0.05" disabled /></label>
             <label>Half Height<input id="capsule-half-height" type="number" min="0.05" step="0.05" disabled /></label>
           </div>
-          <div id="mesh-dimensions" class="vector-row hidden">
+          <div id="poly-dimensions" class="vector-row hidden">
             <span>Scale</span>
-            <label>X<input id="mesh-scale-x" type="number" min="0.05" step="0.05" disabled /></label>
-            <label>Y<input id="mesh-scale-y" type="number" min="0.05" step="0.05" disabled /></label>
-            <label>Z<input id="mesh-scale-z" type="number" min="0.05" step="0.05" disabled /></label>
+            <label>X<input id="poly-scale-x" type="number" min="0.05" step="0.05" disabled /></label>
+            <label>Y<input id="poly-scale-y" type="number" min="0.05" step="0.05" disabled /></label>
+            <label>Z<input id="poly-scale-z" type="number" min="0.05" step="0.05" disabled /></label>
           </div>
         </div>
+
+        <section id="visual-card" class="component-card hidden">
+          <label class="component-toggle">
+            <span class="component-title">GLB Visual Model</span>
+            <input id="visual-visible" type="checkbox" disabled />
+          </label>
+          <div class="visual-source">
+            <span>Source</span>
+            <strong id="visual-source-name">—</strong>
+          </div>
+          <small>可视模型与碰撞代理共享 Position、Rotation 和 Scale。</small>
+        </section>
 
         <section class="component-card">
           <div class="component-title">Physics Behavior</div>
@@ -169,9 +191,10 @@
           </div>
         </section>
 
-        <div class="create-row three">
+        <div class="create-row four">
           <button id="add-box-collider" class="primary compact" type="button">+ Box</button>
           <button id="add-capsule-collider" class="primary compact" type="button">+ Capsule</button>
+          <button id="add-convex-collider" class="primary compact" type="button">+ Convex</button>
           <button id="add-mesh-collider" class="primary compact" type="button">+ Mesh</button>
         </div>
         <div class="editor-actions">
@@ -179,7 +202,7 @@
           <button id="delete-collider" type="button" disabled>删除</button>
           <button id="export-world" type="button">导出 world.json</button>
         </div>
-        <small>导入 GLB 会提取所有三角网格并合并为静态 TriMesh Collider，最多 100,000 个三角形。</small>
+        <small>TriMesh 适合静态建筑；Convex 支持动态刚体。嵌入式 GLB 上限为 25 MB。</small>
       </aside>
 
       <aside class="telemetry panel">
