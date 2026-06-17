@@ -13,7 +13,7 @@
       <header class="topbar panel">
         <div>
           <strong>SPLAT WORLD</strong>
-          <span class="version">runtime 0.4</span>
+          <span class="version">runtime 0.5</span>
         </div>
         <div class="actions">
           <button id="mode-button" type="button">进入编辑</button>
@@ -26,9 +26,9 @@
       <section id="launch-panel" class="launch panel">
         <div class="eyebrow">GAUSSIAN-FIRST PLAYABLE WORLD</div>
         <h1>走进高斯场景</h1>
-        <p>Gaussian Splats 负责视觉，Box 与 Capsule 代理几何负责可玩的物理世界。</p>
+        <p>Gaussian Splats 负责视觉，代理几何、Trigger 与 Interactable 负责可玩的世界。</p>
         <button id="enter-button" class="primary" type="button">进入世界</button>
-        <small>WASD 移动 · Shift 加速 · Space 跳跃 · Esc 释放鼠标</small>
+        <small>WASD 移动 · Shift 加速 · Space 跳跃 · E 交互 · Esc 释放鼠标</small>
       </section>
 
       <aside id="scene-tree-panel" class="scene-tree-panel panel hidden">
@@ -51,7 +51,7 @@
       <aside id="editor-panel" class="editor-panel panel hidden">
         <div class="panel-heading">
           <div>
-            <span class="eyebrow">COLLIDER INSPECTOR</span>
+            <span class="eyebrow">OBJECT INSPECTOR</span>
             <div class="selected-heading">
               <strong id="selected-id">未选择</strong>
               <span id="selected-type" class="type-badge hidden"></span>
@@ -94,11 +94,47 @@
             <label>Radius<input id="capsule-radius" type="number" min="0.05" step="0.05" disabled /></label>
             <label>Half Height<input id="capsule-half-height" type="number" min="0.05" step="0.05" disabled /></label>
           </div>
+          <div id="mesh-dimensions" class="vector-row hidden">
+            <span>Scale</span>
+            <label>X<input id="mesh-scale-x" type="number" min="0.05" step="0.05" disabled /></label>
+            <label>Y<input id="mesh-scale-y" type="number" min="0.05" step="0.05" disabled /></label>
+            <label>Z<input id="mesh-scale-z" type="number" min="0.05" step="0.05" disabled /></label>
+          </div>
         </div>
 
-        <div class="create-row">
+        <section class="component-card">
+          <div class="component-title">Physics Behavior</div>
+          <label class="field-label">
+            Mode
+            <select id="behavior-mode" disabled>
+              <option value="solid">Solid</option>
+              <option id="trigger-option" value="trigger">Trigger</option>
+            </select>
+          </label>
+          <div id="trigger-fields" class="stack-fields hidden">
+            <label class="field-label">Event<input id="trigger-event" type="text" placeholder="zone:enter" disabled /></label>
+            <label class="field-label">Message<input id="trigger-message" type="text" placeholder="Entered trigger" disabled /></label>
+            <label class="check-row"><input id="trigger-once" type="checkbox" disabled /> 仅触发一次</label>
+          </div>
+        </section>
+
+        <section class="component-card">
+          <label class="component-toggle">
+            <span class="component-title">Interactable</span>
+            <input id="interactable-enabled" type="checkbox" disabled />
+          </label>
+          <div id="interactable-fields" class="stack-fields hidden">
+            <label class="field-label">Prompt<input id="interactable-prompt" type="text" placeholder="检查物体" disabled /></label>
+            <label class="field-label">Event<input id="interactable-event" type="text" placeholder="object:inspect" disabled /></label>
+            <label class="field-label">Message<input id="interactable-message" type="text" placeholder="Interaction fired" disabled /></label>
+            <label class="field-label">Distance<input id="interactable-distance" type="number" min="0.05" step="0.25" value="3" disabled /></label>
+          </div>
+        </section>
+
+        <div class="create-row three">
           <button id="add-box-collider" class="primary compact" type="button">+ Box</button>
           <button id="add-capsule-collider" class="primary compact" type="button">+ Capsule</button>
+          <button id="add-mesh-collider" class="primary compact" type="button">+ Mesh</button>
         </div>
         <div class="editor-actions">
           <button id="duplicate-collider" type="button" disabled>复制</button>
@@ -115,6 +151,9 @@
         <div><span>坐标</span><b id="position">0.0, 0.0, 0.0</b></div>
       </aside>
 
+      <div id="interaction-prompt" class="interaction-prompt hidden">
+        <kbd>E</kbd><span id="interaction-prompt-text"></span>
+      </div>
       <div id="toast" role="status" aria-live="polite"></div>
       <div class="crosshair" aria-hidden="true"></div>
     </div>

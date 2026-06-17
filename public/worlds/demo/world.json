@@ -1,13 +1,9 @@
 {
   "format": "splat-world",
   "version": 1,
-  "name": "Butterfly Collision Lab",
+  "name": "Butterfly Interaction Lab",
   "spawn": {
-    "position": [
-      0,
-      0.05,
-      4.2
-    ],
+    "position": [0, 0.05, 4.2],
     "yawDeg": 0
   },
   "environment": {
@@ -19,16 +15,8 @@
     {
       "id": "butterfly",
       "url": "https://sparkjs.dev/assets/splats/butterfly.spz",
-      "position": [
-        0,
-        1.6,
-        -3.8
-      ],
-      "rotationDeg": [
-        180,
-        0,
-        0
-      ],
+      "position": [0, 1.6, -3.8],
+      "rotationDeg": [180, 0, 0],
       "scale": 1.45,
       "lod": true
     }
@@ -37,102 +25,93 @@
     {
       "id": "floor",
       "type": "box",
-      "position": [
-        0,
-        -0.25,
-        0
-      ],
-      "size": [
-        18,
-        0.5,
-        18
-      ]
+      "position": [0, -0.25, 0],
+      "size": [18, 0.5, 18],
+      "behavior": { "mode": "solid" }
     },
     {
       "id": "north-wall",
       "type": "box",
-      "position": [
-        0,
-        2.25,
-        -8.75
-      ],
-      "size": [
-        18,
-        4.5,
-        0.5
-      ]
+      "position": [0, 2.25, -8.75],
+      "size": [18, 4.5, 0.5],
+      "behavior": { "mode": "solid" }
     },
     {
       "id": "south-wall",
       "type": "box",
-      "position": [
-        0,
-        2.25,
-        8.75
-      ],
-      "size": [
-        18,
-        4.5,
-        0.5
-      ]
+      "position": [0, 2.25, 8.75],
+      "size": [18, 4.5, 0.5],
+      "behavior": { "mode": "solid" }
     },
     {
       "id": "west-wall",
       "type": "box",
-      "position": [
-        -8.75,
-        2.25,
-        0
-      ],
-      "size": [
-        0.5,
-        4.5,
-        18
-      ]
+      "position": [-8.75, 2.25, 0],
+      "size": [0.5, 4.5, 18],
+      "behavior": { "mode": "solid" }
     },
     {
       "id": "east-wall",
       "type": "box",
-      "position": [
-        8.75,
-        2.25,
-        0
-      ],
-      "size": [
-        0.5,
-        4.5,
-        18
-      ]
+      "position": [8.75, 2.25, 0],
+      "size": [0.5, 4.5, 18],
+      "behavior": { "mode": "solid" }
     },
     {
-      "id": "step-test",
+      "id": "welcome-trigger",
       "type": "box",
-      "position": [
-        2.2,
-        0.18,
-        -0.5
-      ],
-      "size": [
-        2.5,
-        0.36,
-        2.5
-      ]
+      "position": [0, 1, 2],
+      "size": [3.2, 2, 2.5],
+      "behavior": {
+        "mode": "trigger",
+        "event": "demo:welcome",
+        "message": "你进入了 Gaussian World 的触发区域",
+        "once": true
+      }
     },
     {
       "id": "capsule-pillar",
       "type": "capsule",
-      "position": [
-        -2.2,
-        1.35,
-        -0.8
-      ],
-      "rotationDeg": [
-        0,
-        0,
-        0
-      ],
+      "position": [-2.2, 1.35, -0.8],
+      "rotationDeg": [0, 0, 0],
       "radius": 0.45,
-      "halfHeight": 0.9
+      "halfHeight": 0.9,
+      "behavior": { "mode": "solid" },
+      "interactable": {
+        "prompt": "检查 Capsule 柱体",
+        "event": "demo:inspect-pillar",
+        "message": "这是一个带 Interactable 组件的 Capsule Collider",
+        "maxDistance": 3.5
+      }
+    },
+    {
+      "id": "mesh-ramp",
+      "type": "mesh",
+      "position": [1.7, 0, -1.4],
+      "rotationDeg": [0, -20, 0],
+      "scale3": [1.1, 0.8, 1.1],
+      "vertices": [
+        [-1, 0, -1],
+        [1, 0, -1],
+        [1, 0, 1],
+        [-1, 0, 1],
+        [-1, 1, -1],
+        [1, 1, -1]
+      ],
+      "indices": [
+        0, 2, 1, 0, 3, 2,
+        0, 1, 5, 0, 5, 4,
+        0, 4, 3,
+        1, 2, 5,
+        4, 5, 2, 4, 2, 3
+      ],
+      "behavior": { "mode": "solid" },
+      "interactable": {
+        "prompt": "检查 Mesh Ramp",
+        "event": "demo:inspect-ramp",
+        "message": "这个斜坡由 Rapier TriMesh 提供碰撞",
+        "maxDistance": 3.5
+      }
     }
   ]
 }

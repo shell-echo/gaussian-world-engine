@@ -3,7 +3,10 @@ import * as THREE from "three";
 import type {
   BoxColliderData,
   CapsuleColliderData,
+  ColliderBehavior,
   ColliderData,
+  InteractableData,
+  MeshColliderData,
   Vec3Tuple,
 } from "../types/world";
 import { quaternionFromDegrees } from "../utils/transform";
@@ -29,10 +32,15 @@ export interface ColliderTransformPatch {
   size?: Vec3Tuple;
   radius?: number;
   halfHeight?: number;
+  scale3?: Vec3Tuple;
+  behavior?: ColliderBehavior;
+  interactable?: InteractableData | null;
 }
 
-const DEFAULT_COLLIDER_COLOR = new THREE.Color(0x6bd4ff);
-const SELECTED_COLLIDER_COLOR = new THREE.Color(0xffc857);
+const SOLID_COLOR = new THREE.Color(0x6bd4ff);
+const TRIGGER_COLOR = new THREE.Color(0x6fffb0);
+const INTERACTABLE_COLOR = new THREE.Color(0xc79cff);
+const SELECTED_COLOR = new THREE.Color(0xffc857);
 const MIN_DIMENSION = 0.05;
 
 export class PhysicsWorld {
@@ -74,6 +82,10 @@ export class PhysicsWorld {
     return this.addCollider(input);
   }
 
+  addMeshCollider(input: MeshColliderData): THREE.Mesh {
+    return this.addCollider(input);
+  }
+
   removeCollider(id: string): boolean {
     const record = this.records.get(id);
     if (!record) return false;
@@ -103,28 +115,42 @@ export class PhysicsWorld {
     const common = {
       ...(patch.position ? { position: cloneVec3(patch.position) } : {}),
       ...(patch.rotationDeg ? { rotationDeg: cloneVec3(patch.rotationDeg) } : {}),
+      ...(patch.behavior ? { behavior: cloneBehavior(patch.behavior) } : {}),
+      ...(patch.interactable === null
+        ? { interactable: undefined }
+        : patch.interactable
+          ? { interactable: cloneInteractable(patch.interactable) }
+          : {}),
     };
 
-    const data: ColliderData =
-      record.data.type === "box"
-        ? {
-            ...cloneCollider(record.data),
-            ...common,
-            ...(patch.size ? { size: patch.size.map(clampDimension) as Vec3Tuple } : {}),
-          }
-        : {
-            ...cloneCollider(record.data),
-            ...common,
-            ...(patch.radius !== undefined
-              ? { radius: clampDimension(patch.radius) }
-              : {}),
-            ...(patch.halfHeight !== undefined
-              ? { halfHeight: clampDimension(patch.halfHeight) }
-              : {}),
-          };
+    let data: ColliderData;
+    if (record.data.type === "box") {
+      data = {
+        ...cloneCollider(record.data),
+        ...common,
+        ...(patch.size ? { size: patch.size.map(clampDimension) as Vec3Tuple } : {}),
+      };
+    } else if (record.data.type === "capsule") {
+      data = {
+        ...cloneCollider(record.data),
+        ...common,
+        ...(patch.radius !== undefined ? { radius: clampDimension(patch.radius) } : {}),
+        ...(patch.halfHeight !== undefined
+          ? { halfHeight: clampDimension(patch.halfHeight) }
+          : {}),
+      };
+    } else {
+      data = {
+        ...cloneCollider(record.data),
+        ...common,
+        behavior: { mode: "solid" },
+        ...(patch.scale3 ? { scale3: patch.scale3.map(clampDimension) as Vec3Tuple } : {}),
+      };
+    }
 
     record.data = data;
     this.applyDataToMesh(record.mesh, data);
+    this.updateMaterial(record);
     return this.commitColliderTransform(id);
   }
 
@@ -138,6 +164,7 @@ export class PhysicsWorld {
     record.body = next.body;
     record.collider = next.collider;
     record.data = data;
+    this.updateMaterial(record);
     return cloneCollider(data);
   }
 
@@ -165,12 +192,8 @@ export class PhysicsWorld {
 
   setSelectedCollider(id: string | null): void {
     this.selectedColliderId = id;
-    for (const [recordId, record] of this.records) {
-      const selected = recordId === id;
-      record.mesh.material.color.copy(
-        selected ? SELECTED_COLLIDER_COLOR : DEFAULT_COLLIDER_COLOR,
-      );
-      record.mesh.material.opacity = selected ? 0.28 : 0.12;
+    for (const record of this.records.values()) {
+      this.updateMaterial(record);
     }
   }
 
@@ -247,16 +270,22 @@ export class PhysicsWorld {
   private createDebugMesh(
     data: ColliderData,
   ): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> {
-    const geometry: THREE.BufferGeometry =
-      data.type === "box"
-        ? new THREE.BoxGeometry(1, 1, 1)
-        : new THREE.CapsuleGeometry(0.5, 1, 8, 16);
+    let geometry: THREE.BufferGeometry;
+    if (data.type === "box") {
+      geometry = new THREE.BoxGeometry(1, 1, 1);
+    } else if (data.type === "capsule") {
+      geometry = new THREE.CapsuleGeometry(0.5, 1, 8, 16);
+    } else {
+      geometry = createMeshGeometry(data);
+    }
+
     const material = new THREE.MeshBasicMaterial({
-      color: DEFAULT_COLLIDER_COLOR,
+      color: colorFor(data),
       transparent: true,
       opacity: 0.12,
       depthWrite: false,
       wireframe: true,
+      side: THREE.DoubleSide,
     });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `Collider: ${data.id}`;
@@ -272,9 +301,11 @@ export class PhysicsWorld {
     mesh.quaternion.copy(quaternionFromDegrees(data.rotationDeg));
     if (data.type === "box") {
       mesh.scale.fromArray(data.size);
-    } else {
+    } else if (data.type === "capsule") {
       const diameter = data.radius * 2;
       mesh.scale.set(diameter, data.halfHeight + data.radius, diameter);
+    } else {
+      mesh.scale.fromArray(data.scale3 ?? [1, 1, 1]);
     }
   }
 
@@ -288,14 +319,31 @@ export class PhysicsWorld {
       .setTranslation(position[0], position[1], position[2])
       .setRotation({ x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w });
     const body = this.world.createRigidBody(bodyDesc);
-    const shape =
-      data.type === "box"
-        ? RAPIER.ColliderDesc.cuboid(data.size[0] / 2, data.size[1] / 2, data.size[2] / 2)
-        : RAPIER.ColliderDesc.capsule(data.halfHeight, data.radius);
-    const collider = this.world.createCollider(
-      shape.setFriction(1).setRestitution(0),
-      body,
-    );
+
+    let shape: RAPIER.ColliderDesc;
+    if (data.type === "box") {
+      shape = RAPIER.ColliderDesc.cuboid(data.size[0] / 2, data.size[1] / 2, data.size[2] / 2);
+    } else if (data.type === "capsule") {
+      shape = RAPIER.ColliderDesc.capsule(data.halfHeight, data.radius);
+    } else {
+      const scale = data.scale3 ?? [1, 1, 1];
+      const vertices = new Float32Array(
+        data.vertices.flatMap((vertex) => [
+          vertex[0] * scale[0],
+          vertex[1] * scale[1],
+          vertex[2] * scale[2],
+        ]),
+      );
+      shape = RAPIER.ColliderDesc.trimesh(vertices, new Uint32Array(data.indices));
+    }
+
+    const isTrigger = data.behavior?.mode === "trigger";
+    shape
+      .setSensor(isTrigger)
+      .setFriction(isTrigger ? 0 : 1)
+      .setRestitution(0)
+      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+    const collider = this.world.createCollider(shape, body);
     return { body, collider };
   }
 
@@ -321,12 +369,35 @@ export class PhysicsWorld {
       return { ...common, type: "box", size };
     }
 
-    const radius = clampDimension(
-      Math.max(Math.abs(record.mesh.scale.x), Math.abs(record.mesh.scale.z)) / 2,
-    );
-    const halfHeight = clampDimension(Math.abs(record.mesh.scale.y) - radius);
-    record.mesh.scale.set(radius * 2, halfHeight + radius, radius * 2);
-    return { ...common, type: "capsule", radius, halfHeight };
+    if (record.data.type === "capsule") {
+      const radius = clampDimension(
+        Math.max(Math.abs(record.mesh.scale.x), Math.abs(record.mesh.scale.z)) / 2,
+      );
+      const halfHeight = clampDimension(Math.abs(record.mesh.scale.y) - radius);
+      record.mesh.scale.set(radius * 2, halfHeight + radius, radius * 2);
+      return { ...common, type: "capsule", radius, halfHeight };
+    }
+
+    const scale3: Vec3Tuple = [
+      clampDimension(record.mesh.scale.x),
+      clampDimension(record.mesh.scale.y),
+      clampDimension(record.mesh.scale.z),
+    ];
+    record.mesh.scale.fromArray(scale3);
+    return {
+      ...common,
+      type: "mesh",
+      vertices: record.data.vertices.map(cloneVec3),
+      indices: [...record.data.indices],
+      scale3,
+      behavior: { mode: "solid" },
+    };
+  }
+
+  private updateMaterial(record: ColliderRecord): void {
+    const selected = record.data.id === this.selectedColliderId;
+    record.mesh.material.color.copy(selected ? SELECTED_COLOR : colorFor(record.data));
+    record.mesh.material.opacity = selected ? 0.3 : record.data.behavior?.mode === "trigger" ? 0.18 : 0.12;
   }
 }
 
@@ -335,15 +406,66 @@ export function cloneCollider(data: ColliderData): ColliderData {
     ...data,
     position: cloneVec3(data.position ?? [0, 0, 0]),
     rotationDeg: cloneVec3(data.rotationDeg ?? [0, 0, 0]),
+    behavior: cloneBehavior(data.behavior ?? { mode: "solid" }),
+    ...(data.interactable ? { interactable: cloneInteractable(data.interactable) } : {}),
   };
-  return data.type === "box"
-    ? { ...common, type: "box", size: cloneVec3(data.size) }
+  if (data.type === "box") {
+    return { ...common, type: "box", size: cloneVec3(data.size) };
+  }
+  if (data.type === "capsule") {
+    return {
+      ...common,
+      type: "capsule",
+      radius: data.radius,
+      halfHeight: data.halfHeight,
+    };
+  }
+  return {
+    ...common,
+    type: "mesh",
+    vertices: data.vertices.map(cloneVec3),
+    indices: [...data.indices],
+    scale3: cloneVec3(data.scale3 ?? [1, 1, 1]),
+    behavior: { mode: "solid" },
+  };
+}
+
+function createMeshGeometry(data: MeshColliderData): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(data.vertices.flatMap((vertex) => vertex), 3),
+  );
+  geometry.setIndex(data.indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function colorFor(data: ColliderData): THREE.Color {
+  if (data.behavior?.mode === "trigger") return TRIGGER_COLOR;
+  if (data.interactable) return INTERACTABLE_COLOR;
+  return SOLID_COLOR;
+}
+
+function cloneBehavior(behavior: ColliderBehavior): ColliderBehavior {
+  return behavior.mode === "solid"
+    ? { mode: "solid" }
     : {
-        ...common,
-        type: "capsule",
-        radius: data.radius,
-        halfHeight: data.halfHeight,
+        mode: "trigger",
+        event: behavior.event,
+        message: behavior.message,
+        once: behavior.once,
       };
+}
+
+function cloneInteractable(value: InteractableData): InteractableData {
+  return {
+    prompt: value.prompt,
+    event: value.event,
+    message: value.message,
+    maxDistance: value.maxDistance,
+  };
 }
 
 function cloneVec3(value: readonly number[]): Vec3Tuple {
