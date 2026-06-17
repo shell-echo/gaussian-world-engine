@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { TransformControlsMode } from "three/addons/controls/TransformControls.js";
+import { AudioSystem } from "../audio/AudioSystem";
 import { EditorController } from "../editor/EditorController";
 import {
   GameplaySystem,
@@ -27,7 +28,10 @@ export interface SceneTreeState {
     id: string;
     type: ColliderType;
     mode: "solid" | "trigger";
+    bodyMode: "fixed" | "dynamic";
     interactable: boolean;
+    audio: boolean;
+    sourceName?: string;
   }>;
   selectedId: string | null;
 }
@@ -62,6 +66,7 @@ export class Engine {
   readonly player: FirstPersonController;
   readonly editor: EditorController;
   readonly gameplay: GameplaySystem;
+  readonly audio: AudioSystem;
 
   private readonly clock = new THREE.Clock();
   private readonly events: EngineEvents;
@@ -122,9 +127,14 @@ export class Engine {
       character,
       manifest.spawn,
     );
+    this.audio = new AudioSystem(this.camera, physics);
+    this.scene.add(this.audio.root);
     this.gameplay = new GameplaySystem(this.camera, physics, {
       onPrompt: (prompt) => events.onGameplayPrompt?.(prompt),
-      onEvent: (event) => events.onGameplayEvent?.(event),
+      onEvent: (event) => {
+        this.audio.play(event.sourceId);
+        events.onGameplayEvent?.(event);
+      },
     });
     this.editor = new EditorController(this.camera, canvas, this.scene, physics, {
       onSelectionChange: (collider) => {
@@ -132,7 +142,7 @@ export class Engine {
         this.emitSceneTree();
       },
       onColliderChange: () => {
-        events.onStatus?.("碰撞体已更新");
+        events.onStatus?.("对象已更新");
         this.emitSceneTree();
       },
       onTransformModeChange: (mode) => events.onTransformMode?.(mode),
@@ -177,6 +187,7 @@ export class Engine {
     );
     events.onStatus?.("世界已就绪");
     events.onHistoryChange?.(false, false);
+    engine.audio.update();
     engine.emitSceneTree();
     return engine;
   }
@@ -190,6 +201,10 @@ export class Engine {
 
   lockPointer(): void {
     if (!this.editorEnabled) this.player.controls.lock();
+  }
+
+  async resumeAudio(): Promise<void> {
+    await this.audio.resume();
   }
 
   isEditorEnabled(): boolean {
@@ -207,8 +222,9 @@ export class Engine {
       this.physics.setDebugVisible(true);
       this.player.setEnabled(false);
       this.gameplay.setEnabled(false);
+      this.audio.setEnabled(false);
       this.editor.setEnabled(true);
-      this.events.onStatus?.("编辑模式：Collider 可附加 Trigger 与 Interactable 行为");
+      this.events.onStatus?.("编辑模式：GLB、动态刚体和 Audio Source 可用");
     } else {
       this.editor.setEnabled(false);
       this.editor.select(null);
@@ -217,6 +233,8 @@ export class Engine {
       this.player.syncCamera();
       this.player.setEnabled(true);
       this.gameplay.setEnabled(true);
+      this.audio.setEnabled(true);
+      this.audio.update();
       this.events.onStatus?.("游玩模式已就绪");
     }
     this.events.onEditorMode?.(enabled);
@@ -260,6 +278,20 @@ export class Engine {
     return collider;
   }
 
+  async importGLBCollider(file: File): Promise<MeshColliderData | null> {
+    if (!this.editorEnabled) return null;
+    this.beginHistoryMutation();
+    try {
+      const collider = await this.editor.importGLBMeshCollider(file);
+      this.commitHistoryMutation();
+      this.events.onStatus?.(`已从 ${file.name} 提取 ${collider.indices.length / 3} 个三角形`);
+      return collider;
+    } catch (error) {
+      this.cancelHistoryMutation();
+      throw error;
+    }
+  }
+
   duplicateSelectedCollider(): ColliderData | null {
     if (!this.editorEnabled) return null;
     this.beginHistoryMutation();
@@ -282,7 +314,7 @@ export class Engine {
       return null;
     }
     this.commitHistoryMutation();
-    this.events.onStatus?.(`已删除碰撞体 ${id}`);
+    this.events.onStatus?.(`已删除对象 ${id}`);
     this.emitSceneTree();
     return id;
   }
@@ -296,6 +328,7 @@ export class Engine {
       return null;
     }
     this.commitHistoryMutation();
+    this.audio.update();
     return collider;
   }
 
@@ -367,6 +400,7 @@ export class Engine {
     window.removeEventListener("resize", this.resize);
     this.editor.dispose();
     this.gameplay.dispose();
+    this.audio.dispose();
     this.player.dispose();
     this.gaussianWorld.dispose();
     this.renderer.dispose();
@@ -412,6 +446,7 @@ export class Engine {
           ? snapshot.selectedId
           : null;
       this.editor.select(selectedId);
+      this.audio.update();
       this.emitSceneTree();
     } finally {
       this.restoringHistory = false;
@@ -429,7 +464,10 @@ export class Engine {
         id: collider.id,
         type: collider.type,
         mode: collider.behavior?.mode ?? "solid",
+        bodyMode: collider.body?.mode ?? "fixed",
         interactable: Boolean(collider.interactable),
+        audio: Boolean(collider.audio),
+        sourceName: collider.type === "mesh" ? collider.sourceName : undefined,
       })),
       selectedId: this.editor.getSelectedId(),
     });
@@ -461,8 +499,10 @@ export class Engine {
     } else {
       this.player.updateBeforePhysics(delta);
       this.physics.step(delta);
+      this.physics.syncDynamicMeshes();
       this.player.syncCamera();
       this.gameplay.update(this.player.getFeetPosition(this.feet));
+      this.audio.update();
     }
     this.renderer.render(this.scene, this.camera);
 

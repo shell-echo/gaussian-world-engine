@@ -1,12 +1,14 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import type {
+  AudioSourceData,
   BoxColliderData,
   CapsuleColliderData,
   ColliderBehavior,
   ColliderData,
   InteractableData,
   MeshColliderData,
+  RigidBodyData,
   Vec3Tuple,
 } from "../types/world";
 import { quaternionFromDegrees } from "../utils/transform";
@@ -35,11 +37,14 @@ export interface ColliderTransformPatch {
   scale3?: Vec3Tuple;
   behavior?: ColliderBehavior;
   interactable?: InteractableData | null;
+  body?: RigidBodyData;
+  audio?: AudioSourceData | null;
 }
 
 const SOLID_COLOR = new THREE.Color(0x6bd4ff);
 const TRIGGER_COLOR = new THREE.Color(0x6fffb0);
 const INTERACTABLE_COLOR = new THREE.Color(0xc79cff);
+const DYNAMIC_COLOR = new THREE.Color(0xff9f6b);
 const SELECTED_COLOR = new THREE.Color(0xffc857);
 const MIN_DIMENSION = 0.05;
 
@@ -66,7 +71,7 @@ export class PhysicsWorld {
       throw new Error(`Duplicate collider id: ${input.id}`);
     }
 
-    const data = cloneCollider(input);
+    const data = normalizeCollider(input);
     const mesh = this.createDebugMesh(data);
     const { body, collider } = this.createRapierCollider(data);
     this.debugGroup.add(mesh);
@@ -121,6 +126,12 @@ export class PhysicsWorld {
         : patch.interactable
           ? { interactable: cloneInteractable(patch.interactable) }
           : {}),
+      ...(patch.body ? { body: cloneBody(patch.body) } : {}),
+      ...(patch.audio === null
+        ? { audio: undefined }
+        : patch.audio
+          ? { audio: cloneAudio(patch.audio) }
+          : {}),
     };
 
     let data: ColliderData;
@@ -144,10 +155,12 @@ export class PhysicsWorld {
         ...cloneCollider(record.data),
         ...common,
         behavior: { mode: "solid" },
+        body: { mode: "fixed" },
         ...(patch.scale3 ? { scale3: patch.scale3.map(clampDimension) as Vec3Tuple } : {}),
       };
     }
 
+    data = normalizeCollider(data);
     record.data = data;
     this.applyDataToMesh(record.mesh, data);
     this.updateMaterial(record);
@@ -158,7 +171,7 @@ export class PhysicsWorld {
     const record = this.records.get(id);
     if (!record) return null;
 
-    const data = this.readMeshTransform(record);
+    const data = normalizeCollider(this.readMeshTransform(record));
     this.world.removeRigidBody(record.body);
     const next = this.createRapierCollider(data);
     record.body = next.body;
@@ -194,6 +207,23 @@ export class PhysicsWorld {
     this.selectedColliderId = id;
     for (const record of this.records.values()) {
       this.updateMaterial(record);
+    }
+  }
+
+  syncDynamicMeshes(): void {
+    for (const record of this.records.values()) {
+      if (!isDynamic(record.data)) continue;
+      const position = record.body.translation();
+      const rotation = record.body.rotation();
+      record.mesh.position.set(position.x, position.y, position.z);
+      record.mesh.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+      const euler = new THREE.Euler().setFromQuaternion(record.mesh.quaternion, "XYZ");
+      record.data.position = [position.x, position.y, position.z];
+      record.data.rotationDeg = [
+        THREE.MathUtils.radToDeg(euler.x),
+        THREE.MathUtils.radToDeg(euler.y),
+        THREE.MathUtils.radToDeg(euler.z),
+      ];
     }
   }
 
@@ -315,9 +345,18 @@ export class PhysicsWorld {
   } {
     const position = data.position ?? [0, 0, 0];
     const rotation = quaternionFromDegrees(data.rotationDeg);
-    const bodyDesc = RAPIER.RigidBodyDesc.fixed()
-      .setTranslation(position[0], position[1], position[2])
-      .setRotation({ x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w });
+    const dynamic = isDynamic(data);
+    const bodyConfig = data.body ?? { mode: "fixed" as const };
+    const bodyDesc = dynamic
+      ? RAPIER.RigidBodyDesc.dynamic()
+          .setTranslation(position[0], position[1], position[2])
+          .setRotation({ x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w })
+          .setGravityScale(bodyConfig.gravityScale ?? 1)
+          .setLinearDamping(bodyConfig.linearDamping ?? 0.15)
+          .setAngularDamping(bodyConfig.angularDamping ?? 0.25)
+      : RAPIER.RigidBodyDesc.fixed()
+          .setTranslation(position[0], position[1], position[2])
+          .setRotation({ x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w });
     const body = this.world.createRigidBody(bodyDesc);
 
     let shape: RAPIER.ColliderDesc;
@@ -341,7 +380,7 @@ export class PhysicsWorld {
     shape
       .setSensor(isTrigger)
       .setFriction(isTrigger ? 0 : 1)
-      .setRestitution(0)
+      .setRestitution(dynamic ? 0.15 : 0)
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
     const collider = this.world.createCollider(shape, body);
     return { body, collider };
@@ -390,14 +429,20 @@ export class PhysicsWorld {
       vertices: record.data.vertices.map(cloneVec3),
       indices: [...record.data.indices],
       scale3,
+      sourceName: record.data.sourceName,
       behavior: { mode: "solid" },
+      body: { mode: "fixed" },
     };
   }
 
   private updateMaterial(record: ColliderRecord): void {
     const selected = record.data.id === this.selectedColliderId;
     record.mesh.material.color.copy(selected ? SELECTED_COLOR : colorFor(record.data));
-    record.mesh.material.opacity = selected ? 0.3 : record.data.behavior?.mode === "trigger" ? 0.18 : 0.12;
+    record.mesh.material.opacity = selected
+      ? 0.3
+      : record.data.behavior?.mode === "trigger"
+        ? 0.18
+        : 0.12;
   }
 }
 
@@ -407,7 +452,9 @@ export function cloneCollider(data: ColliderData): ColliderData {
     position: cloneVec3(data.position ?? [0, 0, 0]),
     rotationDeg: cloneVec3(data.rotationDeg ?? [0, 0, 0]),
     behavior: cloneBehavior(data.behavior ?? { mode: "solid" }),
+    body: cloneBody(data.body ?? { mode: "fixed" }),
     ...(data.interactable ? { interactable: cloneInteractable(data.interactable) } : {}),
+    ...(data.audio ? { audio: cloneAudio(data.audio) } : {}),
   };
   if (data.type === "box") {
     return { ...common, type: "box", size: cloneVec3(data.size) };
@@ -426,8 +473,26 @@ export function cloneCollider(data: ColliderData): ColliderData {
     vertices: data.vertices.map(cloneVec3),
     indices: [...data.indices],
     scale3: cloneVec3(data.scale3 ?? [1, 1, 1]),
+    sourceName: data.sourceName,
     behavior: { mode: "solid" },
+    body: { mode: "fixed" },
   };
+}
+
+function normalizeCollider(data: ColliderData): ColliderData {
+  const cloned = cloneCollider(data);
+  if (cloned.type === "mesh" || cloned.behavior?.mode === "trigger") {
+    cloned.body = { mode: "fixed" };
+  }
+  return cloned;
+}
+
+function isDynamic(data: ColliderData): boolean {
+  return (
+    data.type !== "mesh" &&
+    data.behavior?.mode !== "trigger" &&
+    data.body?.mode === "dynamic"
+  );
 }
 
 function createMeshGeometry(data: MeshColliderData): THREE.BufferGeometry {
@@ -444,6 +509,7 @@ function createMeshGeometry(data: MeshColliderData): THREE.BufferGeometry {
 
 function colorFor(data: ColliderData): THREE.Color {
   if (data.behavior?.mode === "trigger") return TRIGGER_COLOR;
+  if (data.body?.mode === "dynamic") return DYNAMIC_COLOR;
   if (data.interactable) return INTERACTABLE_COLOR;
   return SOLID_COLOR;
 }
@@ -465,6 +531,25 @@ function cloneInteractable(value: InteractableData): InteractableData {
     event: value.event,
     message: value.message,
     maxDistance: value.maxDistance,
+  };
+}
+
+function cloneBody(value: RigidBodyData): RigidBodyData {
+  return {
+    mode: value.mode,
+    gravityScale: value.gravityScale,
+    linearDamping: value.linearDamping,
+    angularDamping: value.angularDamping,
+  };
+}
+
+function cloneAudio(value: AudioSourceData): AudioSourceData {
+  return {
+    url: value.url,
+    loop: value.loop,
+    autoplay: value.autoplay,
+    volume: value.volume,
+    refDistance: value.refDistance,
   };
 }
 

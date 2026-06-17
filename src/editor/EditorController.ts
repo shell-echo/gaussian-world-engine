@@ -4,6 +4,7 @@ import {
   TransformControls,
   type TransformControlsMode,
 } from "three/addons/controls/TransformControls.js";
+import { extractMeshColliderFromGLB } from "../assets/GLBColliderExtractor";
 import type { ColliderTransformPatch, PhysicsWorld } from "../physics/PhysicsWorld";
 import { cloneCollider } from "../physics/PhysicsWorld";
 import type {
@@ -149,6 +150,7 @@ export class EditorController {
       rotationDeg: [0, 0, 0],
       size: [1, 1, 1],
       behavior: { mode: "solid" },
+      body: { mode: "fixed" },
     };
     return this.addAndSelect(data);
   }
@@ -162,6 +164,7 @@ export class EditorController {
       radius: 0.4,
       halfHeight: 0.6,
       behavior: { mode: "solid" },
+      body: { mode: "fixed" },
     };
     return this.addAndSelect(data);
   }
@@ -189,7 +192,18 @@ export class EditorController {
         4, 5, 2, 4, 2, 3,
       ],
       behavior: { mode: "solid" },
+      body: { mode: "fixed" },
     };
+    return this.addAndSelect(data);
+  }
+
+  async importGLBMeshCollider(file: File): Promise<MeshColliderData> {
+    const id = this.createUniqueColliderId(sanitizeId(file.name.replace(/\.glb$/i, "")) || "glb-mesh");
+    const data = await extractMeshColliderFromGLB(
+      file,
+      id,
+      this.createPositionAtOrbitTarget(0),
+    );
     return this.addAndSelect(data);
   }
 
@@ -342,4 +356,12 @@ export class EditorController {
     }
     return id;
   }
+}
+
+function sanitizeId(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
