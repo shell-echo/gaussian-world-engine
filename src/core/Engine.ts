@@ -7,7 +7,19 @@ import {
   type ColliderTransformPatch,
 } from "../physics/PhysicsWorld";
 import { GaussianWorld, type LoadProgress } from "../render/GaussianWorld";
-import type { BoxColliderData, WorldManifest } from "../types/world";
+import type {
+  BoxColliderData,
+  CapsuleColliderData,
+  ColliderData,
+  ColliderType,
+  WorldManifest,
+} from "../types/world";
+
+export interface SceneTreeState {
+  splats: Array<{ id: string }>;
+  colliders: Array<{ id: string; type: ColliderType }>;
+  selectedId: string | null;
+}
 
 export interface EngineEvents {
   onStatus?: (message: string) => void;
@@ -15,13 +27,14 @@ export interface EngineEvents {
   onFrame?: (fps: number, feetPosition: THREE.Vector3) => void;
   onPointerLock?: (locked: boolean) => void;
   onEditorMode?: (enabled: boolean) => void;
-  onEditorSelection?: (collider: BoxColliderData | null) => void;
+  onEditorSelection?: (collider: ColliderData | null) => void;
   onTransformMode?: (mode: TransformControlsMode) => void;
   onHistoryChange?: (canUndo: boolean, canRedo: boolean) => void;
+  onSceneTreeChange?: (state: SceneTreeState) => void;
 }
 
 interface EditorSnapshot {
-  colliders: BoxColliderData[];
+  colliders: ColliderData[];
   selectedId: string | null;
 }
 
@@ -96,8 +109,14 @@ export class Engine {
       manifest.spawn,
     );
     this.editor = new EditorController(this.camera, canvas, this.scene, physics, {
-      onSelectionChange: (collider) => events.onEditorSelection?.(collider),
-      onColliderChange: () => events.onStatus?.("碰撞体已更新"),
+      onSelectionChange: (collider) => {
+        events.onEditorSelection?.(collider);
+        this.emitSceneTree();
+      },
+      onColliderChange: () => {
+        events.onStatus?.("碰撞体已更新");
+        this.emitSceneTree();
+      },
       onTransformModeChange: (mode) => events.onTransformMode?.(mode),
       onMutationStart: () => this.beginHistoryMutation(),
       onMutationEnd: () => this.commitHistoryMutation("变换碰撞体"),
@@ -122,7 +141,7 @@ export class Engine {
     events.onStatus?.("初始化物理世界");
     const physics = await PhysicsWorld.create();
     for (const collider of manifest.colliders) {
-      physics.addBoxCollider(collider);
+      physics.addCollider(collider);
     }
 
     const engine = new Engine(canvas, manifest, physics, events);
@@ -140,6 +159,7 @@ export class Engine {
     );
     events.onStatus?.("世界已就绪");
     events.onHistoryChange?.(false, false);
+    engine.emitSceneTree();
     return engine;
   }
 
@@ -169,7 +189,7 @@ export class Engine {
       this.physics.setDebugVisible(true);
       this.player.setEnabled(false);
       this.editor.setEnabled(true);
-      this.events.onStatus?.("编辑模式：选择碰撞体后使用 W / E / R 变换");
+      this.events.onStatus?.("编辑模式：从对象树或视口选择碰撞体");
     } else {
       this.editor.setEnabled(false);
       this.editor.select(null);
@@ -180,6 +200,7 @@ export class Engine {
       this.events.onStatus?.("游玩模式已就绪");
     }
     this.events.onEditorMode?.(enabled);
+    this.emitSceneTree();
   }
 
   toggleEditorMode(): boolean {
@@ -191,15 +212,27 @@ export class Engine {
     return this.physics.toggleDebugVisible();
   }
 
+  selectCollider(id: string | null): void {
+    if (this.editorEnabled) this.editor.select(id);
+  }
+
   addBoxCollider(): BoxColliderData | null {
     if (!this.editorEnabled) return null;
     this.beginHistoryMutation();
     const collider = this.editor.addBoxCollider();
-    this.commitHistoryMutation("新增碰撞体");
+    this.commitHistoryMutation("新增 Box 碰撞体");
     return collider;
   }
 
-  duplicateSelectedCollider(): BoxColliderData | null {
+  addCapsuleCollider(): CapsuleColliderData | null {
+    if (!this.editorEnabled) return null;
+    this.beginHistoryMutation();
+    const collider = this.editor.addCapsuleCollider();
+    this.commitHistoryMutation("新增 Capsule 碰撞体");
+    return collider;
+  }
+
+  duplicateSelectedCollider(): ColliderData | null {
     if (!this.editorEnabled) return null;
     this.beginHistoryMutation();
     const collider = this.editor.duplicateSelected();
@@ -222,10 +255,11 @@ export class Engine {
     }
     this.commitHistoryMutation("删除碰撞体");
     this.events.onStatus?.(`已删除碰撞体 ${id}`);
+    this.emitSceneTree();
     return id;
   }
 
-  updateSelectedCollider(patch: ColliderTransformPatch): BoxColliderData | null {
+  updateSelectedCollider(patch: ColliderTransformPatch): ColliderData | null {
     if (!this.editorEnabled || !this.editor.getSelectedId()) return null;
     this.beginHistoryMutation();
     const collider = this.editor.updateSelectedCollider(patch);
@@ -325,6 +359,7 @@ export class Engine {
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
     this.redoStack.length = 0;
     this.emitHistoryState();
+    this.emitSceneTree();
   }
 
   private cancelHistoryMutation(): void {
@@ -342,12 +377,13 @@ export class Engine {
     this.restoringHistory = true;
     try {
       this.editor.select(null);
-      this.physics.replaceAllBoxColliders(snapshot.colliders);
+      this.physics.replaceAllColliders(snapshot.colliders);
       const selectedId =
         snapshot.selectedId && this.physics.getColliderData(snapshot.selectedId)
           ? snapshot.selectedId
           : null;
       this.editor.select(selectedId);
+      this.emitSceneTree();
     } finally {
       this.restoringHistory = false;
     }
@@ -355,6 +391,16 @@ export class Engine {
 
   private emitHistoryState(): void {
     this.events.onHistoryChange?.(this.undoStack.length > 0, this.redoStack.length > 0);
+  }
+
+  private emitSceneTree(): void {
+    this.events.onSceneTreeChange?.({
+      splats: this.manifest.splats.map((asset) => ({ id: asset.id })),
+      colliders: this.physics
+        .getAllColliderData()
+        .map((collider) => ({ id: collider.id, type: collider.type })),
+      selectedId: this.editor.getSelectedId(),
+    });
   }
 
   private addLighting(): void {

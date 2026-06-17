@@ -1,59 +1,52 @@
-# Splat World Engine — Runtime + Collider Editor
+# Splat World Engine — Gaussian Runtime + Scene Authoring
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。
-
-第一条垂直链路已经跑通：
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Gaussian Splats 负责照片级视觉，稳定的代理几何负责碰撞、导航和游戏逻辑。
 
 ```text
 World manifest
   ├── Gaussian visual assets (Spark)
-  ├── Proxy collision boxes (Rapier)
+  ├── Proxy colliders (Rapier)
+  │     ├── Box
+  │     └── Capsule
   └── Player spawn
         ↓
-First-person playable world
+First-person playable world + browser editor
 ```
 
 ## 当前能力
 
-- 使用 Spark 2.1 加载 `.ply`、`.spz`、`.splat`、`.ksplat`、`.sog`、`.zip`、`.rad`
-- Gaussian Splats 与 Three.js 场景共存
-- Rapier 运动学角色控制器
-- WASD、冲刺、跳跃、台阶与斜坡处理
-- Gaussian 视觉层和代理碰撞层分离
-- JSON 世界清单
-- 浏览器本地导入 Splat 文件
-- 碰撞代理可视化开关
-- Orbit 编辑模式与 Transform Gizmo
-- 数值化 Position / Rotation / Size Inspector
-- Undo / Redo、复制与删除碰撞体
+- Spark 2.1 Gaussian Splat 渲染
+- 支持 `.ply`、`.spz`、`.splat`、`.ksplat`、`.sog`、`.zip`、`.rad`
+- Rapier 第一人称角色控制、冲刺、跳跃、台阶和斜坡
+- Gaussian 视觉层与代理物理层分离
+- Box Collider 与 Capsule Collider
+- 左侧场景对象树：Splats 与 Colliders 分组
+- Orbit 编辑相机与 Transform Gizmo
+- Position / Rotation 数值编辑
+- Box Size 与 Capsule Radius / Half Height 编辑
+- 新增、复制、删除、聚焦碰撞体
+- Undo / Redo，覆盖 Gizmo、数值编辑和对象增删
 - 导出更新后的 `world.json`
-- 自适应分辨率与基础运行指标
+- 浏览器本地导入 Splat 文件
 
 ## 运行
 
-要求 Node.js 20+。
+要求 Node.js 20.19+ 或 22.12+。
 
 ```bash
 npm install
 npm run dev
 ```
 
-打开：
-
-```text
-http://localhost:5173
-```
-
-生产构建：
+打开 `http://localhost:5173`。
 
 ```bash
+npm run typecheck
 npm run build
 npm run preview
 ```
 
 ## 世界格式
-
-默认世界位于 `public/worlds/demo/world.json`：
 
 ```json
 {
@@ -80,27 +73,45 @@ npm run preview
       "type": "box",
       "position": [0, -0.25, 0],
       "size": [20, 0.5, 20]
+    },
+    {
+      "id": "pillar",
+      "type": "capsule",
+      "position": [2, 1.2, 0],
+      "rotationDeg": [0, 0, 0],
+      "radius": 0.4,
+      "halfHeight": 0.8
     }
   ]
 }
 ```
 
-也可以通过 URL 指定另一份世界清单：
+`halfHeight` 是 Capsule 中间圆柱部分的一半长度，不包含两端半球。
 
-```text
-http://localhost:5173/?world=/worlds/my-world/world.json
-```
+## 编辑快捷键
+
+| 操作 | 快捷键 |
+|---|---|
+| 移动 | `W` |
+| 旋转 | `E` |
+| 缩放 | `R` |
+| 聚焦 | `F` |
+| 复制 | `Ctrl/Cmd + D` |
+| 撤销 | `Ctrl/Cmd + Z` |
+| 重做 | `Ctrl/Cmd + Shift + Z` |
+| 删除 | `Delete` |
+| 取消选择 | `Esc` |
 
 ## 代码结构
 
 ```text
 src/
-  core/Engine.ts                  主循环与系统编排
-  editor/EditorController.ts      Orbit、Gizmo 与编辑快捷键
+  core/Engine.ts                  主循环、历史和场景树状态
+  editor/EditorController.ts      Orbit、Gizmo、选择与编辑快捷键
   render/GaussianWorld.ts         Spark / Splat 视觉层
-  physics/PhysicsWorld.ts         Rapier 代理碰撞世界
+  physics/PhysicsWorld.ts         Rapier Box / Capsule 代理碰撞世界
   player/FirstPersonController.ts 第一人称角色控制
-  types/world.ts                  世界清单及运行时校验
+  types/world.ts                  世界清单和 Collider 联合类型
   utils/transform.ts              坐标变换工具
 ```
 
@@ -113,9 +124,9 @@ src/
 游戏的逻辑  = ECS / Scripts（下一阶段）
 ```
 
-不要直接把几百万个高斯当作实时物理碰撞体。高斯适合表达外观；稳定、低复杂度的代理几何更适合碰撞、导航、阴影和射线查询。
+不要直接把数百万个高斯作为物理碰撞体。高斯适合表达外观；低复杂度的 Box、Capsule 与 Mesh Proxy 更适合碰撞、导航、阴影和射线查询。
 
-## 接下来三步
+## 路线图
 
 ### M1 — Runtime vertical slice
 
@@ -127,13 +138,15 @@ src/
 
 ### M2 — Playable scene authoring（当前）
 
+- [x] 场景对象树
 - [x] Orbit 编辑模式
 - [x] Transform Gizmo
 - [x] 数值 Inspector
 - [x] Undo / Redo
-- [x] 新增、复制、删除 Box Collider
+- [x] Box Collider
+- [x] Capsule Collider
 - [x] 导出世界清单
-- [ ] Capsule / Mesh Collider
+- [ ] Mesh Collider
 - [ ] Trigger、Audio、Interactable
 - [ ] 简单脚本组件
 
@@ -145,18 +158,10 @@ src/
 - [ ] 大场景分块与流式加载
 - [ ] Splat 与动态 Mesh 的深度、阴影和色调融合
 
-## 已知边界
-
-- 默认示例从 Spark 官方资源服务器加载示例 SPZ，离线使用时请替换成本地资源。
-- 当前代理碰撞只支持 Box；下一阶段加入 Capsule / Mesh Collider。
-- 本地导入的 Splat 会放在玩家前方，但尚未进入资产 Inspector。
-- 移动端还没有触屏摇杆。
-- 尚未实现存档、ECS、音频、触发器和动态 Mesh 物理。
-
 ## 依赖与许可证
 
 - Spark：MIT
 - Three.js：MIT
 - Rapier：Apache-2.0
 
-项目本身使用 MIT License。导入到项目中的场景、训练模型与数据集仍需分别确认其授权。
+项目本身使用 MIT License。导入场景、训练模型与数据集仍需分别确认授权。
