@@ -5,11 +5,17 @@ import {
   type TransformControlsMode,
 } from "three/addons/controls/TransformControls.js";
 import type { ColliderTransformPatch, PhysicsWorld } from "../physics/PhysicsWorld";
-import type { BoxColliderData, Vec3Tuple } from "../types/world";
+import { cloneCollider } from "../physics/PhysicsWorld";
+import type {
+  BoxColliderData,
+  CapsuleColliderData,
+  ColliderData,
+  Vec3Tuple,
+} from "../types/world";
 
 export interface EditorEvents {
-  onSelectionChange?: (collider: BoxColliderData | null) => void;
-  onColliderChange?: (collider: BoxColliderData) => void;
+  onSelectionChange?: (collider: ColliderData | null) => void;
+  onColliderChange?: (collider: ColliderData) => void;
   onTransformModeChange?: (mode: TransformControlsMode) => void;
   onMutationStart?: () => void;
   onMutationEnd?: () => void;
@@ -125,9 +131,9 @@ export class EditorController {
     this.events.onSelectionChange?.(this.physics.previewColliderTransform(this.selectedId));
   }
 
-  updateSelectedCollider(patch: ColliderTransformPatch): BoxColliderData | null {
+  updateSelectedCollider(patch: ColliderTransformPatch): ColliderData | null {
     if (!this.selectedId) return null;
-    const collider = this.physics.updateBoxCollider(this.selectedId, patch);
+    const collider = this.physics.updateCollider(this.selectedId, patch);
     if (!collider) return null;
     this.refreshSelection();
     this.events.onColliderChange?.(collider);
@@ -136,8 +142,7 @@ export class EditorController {
 
   addBoxCollider(): BoxColliderData {
     const id = this.createUniqueColliderId("box");
-    const position = this.orbit.target.toArray() as Vec3Tuple;
-    position[1] = Math.max(position[1], 0.5);
+    const position = this.createPositionAtOrbitTarget(0.5);
     const data: BoxColliderData = {
       id,
       type: "box",
@@ -145,26 +150,41 @@ export class EditorController {
       rotationDeg: [0, 0, 0],
       size: [1, 1, 1],
     };
-    this.physics.addBoxCollider(data);
+    this.physics.addCollider(data);
     this.select(id);
     this.events.onColliderChange?.(data);
     return data;
   }
 
-  duplicateSelected(): BoxColliderData | null {
+  addCapsuleCollider(): CapsuleColliderData {
+    const id = this.createUniqueColliderId("capsule");
+    const data: CapsuleColliderData = {
+      id,
+      type: "capsule",
+      position: this.createPositionAtOrbitTarget(1),
+      rotationDeg: [0, 0, 0],
+      radius: 0.4,
+      halfHeight: 0.6,
+    };
+    this.physics.addCollider(data);
+    this.select(id);
+    this.events.onColliderChange?.(data);
+    return data;
+  }
+
+  duplicateSelected(): ColliderData | null {
     if (!this.selectedId) return null;
     const source = this.physics.getColliderData(this.selectedId);
     if (!source) return null;
 
     const position = source.position ?? [0, 0, 0];
-    const data: BoxColliderData = {
-      ...source,
+    const cloned = cloneCollider(source);
+    const data: ColliderData = {
+      ...cloned,
       id: this.createUniqueColliderId(`${source.id}-copy`),
       position: [position[0] + 0.25, position[1] + 0.25, position[2] + 0.25],
-      rotationDeg: source.rotationDeg ? [...source.rotationDeg] : [0, 0, 0],
-      size: [...source.size],
     };
-    this.physics.addBoxCollider(data);
+    this.physics.addCollider(data);
     this.select(data.id);
     this.events.onColliderChange?.(data);
     return data;
@@ -174,7 +194,7 @@ export class EditorController {
     if (!this.selectedId) return null;
     const id = this.selectedId;
     this.select(null);
-    this.physics.removeBoxCollider(id);
+    this.physics.removeCollider(id);
     return id;
   }
 
@@ -282,6 +302,12 @@ export class EditorController {
         break;
     }
   };
+
+  private createPositionAtOrbitTarget(minimumY: number): Vec3Tuple {
+    const position = this.orbit.target.toArray() as Vec3Tuple;
+    position[1] = Math.max(position[1], minimumY);
+    return position;
+  }
 
   private createUniqueColliderId(base: string): string {
     let id = base;

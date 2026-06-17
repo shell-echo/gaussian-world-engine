@@ -3,7 +3,11 @@
   "version": 1,
   "name": "Butterfly Collision Lab",
   "spawn": {
-    "position": [0, 0.05, 4.2],
+    "position": [
+      0,
+      0.05,
+      4.2
+    ],
     "yawDeg": 0
   },
   "environment": {
@@ -15,8 +19,16 @@
     {
       "id": "butterfly",
       "url": "https://sparkjs.dev/assets/splats/butterfly.spz",
-      "position": [0, 1.6, -3.8],
-      "rotationDeg": [180, 0, 0],
+      "position": [
+        0,
+        1.6,
+        -3.8
+      ],
+      "rotationDeg": [
+        180,
+        0,
+        0
+      ],
       "scale": 1.45,
       "lod": true
     }
@@ -25,38 +37,102 @@
     {
       "id": "floor",
       "type": "box",
-      "position": [0, -0.25, 0],
-      "size": [18, 0.5, 18]
+      "position": [
+        0,
+        -0.25,
+        0
+      ],
+      "size": [
+        18,
+        0.5,
+        18
+      ]
     },
     {
       "id": "north-wall",
       "type": "box",
-      "position": [0, 2.25, -8.75],
-      "size": [18, 4.5, 0.5]
+      "position": [
+        0,
+        2.25,
+        -8.75
+      ],
+      "size": [
+        18,
+        4.5,
+        0.5
+      ]
     },
     {
       "id": "south-wall",
       "type": "box",
-      "position": [0, 2.25, 8.75],
-      "size": [18, 4.5, 0.5]
+      "position": [
+        0,
+        2.25,
+        8.75
+      ],
+      "size": [
+        18,
+        4.5,
+        0.5
+      ]
     },
     {
       "id": "west-wall",
       "type": "box",
-      "position": [-8.75, 2.25, 0],
-      "size": [0.5, 4.5, 18]
+      "position": [
+        -8.75,
+        2.25,
+        0
+      ],
+      "size": [
+        0.5,
+        4.5,
+        18
+      ]
     },
     {
       "id": "east-wall",
       "type": "box",
-      "position": [8.75, 2.25, 0],
-      "size": [0.5, 4.5, 18]
+      "position": [
+        8.75,
+        2.25,
+        0
+      ],
+      "size": [
+        0.5,
+        4.5,
+        18
+      ]
     },
     {
       "id": "step-test",
       "type": "box",
-      "position": [2.2, 0.18, -0.5],
-      "size": [2.5, 0.36, 2.5]
+      "position": [
+        2.2,
+        0.18,
+        -0.5
+      ],
+      "size": [
+        2.5,
+        0.36,
+        2.5
+      ]
+    },
+    {
+      "id": "capsule-pillar",
+      "type": "capsule",
+      "position": [
+        -2.2,
+        1.35,
+        -0.8
+      ],
+      "rotationDeg": [
+        0,
+        0,
+        0
+      ],
+      "radius": 0.45,
+      "halfHeight": 0.9
     }
   ]
 }

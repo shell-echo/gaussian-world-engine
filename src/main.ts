@@ -1,18 +1,20 @@
 import type { TransformControlsMode } from "three/addons/controls/TransformControls.js";
 import "./styles.css";
-import { Engine } from "./core/Engine";
-import type { BoxColliderData, Vec3Tuple, WorldManifest } from "./types/world";
+import { Engine, type SceneTreeState } from "./core/Engine";
+import type { ColliderData, Vec3Tuple, WorldManifest } from "./types/world";
 import { assertWorldManifest } from "./types/world";
 
 const canvas = requiredElement<HTMLCanvasElement>("viewport");
 const launchPanel = requiredElement<HTMLElement>("launch-panel");
+const sceneTreePanel = requiredElement<HTMLElement>("scene-tree-panel");
 const editorPanel = requiredElement<HTMLElement>("editor-panel");
 const enterButton = requiredElement<HTMLButtonElement>("enter-button");
 const modeButton = requiredElement<HTMLButtonElement>("mode-button");
 const toggleColliderButton = requiredElement<HTMLButtonElement>("toggle-colliders");
 const importButton = requiredElement<HTMLButtonElement>("import-splat");
 const fileInput = requiredElement<HTMLInputElement>("splat-file");
-const addColliderButton = requiredElement<HTMLButtonElement>("add-collider");
+const addBoxButton = requiredElement<HTMLButtonElement>("add-box-collider");
+const addCapsuleButton = requiredElement<HTMLButtonElement>("add-capsule-collider");
 const duplicateColliderButton = requiredElement<HTMLButtonElement>("duplicate-collider");
 const deleteColliderButton = requiredElement<HTMLButtonElement>("delete-collider");
 const undoButton = requiredElement<HTMLButtonElement>("undo-button");
@@ -23,6 +25,13 @@ const translateButton = requiredElement<HTMLButtonElement>("tool-translate");
 const rotateButton = requiredElement<HTMLButtonElement>("tool-rotate");
 const scaleButton = requiredElement<HTMLButtonElement>("tool-scale");
 const selectedIdElement = requiredElement<HTMLElement>("selected-id");
+const selectedTypeElement = requiredElement<HTMLElement>("selected-type");
+const boxDimensions = requiredElement<HTMLElement>("box-dimensions");
+const capsuleDimensions = requiredElement<HTMLElement>("capsule-dimensions");
+const splatTreeList = requiredElement<HTMLElement>("splat-tree-list");
+const colliderTreeList = requiredElement<HTMLElement>("collider-tree-list");
+const splatCountElement = requiredElement<HTMLElement>("splat-count");
+const colliderCountElement = requiredElement<HTMLElement>("collider-count");
 const statusElement = requiredElement<HTMLElement>("status");
 const worldNameElement = requiredElement<HTMLElement>("world-name");
 const fpsElement = requiredElement<HTMLElement>("fps");
@@ -32,11 +41,19 @@ const toastElement = requiredElement<HTMLElement>("toast");
 const positionInputs = getVectorInputs("position");
 const rotationInputs = getVectorInputs("rotation");
 const sizeInputs = getVectorInputs("size");
-const inspectorInputs = [...positionInputs, ...rotationInputs, ...sizeInputs];
+const radiusInput = requiredElement<HTMLInputElement>("capsule-radius");
+const halfHeightInput = requiredElement<HTMLInputElement>("capsule-half-height");
+const inspectorInputs = [
+  ...positionInputs,
+  ...rotationInputs,
+  ...sizeInputs,
+  radiusInput,
+  halfHeightInput,
+];
 
 let toastTimer = 0;
 let editorEnabled = false;
-let selectedCollider: BoxColliderData | null = null;
+let selectedCollider: ColliderData | null = null;
 let engine: Engine | undefined;
 
 bootstrap().catch((error: unknown) => {
@@ -76,6 +93,7 @@ async function bootstrap(): Promise<void> {
       editorEnabled = enabled;
       document.body.classList.toggle("editor-mode", enabled);
       editorPanel.classList.toggle("hidden", !enabled);
+      sceneTreePanel.classList.toggle("hidden", !enabled);
       launchPanel.classList.toggle("hidden", enabled || engine?.player.controls.isLocked === true);
       modeButton.textContent = enabled ? "返回游玩" : "进入编辑";
       toggleColliderButton.textContent = `碰撞层：${engine?.physics.isDebugVisible() ? "开" : "关"}`;
@@ -87,9 +105,10 @@ async function bootstrap(): Promise<void> {
       undoButton.disabled = !canUndo;
       redoButton.disabled = !canRedo;
     },
+    onSceneTreeChange: renderSceneTree,
   });
   engine.start();
-  showToast("Runtime 已就绪。可以游玩，也可以进入编辑模式。", 4200);
+  showToast("Runtime 0.4 已就绪：支持 Box、Capsule 与场景对象树。", 4200);
 
   enterButton.addEventListener("click", () => engine?.lockPointer());
   canvas.addEventListener("click", () => {
@@ -102,8 +121,12 @@ async function bootstrap(): Promise<void> {
     toggleColliderButton.textContent = `碰撞层：${visible ? "开" : "关"}`;
   });
 
-  addColliderButton.addEventListener("click", () => {
+  addBoxButton.addEventListener("click", () => {
     const collider = engine?.addBoxCollider();
+    if (collider) showToast(`已新增 ${collider.id}`);
+  });
+  addCapsuleButton.addEventListener("click", () => {
+    const collider = engine?.addCapsuleCollider();
     if (collider) showToast(`已新增 ${collider.id}`);
   });
   duplicateColliderButton.addEventListener("click", () => {
@@ -150,25 +173,93 @@ function applyInspectorValues(): void {
   if (!engine || !selectedCollider) return;
   const position = readVector(positionInputs);
   const rotationDeg = readVector(rotationInputs);
-  const size = readVector(sizeInputs, 0.05);
-  if (!position || !rotationDeg || !size) {
+  if (!position || !rotationDeg) {
     showToast("请输入有效数字", 2400);
     updateSelection(selectedCollider);
     return;
   }
-  engine.updateSelectedCollider({ position, rotationDeg, size });
+
+  if (selectedCollider.type === "box") {
+    const size = readVector(sizeInputs, 0.05);
+    if (!size) {
+      showToast("请输入有效尺寸", 2400);
+      updateSelection(selectedCollider);
+      return;
+    }
+    engine.updateSelectedCollider({ position, rotationDeg, size });
+    return;
+  }
+
+  const radius = readPositiveNumber(radiusInput);
+  const halfHeight = readPositiveNumber(halfHeightInput);
+  if (radius === null || halfHeight === null) {
+    showToast("请输入有效 Capsule 尺寸", 2400);
+    updateSelection(selectedCollider);
+    return;
+  }
+  engine.updateSelectedCollider({ position, rotationDeg, radius, halfHeight });
 }
 
-function updateSelection(collider: BoxColliderData | null): void {
+function updateSelection(collider: ColliderData | null): void {
   selectedCollider = collider;
   selectedIdElement.textContent = collider?.id ?? "未选择";
+  selectedTypeElement.textContent = collider?.type ?? "";
+  selectedTypeElement.classList.toggle("hidden", collider === null);
+  selectedTypeElement.dataset.type = collider?.type ?? "";
+
   setVectorInputs(positionInputs, collider?.position ?? null);
   setVectorInputs(rotationInputs, collider?.rotationDeg ?? null);
-  setVectorInputs(sizeInputs, collider?.size ?? null);
+
+  const isBox = collider?.type === "box";
+  const isCapsule = collider?.type === "capsule";
+  boxDimensions.classList.toggle("hidden", !isBox);
+  capsuleDimensions.classList.toggle("hidden", !isCapsule);
+  setVectorInputs(sizeInputs, isBox ? collider.size : null);
+  radiusInput.value = isCapsule ? collider.radius.toFixed(3) : "";
+  halfHeightInput.value = isCapsule ? collider.halfHeight.toFixed(3) : "";
+
   for (const input of inspectorInputs) input.disabled = collider === null;
   deleteColliderButton.disabled = collider === null;
   duplicateColliderButton.disabled = collider === null;
   focusSelectedButton.disabled = collider === null;
+}
+
+function renderSceneTree(state: SceneTreeState): void {
+  splatCountElement.textContent = String(state.splats.length);
+  colliderCountElement.textContent = String(state.colliders.length);
+
+  splatTreeList.replaceChildren(
+    ...state.splats.map((item) => createTreeItem("S", item.id, "splat", false)),
+  );
+  colliderTreeList.replaceChildren(
+    ...state.colliders.map((item) => {
+      const button = createTreeItem(
+        item.type === "box" ? "B" : "C",
+        item.id,
+        item.type,
+        item.id === state.selectedId,
+      );
+      button.addEventListener("click", () => engine?.selectCollider(item.id));
+      return button;
+    }),
+  );
+}
+
+function createTreeItem(
+  icon: string,
+  name: string,
+  kind: string,
+  selected: boolean,
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "tree-item";
+  button.classList.toggle("selected", selected);
+  button.innerHTML = `<span class="tree-icon">${icon}</span><span class="tree-name"></span><small>${kind}</small>`;
+  const nameElement = button.querySelector<HTMLElement>(".tree-name");
+  if (nameElement) nameElement.textContent = name;
+  if (kind === "splat") button.disabled = true;
+  return button;
 }
 
 function updateTransformMode(mode: TransformControlsMode): void {
@@ -179,9 +270,7 @@ function updateTransformMode(mode: TransformControlsMode): void {
 
 async function loadManifest(url: string): Promise<WorldManifest> {
   const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`无法读取世界清单 (${response.status})`);
-  }
+  if (!response.ok) throw new Error(`无法读取世界清单 (${response.status})`);
   const value: unknown = await response.json();
   assertWorldManifest(value);
   return value;
@@ -216,11 +305,15 @@ function readVector(
   if (values.some((value) => !Number.isFinite(value))) return null;
   if (minimumAbsoluteValue !== undefined) {
     for (let index = 0; index < values.length; index += 1) {
-      const value = values[index] ?? minimumAbsoluteValue;
-      values[index] = Math.max(Math.abs(value), minimumAbsoluteValue);
+      values[index] = Math.max(Math.abs(values[index] ?? 0), minimumAbsoluteValue);
     }
   }
   return [values[0] ?? 0, values[1] ?? 0, values[2] ?? 0];
+}
+
+function readPositiveNumber(input: HTMLInputElement): number | null {
+  const value = Number(input.value);
+  return Number.isFinite(value) && value > 0 ? Math.max(value, 0.05) : null;
 }
 
 function formatBytes(value: number): string {
