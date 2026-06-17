@@ -1,14 +1,16 @@
-# Splat World Engine — Gaussian Runtime + Scene Authoring
+# Splat World Engine — Gaussian Runtime + Gameplay Authoring
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Gaussian Splats 负责照片级视觉，稳定的代理几何负责碰撞、导航和游戏逻辑。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Gaussian Splats 负责照片级视觉，代理几何负责碰撞，Trigger 与 Interactable 组件负责最小游戏逻辑。
 
 ```text
 World manifest
   ├── Gaussian visual assets (Spark)
   ├── Proxy colliders (Rapier)
   │     ├── Box
-  │     └── Capsule
-  └── Player spawn
+  │     ├── Capsule
+  │     └── TriMesh
+  ├── Trigger behavior
+  └── Interactable component
         ↓
 First-person playable world + browser editor
 ```
@@ -18,14 +20,13 @@ First-person playable world + browser editor
 - Spark 2.1 Gaussian Splat 渲染
 - 支持 `.ply`、`.spz`、`.splat`、`.ksplat`、`.sog`、`.zip`、`.rad`
 - Rapier 第一人称角色控制、冲刺、跳跃、台阶和斜坡
-- Gaussian 视觉层与代理物理层分离
-- Box Collider 与 Capsule Collider
-- 左侧场景对象树：Splats 与 Colliders 分组
-- Orbit 编辑相机与 Transform Gizmo
-- Position / Rotation 数值编辑
-- Box Size 与 Capsule Radius / Half Height 编辑
+- Box、Capsule 与 TriMesh Collider
+- Collider 可切换为 Trigger Sensor（Box / Capsule）
+- Collider 可附加 Interactable 组件，游玩时按 `E` 触发
+- 左侧场景对象树显示形状、Trigger 与 Interactable 状态
+- Orbit 编辑相机、Transform Gizmo、数值 Inspector
 - 新增、复制、删除、聚焦碰撞体
-- Undo / Redo，覆盖 Gizmo、数值编辑和对象增删
+- Undo / Redo 覆盖形状、行为组件和对象增删
 - 导出更新后的 `world.json`
 - 浏览器本地导入 Splat 文件
 
@@ -46,47 +47,62 @@ npm run build
 npm run preview
 ```
 
-## 世界格式
+## Collider 数据
+
+### Box Trigger
 
 ```json
 {
-  "format": "splat-world",
-  "version": 1,
-  "name": "My World",
-  "spawn": {
-    "position": [0, 0, 4],
-    "yawDeg": 0
-  },
-  "splats": [
-    {
-      "id": "room",
-      "url": "/assets/room.spz",
-      "position": [0, 0, 0],
-      "rotationDeg": [180, 0, 0],
-      "scale": 1,
-      "lod": true
-    }
-  ],
-  "colliders": [
-    {
-      "id": "floor",
-      "type": "box",
-      "position": [0, -0.25, 0],
-      "size": [20, 0.5, 20]
-    },
-    {
-      "id": "pillar",
-      "type": "capsule",
-      "position": [2, 1.2, 0],
-      "rotationDeg": [0, 0, 0],
-      "radius": 0.4,
-      "halfHeight": 0.8
-    }
-  ]
+  "id": "welcome-zone",
+  "type": "box",
+  "position": [0, 1, 2],
+  "size": [3, 2, 3],
+  "behavior": {
+    "mode": "trigger",
+    "event": "zone:enter",
+    "message": "Entered the zone",
+    "once": true
+  }
 }
 ```
 
-`halfHeight` 是 Capsule 中间圆柱部分的一半长度，不包含两端半球。
+### Interactable Capsule
+
+```json
+{
+  "id": "pillar",
+  "type": "capsule",
+  "position": [2, 1.2, 0],
+  "radius": 0.4,
+  "halfHeight": 0.8,
+  "behavior": { "mode": "solid" },
+  "interactable": {
+    "prompt": "检查柱体",
+    "event": "pillar:inspect",
+    "message": "A capsule collider",
+    "maxDistance": 3
+  }
+}
+```
+
+### Mesh Collider
+
+```json
+{
+  "id": "ramp",
+  "type": "mesh",
+  "position": [0, 0, -2],
+  "scale3": [1, 1, 1],
+  "vertices": [
+    [-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1],
+    [-1, 1, -1], [1, 1, -1]
+  ],
+  "indices": [0, 2, 1, 0, 3, 2, 4, 5, 2, 4, 2, 3],
+  "behavior": { "mode": "solid" }
+}
+```
+
+Mesh Collider 使用静态 Rapier TriMesh。当前编辑器内置 `+ Mesh` 会创建一个可缩放的斜坡模板；后续会支持从 GLB 自动提取代理网格。
 
 ## 编辑快捷键
 
@@ -101,18 +117,19 @@ npm run preview
 | 重做 | `Ctrl/Cmd + Shift + Z` |
 | 删除 | `Delete` |
 | 取消选择 | `Esc` |
+| 游玩交互 | `E` |
 
 ## 代码结构
 
 ```text
 src/
-  core/Engine.ts                  主循环、历史和场景树状态
-  editor/EditorController.ts      Orbit、Gizmo、选择与编辑快捷键
+  core/Engine.ts                  主循环、历史、场景树与系统编排
+  editor/EditorController.ts      Orbit、Gizmo、选择与创建工具
+  gameplay/GameplaySystem.ts      Trigger 检测与 Interactable 运行时
   render/GaussianWorld.ts         Spark / Splat 视觉层
-  physics/PhysicsWorld.ts         Rapier Box / Capsule 代理碰撞世界
+  physics/PhysicsWorld.ts         Rapier Box / Capsule / TriMesh 世界
   player/FirstPersonController.ts 第一人称角色控制
-  types/world.ts                  世界清单和 Collider 联合类型
-  utils/transform.ts              坐标变换工具
+  types/world.ts                  Manifest、Collider 与行为组件类型
 ```
 
 ## 架构原则
@@ -120,11 +137,10 @@ src/
 ```text
 看见的世界  = Gaussian Splats
 碰撞的世界  = Proxy Geometry
-动态的对象  = Mesh + Rigid Body
-游戏的逻辑  = ECS / Scripts（下一阶段）
+空间事件    = Trigger Sensor
+主动交互    = Interactable Component
+动态对象    = Mesh + Rigid Body（下一阶段）
 ```
-
-不要直接把数百万个高斯作为物理碰撞体。高斯适合表达外观；低复杂度的 Box、Capsule 与 Mesh Proxy 更适合碰撞、导航、阴影和射线查询。
 
 ## 路线图
 
@@ -134,21 +150,18 @@ src/
 - [x] 第一人称漫游
 - [x] 代理碰撞
 - [x] 世界清单
-- [x] 本地导入
 
-### M2 — Playable scene authoring（当前）
+### M2 — Playable scene authoring
 
 - [x] 场景对象树
-- [x] Orbit 编辑模式
-- [x] Transform Gizmo
-- [x] 数值 Inspector
+- [x] Transform Gizmo 与数值 Inspector
 - [x] Undo / Redo
-- [x] Box Collider
-- [x] Capsule Collider
+- [x] Box / Capsule / Mesh Collider
+- [x] Trigger Volume
+- [x] Interactable Component
 - [x] 导出世界清单
-- [ ] Mesh Collider
-- [ ] Trigger、Audio、Interactable
-- [ ] 简单脚本组件
+- [ ] 从 GLB 自动提取 Mesh Collider
+- [ ] Audio、动态 Mesh 与脚本组件
 
 ### M3 — Scan-to-Playable pipeline
 

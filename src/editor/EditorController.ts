@@ -10,6 +10,7 @@ import type {
   BoxColliderData,
   CapsuleColliderData,
   ColliderData,
+  MeshColliderData,
   Vec3Tuple,
 } from "../types/world";
 
@@ -141,35 +142,55 @@ export class EditorController {
   }
 
   addBoxCollider(): BoxColliderData {
-    const id = this.createUniqueColliderId("box");
-    const position = this.createPositionAtOrbitTarget(0.5);
     const data: BoxColliderData = {
-      id,
+      id: this.createUniqueColliderId("box"),
       type: "box",
-      position,
+      position: this.createPositionAtOrbitTarget(0.5),
       rotationDeg: [0, 0, 0],
       size: [1, 1, 1],
+      behavior: { mode: "solid" },
     };
-    this.physics.addCollider(data);
-    this.select(id);
-    this.events.onColliderChange?.(data);
-    return data;
+    return this.addAndSelect(data);
   }
 
   addCapsuleCollider(): CapsuleColliderData {
-    const id = this.createUniqueColliderId("capsule");
     const data: CapsuleColliderData = {
-      id,
+      id: this.createUniqueColliderId("capsule"),
       type: "capsule",
       position: this.createPositionAtOrbitTarget(1),
       rotationDeg: [0, 0, 0],
       radius: 0.4,
       halfHeight: 0.6,
+      behavior: { mode: "solid" },
     };
-    this.physics.addCollider(data);
-    this.select(id);
-    this.events.onColliderChange?.(data);
-    return data;
+    return this.addAndSelect(data);
+  }
+
+  addMeshCollider(): MeshColliderData {
+    const data: MeshColliderData = {
+      id: this.createUniqueColliderId("mesh-ramp"),
+      type: "mesh",
+      position: this.createPositionAtOrbitTarget(0),
+      rotationDeg: [0, 0, 0],
+      scale3: [1, 1, 1],
+      vertices: [
+        [-1, 0, -1],
+        [1, 0, -1],
+        [1, 0, 1],
+        [-1, 0, 1],
+        [-1, 1, -1],
+        [1, 1, -1],
+      ],
+      indices: [
+        0, 2, 1, 0, 3, 2,
+        0, 1, 5, 0, 5, 4,
+        0, 4, 3,
+        1, 2, 5,
+        4, 5, 2, 4, 2, 3,
+      ],
+      behavior: { mode: "solid" },
+    };
+    return this.addAndSelect(data);
   }
 
   duplicateSelected(): ColliderData | null {
@@ -178,16 +199,12 @@ export class EditorController {
     if (!source) return null;
 
     const position = source.position ?? [0, 0, 0];
-    const cloned = cloneCollider(source);
     const data: ColliderData = {
-      ...cloned,
+      ...cloneCollider(source),
       id: this.createUniqueColliderId(`${source.id}-copy`),
       position: [position[0] + 0.25, position[1] + 0.25, position[2] + 0.25],
     };
-    this.physics.addCollider(data);
-    this.select(data.id);
-    this.events.onColliderChange?.(data);
-    return data;
+    return this.addAndSelect(data);
   }
 
   deleteSelected(): string | null {
@@ -226,6 +243,13 @@ export class EditorController {
     this.orbit.dispose();
   }
 
+  private addAndSelect<T extends ColliderData>(data: T): T {
+    this.physics.addCollider(data);
+    this.select(data.id);
+    this.events.onColliderChange?.(data);
+    return data;
+  }
+
   private readonly onPointerDown = (event: PointerEvent): void => {
     if (!this.active || event.button !== 0 || this.transform.axis !== null) return;
     const rect = this.canvas.getBoundingClientRect();
@@ -262,7 +286,7 @@ export class EditorController {
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (!this.active) return;
     const tag = (event.target as HTMLElement | null)?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
     const modifier = event.metaKey || event.ctrlKey;
     if (modifier && event.code === "KeyZ") {

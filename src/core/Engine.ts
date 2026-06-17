@@ -1,6 +1,11 @@
 import * as THREE from "three";
 import type { TransformControlsMode } from "three/addons/controls/TransformControls.js";
 import { EditorController } from "../editor/EditorController";
+import {
+  GameplaySystem,
+  type GameplayEvent,
+  type InteractionPrompt,
+} from "../gameplay/GameplaySystem";
 import { FirstPersonController } from "../player/FirstPersonController";
 import {
   PhysicsWorld,
@@ -12,12 +17,18 @@ import type {
   CapsuleColliderData,
   ColliderData,
   ColliderType,
+  MeshColliderData,
   WorldManifest,
 } from "../types/world";
 
 export interface SceneTreeState {
   splats: Array<{ id: string }>;
-  colliders: Array<{ id: string; type: ColliderType }>;
+  colliders: Array<{
+    id: string;
+    type: ColliderType;
+    mode: "solid" | "trigger";
+    interactable: boolean;
+  }>;
   selectedId: string | null;
 }
 
@@ -31,6 +42,8 @@ export interface EngineEvents {
   onTransformMode?: (mode: TransformControlsMode) => void;
   onHistoryChange?: (canUndo: boolean, canRedo: boolean) => void;
   onSceneTreeChange?: (state: SceneTreeState) => void;
+  onGameplayPrompt?: (prompt: InteractionPrompt | null) => void;
+  onGameplayEvent?: (event: GameplayEvent) => void;
 }
 
 interface EditorSnapshot {
@@ -48,6 +61,7 @@ export class Engine {
   readonly physics: PhysicsWorld;
   readonly player: FirstPersonController;
   readonly editor: EditorController;
+  readonly gameplay: GameplaySystem;
 
   private readonly clock = new THREE.Clock();
   private readonly events: EngineEvents;
@@ -108,6 +122,10 @@ export class Engine {
       character,
       manifest.spawn,
     );
+    this.gameplay = new GameplaySystem(this.camera, physics, {
+      onPrompt: (prompt) => events.onGameplayPrompt?.(prompt),
+      onEvent: (event) => events.onGameplayEvent?.(event),
+    });
     this.editor = new EditorController(this.camera, canvas, this.scene, physics, {
       onSelectionChange: (collider) => {
         events.onEditorSelection?.(collider);
@@ -119,7 +137,7 @@ export class Engine {
       },
       onTransformModeChange: (mode) => events.onTransformMode?.(mode),
       onMutationStart: () => this.beginHistoryMutation(),
-      onMutationEnd: () => this.commitHistoryMutation("变换碰撞体"),
+      onMutationEnd: () => this.commitHistoryMutation(),
       onDeleteRequested: () => this.deleteSelectedCollider(),
       onDuplicateRequested: () => this.duplicateSelectedCollider(),
       onUndoRequested: () => this.undo(),
@@ -180,7 +198,7 @@ export class Engine {
 
   setEditorMode(enabled: boolean): void {
     if (enabled === this.editorEnabled) return;
-    this.commitHistoryMutation("完成编辑");
+    this.commitHistoryMutation();
     this.editorEnabled = enabled;
 
     if (enabled) {
@@ -188,8 +206,9 @@ export class Engine {
       this.debugVisibleBeforeEditor = this.physics.isDebugVisible();
       this.physics.setDebugVisible(true);
       this.player.setEnabled(false);
+      this.gameplay.setEnabled(false);
       this.editor.setEnabled(true);
-      this.events.onStatus?.("编辑模式：从对象树或视口选择碰撞体");
+      this.events.onStatus?.("编辑模式：Collider 可附加 Trigger 与 Interactable 行为");
     } else {
       this.editor.setEnabled(false);
       this.editor.select(null);
@@ -197,6 +216,7 @@ export class Engine {
       this.camera.quaternion.copy(this.playCameraQuaternion);
       this.player.syncCamera();
       this.player.setEnabled(true);
+      this.gameplay.setEnabled(true);
       this.events.onStatus?.("游玩模式已就绪");
     }
     this.events.onEditorMode?.(enabled);
@@ -220,7 +240,7 @@ export class Engine {
     if (!this.editorEnabled) return null;
     this.beginHistoryMutation();
     const collider = this.editor.addBoxCollider();
-    this.commitHistoryMutation("新增 Box 碰撞体");
+    this.commitHistoryMutation();
     return collider;
   }
 
@@ -228,7 +248,15 @@ export class Engine {
     if (!this.editorEnabled) return null;
     this.beginHistoryMutation();
     const collider = this.editor.addCapsuleCollider();
-    this.commitHistoryMutation("新增 Capsule 碰撞体");
+    this.commitHistoryMutation();
+    return collider;
+  }
+
+  addMeshCollider(): MeshColliderData | null {
+    if (!this.editorEnabled) return null;
+    this.beginHistoryMutation();
+    const collider = this.editor.addMeshCollider();
+    this.commitHistoryMutation();
     return collider;
   }
 
@@ -240,7 +268,7 @@ export class Engine {
       this.cancelHistoryMutation();
       return null;
     }
-    this.commitHistoryMutation("复制碰撞体");
+    this.commitHistoryMutation();
     this.events.onStatus?.(`已复制为 ${collider.id}`);
     return collider;
   }
@@ -253,7 +281,7 @@ export class Engine {
       this.cancelHistoryMutation();
       return null;
     }
-    this.commitHistoryMutation("删除碰撞体");
+    this.commitHistoryMutation();
     this.events.onStatus?.(`已删除碰撞体 ${id}`);
     this.emitSceneTree();
     return id;
@@ -267,7 +295,7 @@ export class Engine {
       this.cancelHistoryMutation();
       return null;
     }
-    this.commitHistoryMutation("编辑碰撞体数值");
+    this.commitHistoryMutation();
     return collider;
   }
 
@@ -338,6 +366,7 @@ export class Engine {
     cancelAnimationFrame(this.animationFrame);
     window.removeEventListener("resize", this.resize);
     this.editor.dispose();
+    this.gameplay.dispose();
     this.player.dispose();
     this.gaussianWorld.dispose();
     this.renderer.dispose();
@@ -348,7 +377,7 @@ export class Engine {
     this.pendingHistorySnapshot = this.captureEditorSnapshot();
   }
 
-  private commitHistoryMutation(_label: string): void {
+  private commitHistoryMutation(): void {
     const before = this.pendingHistorySnapshot;
     this.pendingHistorySnapshot = null;
     if (!before || this.restoringHistory) return;
@@ -396,9 +425,12 @@ export class Engine {
   private emitSceneTree(): void {
     this.events.onSceneTreeChange?.({
       splats: this.manifest.splats.map((asset) => ({ id: asset.id })),
-      colliders: this.physics
-        .getAllColliderData()
-        .map((collider) => ({ id: collider.id, type: collider.type })),
+      colliders: this.physics.getAllColliderData().map((collider) => ({
+        id: collider.id,
+        type: collider.type,
+        mode: collider.behavior?.mode ?? "solid",
+        interactable: Boolean(collider.interactable),
+      })),
       selectedId: this.editor.getSelectedId(),
     });
   }
@@ -430,6 +462,7 @@ export class Engine {
       this.player.updateBeforePhysics(delta);
       this.physics.step(delta);
       this.player.syncCamera();
+      this.gameplay.update(this.player.getFeetPosition(this.feet));
     }
     this.renderer.render(this.scene, this.camera);
 

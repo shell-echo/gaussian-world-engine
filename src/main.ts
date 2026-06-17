@@ -1,7 +1,14 @@
 import type { TransformControlsMode } from "three/addons/controls/TransformControls.js";
 import "./styles.css";
 import { Engine, type SceneTreeState } from "./core/Engine";
-import type { ColliderData, Vec3Tuple, WorldManifest } from "./types/world";
+import type { GameplayEvent, InteractionPrompt } from "./gameplay/GameplaySystem";
+import type {
+  ColliderBehavior,
+  ColliderData,
+  InteractableData,
+  Vec3Tuple,
+  WorldManifest,
+} from "./types/world";
 import { assertWorldManifest } from "./types/world";
 
 const canvas = requiredElement<HTMLCanvasElement>("viewport");
@@ -15,6 +22,7 @@ const importButton = requiredElement<HTMLButtonElement>("import-splat");
 const fileInput = requiredElement<HTMLInputElement>("splat-file");
 const addBoxButton = requiredElement<HTMLButtonElement>("add-box-collider");
 const addCapsuleButton = requiredElement<HTMLButtonElement>("add-capsule-collider");
+const addMeshButton = requiredElement<HTMLButtonElement>("add-mesh-collider");
 const duplicateColliderButton = requiredElement<HTMLButtonElement>("duplicate-collider");
 const deleteColliderButton = requiredElement<HTMLButtonElement>("delete-collider");
 const undoButton = requiredElement<HTMLButtonElement>("undo-button");
@@ -28,10 +36,25 @@ const selectedIdElement = requiredElement<HTMLElement>("selected-id");
 const selectedTypeElement = requiredElement<HTMLElement>("selected-type");
 const boxDimensions = requiredElement<HTMLElement>("box-dimensions");
 const capsuleDimensions = requiredElement<HTMLElement>("capsule-dimensions");
+const meshDimensions = requiredElement<HTMLElement>("mesh-dimensions");
 const splatTreeList = requiredElement<HTMLElement>("splat-tree-list");
 const colliderTreeList = requiredElement<HTMLElement>("collider-tree-list");
 const splatCountElement = requiredElement<HTMLElement>("splat-count");
 const colliderCountElement = requiredElement<HTMLElement>("collider-count");
+const behaviorMode = requiredElement<HTMLSelectElement>("behavior-mode");
+const triggerOption = requiredElement<HTMLOptionElement>("trigger-option");
+const triggerFields = requiredElement<HTMLElement>("trigger-fields");
+const triggerEventInput = requiredElement<HTMLInputElement>("trigger-event");
+const triggerMessageInput = requiredElement<HTMLInputElement>("trigger-message");
+const triggerOnceInput = requiredElement<HTMLInputElement>("trigger-once");
+const interactableEnabledInput = requiredElement<HTMLInputElement>("interactable-enabled");
+const interactableFields = requiredElement<HTMLElement>("interactable-fields");
+const interactablePromptInput = requiredElement<HTMLInputElement>("interactable-prompt");
+const interactableEventInput = requiredElement<HTMLInputElement>("interactable-event");
+const interactableMessageInput = requiredElement<HTMLInputElement>("interactable-message");
+const interactableDistanceInput = requiredElement<HTMLInputElement>("interactable-distance");
+const interactionPromptElement = requiredElement<HTMLElement>("interaction-prompt");
+const interactionPromptText = requiredElement<HTMLElement>("interaction-prompt-text");
 const statusElement = requiredElement<HTMLElement>("status");
 const worldNameElement = requiredElement<HTMLElement>("world-name");
 const fpsElement = requiredElement<HTMLElement>("fps");
@@ -41,14 +64,25 @@ const toastElement = requiredElement<HTMLElement>("toast");
 const positionInputs = getVectorInputs("position");
 const rotationInputs = getVectorInputs("rotation");
 const sizeInputs = getVectorInputs("size");
+const meshScaleInputs = getVectorInputs("mesh-scale");
 const radiusInput = requiredElement<HTMLInputElement>("capsule-radius");
 const halfHeightInput = requiredElement<HTMLInputElement>("capsule-half-height");
 const inspectorInputs = [
   ...positionInputs,
   ...rotationInputs,
   ...sizeInputs,
+  ...meshScaleInputs,
   radiusInput,
   halfHeightInput,
+  triggerEventInput,
+  triggerMessageInput,
+  triggerOnceInput,
+  interactableEnabledInput,
+  interactablePromptInput,
+  interactableEventInput,
+  interactableMessageInput,
+  interactableDistanceInput,
+  behaviorMode,
 ];
 
 let toastTimer = 0;
@@ -106,9 +140,11 @@ async function bootstrap(): Promise<void> {
       redoButton.disabled = !canRedo;
     },
     onSceneTreeChange: renderSceneTree,
+    onGameplayPrompt: updateGameplayPrompt,
+    onGameplayEvent: showGameplayEvent,
   });
   engine.start();
-  showToast("Runtime 0.4 已就绪：支持 Box、Capsule 与场景对象树。", 4200);
+  showToast("Runtime 0.5 已就绪：Mesh、Trigger 与 Interactable 已接通。", 4600);
 
   enterButton.addEventListener("click", () => engine?.lockPointer());
   canvas.addEventListener("click", () => {
@@ -127,6 +163,10 @@ async function bootstrap(): Promise<void> {
   });
   addCapsuleButton.addEventListener("click", () => {
     const collider = engine?.addCapsuleCollider();
+    if (collider) showToast(`已新增 ${collider.id}`);
+  });
+  addMeshButton.addEventListener("click", () => {
+    const collider = engine?.addMeshCollider();
     if (collider) showToast(`已新增 ${collider.id}`);
   });
   duplicateColliderButton.addEventListener("click", () => {
@@ -148,7 +188,16 @@ async function bootstrap(): Promise<void> {
   rotateButton.addEventListener("click", () => engine?.setTransformMode("rotate"));
   scaleButton.addEventListener("click", () => engine?.setTransformMode("scale"));
 
+  behaviorMode.addEventListener("change", () => {
+    refreshBehaviorVisibility();
+    applyInspectorValues();
+  });
+  interactableEnabledInput.addEventListener("change", () => {
+    refreshBehaviorVisibility();
+    applyInspectorValues();
+  });
   for (const input of inspectorInputs) {
+    if (input === behaviorMode || input === interactableEnabledInput) continue;
     input.addEventListener("change", applyInspectorValues);
   }
 
@@ -179,25 +228,57 @@ function applyInspectorValues(): void {
     return;
   }
 
+  const behavior = readBehavior(selectedCollider);
+  const interactable = readInteractable();
+  const common = { position, rotationDeg, behavior, interactable };
+
   if (selectedCollider.type === "box") {
     const size = readVector(sizeInputs, 0.05);
-    if (!size) {
-      showToast("请输入有效尺寸", 2400);
-      updateSelection(selectedCollider);
-      return;
+    if (!size) return showInvalidShape("请输入有效 Box 尺寸");
+    engine.updateSelectedCollider({ ...common, size });
+  } else if (selectedCollider.type === "capsule") {
+    const radius = readPositiveNumber(radiusInput);
+    const halfHeight = readPositiveNumber(halfHeightInput);
+    if (radius === null || halfHeight === null) {
+      return showInvalidShape("请输入有效 Capsule 尺寸");
     }
-    engine.updateSelectedCollider({ position, rotationDeg, size });
-    return;
+    engine.updateSelectedCollider({ ...common, radius, halfHeight });
+  } else {
+    const scale3 = readVector(meshScaleInputs, 0.05);
+    if (!scale3) return showInvalidShape("请输入有效 Mesh Scale");
+    engine.updateSelectedCollider({
+      ...common,
+      behavior: { mode: "solid" },
+      scale3,
+    });
   }
+}
 
-  const radius = readPositiveNumber(radiusInput);
-  const halfHeight = readPositiveNumber(halfHeightInput);
-  if (radius === null || halfHeight === null) {
-    showToast("请输入有效 Capsule 尺寸", 2400);
-    updateSelection(selectedCollider);
-    return;
+function readBehavior(collider: ColliderData): ColliderBehavior {
+  if (collider.type === "mesh" || behaviorMode.value !== "trigger") {
+    return { mode: "solid" };
   }
-  engine.updateSelectedCollider({ position, rotationDeg, radius, halfHeight });
+  return {
+    mode: "trigger",
+    event: triggerEventInput.value.trim() || `${collider.id}:enter`,
+    message: triggerMessageInput.value.trim() || `Entered ${collider.id}`,
+    once: triggerOnceInput.checked,
+  };
+}
+
+function readInteractable(): InteractableData | null {
+  if (!interactableEnabledInput.checked) return null;
+  return {
+    prompt: interactablePromptInput.value.trim() || "交互",
+    event: interactableEventInput.value.trim() || "interact",
+    message: interactableMessageInput.value.trim() || "Interaction fired",
+    maxDistance: readPositiveNumber(interactableDistanceInput) ?? 3,
+  };
+}
+
+function showInvalidShape(message: string): void {
+  showToast(message, 2400);
+  updateSelection(selectedCollider);
 }
 
 function updateSelection(collider: ColliderData | null): void {
@@ -212,16 +293,40 @@ function updateSelection(collider: ColliderData | null): void {
 
   const isBox = collider?.type === "box";
   const isCapsule = collider?.type === "capsule";
+  const isMesh = collider?.type === "mesh";
   boxDimensions.classList.toggle("hidden", !isBox);
   capsuleDimensions.classList.toggle("hidden", !isCapsule);
+  meshDimensions.classList.toggle("hidden", !isMesh);
   setVectorInputs(sizeInputs, isBox ? collider.size : null);
+  setVectorInputs(meshScaleInputs, isMesh ? collider.scale3 ?? [1, 1, 1] : null);
   radiusInput.value = isCapsule ? collider.radius.toFixed(3) : "";
   halfHeightInput.value = isCapsule ? collider.halfHeight.toFixed(3) : "";
 
+  const behavior = collider?.behavior ?? { mode: "solid" };
+  behaviorMode.value = isMesh ? "solid" : behavior.mode;
+  triggerOption.disabled = isMesh;
+  triggerEventInput.value = behavior.mode === "trigger" ? behavior.event : "";
+  triggerMessageInput.value = behavior.mode === "trigger" ? behavior.message : "";
+  triggerOnceInput.checked = behavior.mode === "trigger" && Boolean(behavior.once);
+
+  const interactable = collider?.interactable;
+  interactableEnabledInput.checked = Boolean(interactable);
+  interactablePromptInput.value = interactable?.prompt ?? "";
+  interactableEventInput.value = interactable?.event ?? "";
+  interactableMessageInput.value = interactable?.message ?? "";
+  interactableDistanceInput.value = String(interactable?.maxDistance ?? 3);
+  refreshBehaviorVisibility();
+
   for (const input of inspectorInputs) input.disabled = collider === null;
+  if (collider?.type === "mesh") triggerOption.disabled = true;
   deleteColliderButton.disabled = collider === null;
   duplicateColliderButton.disabled = collider === null;
   focusSelectedButton.disabled = collider === null;
+}
+
+function refreshBehaviorVisibility(): void {
+  triggerFields.classList.toggle("hidden", behaviorMode.value !== "trigger");
+  interactableFields.classList.toggle("hidden", !interactableEnabledInput.checked);
 }
 
 function renderSceneTree(state: SceneTreeState): void {
@@ -233,12 +338,13 @@ function renderSceneTree(state: SceneTreeState): void {
   );
   colliderTreeList.replaceChildren(
     ...state.colliders.map((item) => {
-      const button = createTreeItem(
-        item.type === "box" ? "B" : "C",
-        item.id,
-        item.type,
-        item.id === state.selectedId,
-      );
+      const icon = item.type === "box" ? "B" : item.type === "capsule" ? "C" : "M";
+      const suffix = [item.mode === "trigger" ? "trigger" : item.type, item.interactable ? "E" : ""]
+        .filter(Boolean)
+        .join(" · ");
+      const button = createTreeItem(icon, item.id, suffix, item.id === state.selectedId);
+      button.classList.toggle("trigger-item", item.mode === "trigger");
+      button.classList.toggle("interactable-item", item.interactable);
       button.addEventListener("click", () => engine?.selectCollider(item.id));
       return button;
     }),
@@ -255,11 +361,23 @@ function createTreeItem(
   button.type = "button";
   button.className = "tree-item";
   button.classList.toggle("selected", selected);
-  button.innerHTML = `<span class="tree-icon">${icon}</span><span class="tree-name"></span><small>${kind}</small>`;
+  button.innerHTML = `<span class="tree-icon">${icon}</span><span class="tree-name"></span><small></small>`;
   const nameElement = button.querySelector<HTMLElement>(".tree-name");
+  const kindElement = button.querySelector<HTMLElement>("small");
   if (nameElement) nameElement.textContent = name;
+  if (kindElement) kindElement.textContent = kind;
   if (kind === "splat") button.disabled = true;
   return button;
+}
+
+function updateGameplayPrompt(prompt: InteractionPrompt | null): void {
+  interactionPromptElement.classList.toggle("hidden", prompt === null);
+  interactionPromptText.textContent = prompt?.prompt ?? "";
+}
+
+function showGameplayEvent(event: GameplayEvent): void {
+  showToast(`${event.kind === "trigger" ? "触发" : "交互"} · ${event.message}`, 4200);
+  statusElement.textContent = `${event.event} ← ${event.sourceId}`;
 }
 
 function updateTransformMode(mode: TransformControlsMode): void {
