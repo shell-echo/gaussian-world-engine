@@ -13,11 +13,19 @@
       <header class="topbar panel">
         <div class="brand">
           <strong>SPLAT WORLD</strong>
-          <span class="version">runtime 0.7</span>
+          <span class="version">runtime 0.8</span>
         </div>
         <div class="actions">
           <button id="mode-button" type="button">进入编辑</button>
           <button id="toggle-colliders" type="button">碰撞层：开</button>
+          <button id="open-world-bundle" type="button">打开 .splatworld</button>
+          <input
+            id="world-bundle-file"
+            type="file"
+            accept=".splatworld,application/zip,application/vnd.splatworld+zip"
+            hidden
+          />
+          <button id="export-world-bundle" type="button" disabled>导出 .splatworld</button>
           <select id="glb-mode" class="top-select" title="GLB collision mode">
             <option value="trimesh">GLB → TriMesh</option>
             <option value="convex">GLB → Convex</option>
@@ -38,7 +46,7 @@
       <section id="launch-panel" class="launch panel">
         <div class="eyebrow">GAUSSIAN-FIRST PLAYABLE WORLD</div>
         <h1>走进高斯场景</h1>
-        <p>Gaussian Splats 构成世界，GLB 可视模型、简化碰撞代理和 Rapier 刚体让它真正可玩。</p>
+        <p>Gaussian Splats、GLB、碰撞代理、音频和游戏组件现在可以封装为一个可分发的 .splatworld 世界包。</p>
         <button id="enter-button" class="primary" type="button">进入世界</button>
         <small>WASD 移动 · Shift 加速 · Space 跳跃 · E 交互 · Esc 释放鼠标</small>
       </section>
@@ -202,7 +210,7 @@
           <button id="delete-collider" type="button" disabled>删除</button>
           <button id="export-world" type="button">导出 world.json</button>
         </div>
-        <small>TriMesh 适合静态建筑；Convex 支持动态刚体。嵌入式 GLB 上限为 25 MB。</small>
+        <small>TriMesh 适合静态建筑；Convex 支持动态刚体。完整项目可通过顶部导出为 .splatworld。</small>
       </aside>
 
       <aside class="telemetry panel">
@@ -218,6 +226,6 @@
       <div id="toast" role="status" aria-live="polite"></div>
       <div class="crosshair" aria-hidden="true"></div>
     </div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/world/BundleBootstrap.ts"></script>
   </body>
 </html>
