@@ -3,9 +3,11 @@ import "./styles.css";
 import { Engine, type SceneTreeState } from "./core/Engine";
 import type { GameplayEvent, InteractionPrompt } from "./gameplay/GameplaySystem";
 import type {
+  AudioSourceData,
   ColliderBehavior,
   ColliderData,
   InteractableData,
+  RigidBodyData,
   Vec3Tuple,
   WorldManifest,
 } from "./types/world";
@@ -20,6 +22,8 @@ const modeButton = requiredElement<HTMLButtonElement>("mode-button");
 const toggleColliderButton = requiredElement<HTMLButtonElement>("toggle-colliders");
 const importButton = requiredElement<HTMLButtonElement>("import-splat");
 const fileInput = requiredElement<HTMLInputElement>("splat-file");
+const importGLBButton = requiredElement<HTMLButtonElement>("import-glb");
+const glbFileInput = requiredElement<HTMLInputElement>("glb-file");
 const addBoxButton = requiredElement<HTMLButtonElement>("add-box-collider");
 const addCapsuleButton = requiredElement<HTMLButtonElement>("add-capsule-collider");
 const addMeshButton = requiredElement<HTMLButtonElement>("add-mesh-collider");
@@ -47,12 +51,25 @@ const triggerFields = requiredElement<HTMLElement>("trigger-fields");
 const triggerEventInput = requiredElement<HTMLInputElement>("trigger-event");
 const triggerMessageInput = requiredElement<HTMLInputElement>("trigger-message");
 const triggerOnceInput = requiredElement<HTMLInputElement>("trigger-once");
+const bodyMode = requiredElement<HTMLSelectElement>("body-mode");
+const dynamicBodyOption = requiredElement<HTMLOptionElement>("dynamic-body-option");
+const dynamicBodyFields = requiredElement<HTMLElement>("dynamic-body-fields");
+const gravityScaleInput = requiredElement<HTMLInputElement>("body-gravity-scale");
+const linearDampingInput = requiredElement<HTMLInputElement>("body-linear-damping");
+const angularDampingInput = requiredElement<HTMLInputElement>("body-angular-damping");
 const interactableEnabledInput = requiredElement<HTMLInputElement>("interactable-enabled");
 const interactableFields = requiredElement<HTMLElement>("interactable-fields");
 const interactablePromptInput = requiredElement<HTMLInputElement>("interactable-prompt");
 const interactableEventInput = requiredElement<HTMLInputElement>("interactable-event");
 const interactableMessageInput = requiredElement<HTMLInputElement>("interactable-message");
 const interactableDistanceInput = requiredElement<HTMLInputElement>("interactable-distance");
+const audioEnabledInput = requiredElement<HTMLInputElement>("audio-enabled");
+const audioFields = requiredElement<HTMLElement>("audio-fields");
+const audioUrlInput = requiredElement<HTMLInputElement>("audio-url");
+const audioVolumeInput = requiredElement<HTMLInputElement>("audio-volume");
+const audioRefDistanceInput = requiredElement<HTMLInputElement>("audio-ref-distance");
+const audioLoopInput = requiredElement<HTMLInputElement>("audio-loop");
+const audioAutoplayInput = requiredElement<HTMLInputElement>("audio-autoplay");
 const interactionPromptElement = requiredElement<HTMLElement>("interaction-prompt");
 const interactionPromptText = requiredElement<HTMLElement>("interaction-prompt-text");
 const statusElement = requiredElement<HTMLElement>("status");
@@ -67,7 +84,7 @@ const sizeInputs = getVectorInputs("size");
 const meshScaleInputs = getVectorInputs("mesh-scale");
 const radiusInput = requiredElement<HTMLInputElement>("capsule-radius");
 const halfHeightInput = requiredElement<HTMLInputElement>("capsule-half-height");
-const inspectorInputs = [
+const inspectorInputs: Array<HTMLInputElement | HTMLSelectElement> = [
   ...positionInputs,
   ...rotationInputs,
   ...sizeInputs,
@@ -77,12 +94,22 @@ const inspectorInputs = [
   triggerEventInput,
   triggerMessageInput,
   triggerOnceInput,
+  behaviorMode,
+  bodyMode,
+  gravityScaleInput,
+  linearDampingInput,
+  angularDampingInput,
   interactableEnabledInput,
   interactablePromptInput,
   interactableEventInput,
   interactableMessageInput,
   interactableDistanceInput,
-  behaviorMode,
+  audioEnabledInput,
+  audioUrlInput,
+  audioVolumeInput,
+  audioRefDistanceInput,
+  audioLoopInput,
+  audioAutoplayInput,
 ];
 
 let toastTimer = 0;
@@ -144,11 +171,17 @@ async function bootstrap(): Promise<void> {
     onGameplayEvent: showGameplayEvent,
   });
   engine.start();
-  showToast("Runtime 0.5 已就绪：Mesh、Trigger 与 Interactable 已接通。", 4600);
+  showToast("Runtime 0.6 已就绪：GLB、动态刚体和位置音频已接通。", 4800);
 
-  enterButton.addEventListener("click", () => engine?.lockPointer());
-  canvas.addEventListener("click", () => {
-    if (!editorEnabled && !engine?.player.controls.isLocked) engine?.lockPointer();
+  enterButton.addEventListener("click", async () => {
+    await unlockAudio();
+    engine?.lockPointer();
+  });
+  canvas.addEventListener("click", async () => {
+    if (!editorEnabled && !engine?.player.controls.isLocked) {
+      await unlockAudio();
+      engine?.lockPointer();
+    }
   });
 
   modeButton.addEventListener("click", () => engine?.toggleEditorMode());
@@ -188,16 +221,19 @@ async function bootstrap(): Promise<void> {
   rotateButton.addEventListener("click", () => engine?.setTransformMode("rotate"));
   scaleButton.addEventListener("click", () => engine?.setTransformMode("scale"));
 
-  behaviorMode.addEventListener("change", () => {
-    refreshBehaviorVisibility();
-    applyInspectorValues();
-  });
-  interactableEnabledInput.addEventListener("change", () => {
-    refreshBehaviorVisibility();
-    applyInspectorValues();
-  });
+  behaviorMode.addEventListener("change", onComponentToggle);
+  bodyMode.addEventListener("change", onComponentToggle);
+  interactableEnabledInput.addEventListener("change", onComponentToggle);
+  audioEnabledInput.addEventListener("change", onComponentToggle);
   for (const input of inspectorInputs) {
-    if (input === behaviorMode || input === interactableEnabledInput) continue;
+    if (
+      input === behaviorMode ||
+      input === bodyMode ||
+      input === interactableEnabledInput ||
+      input === audioEnabledInput
+    ) {
+      continue;
+    }
     input.addEventListener("change", applyInspectorValues);
   }
 
@@ -209,13 +245,39 @@ async function bootstrap(): Promise<void> {
       await engine.importSplat(file);
       showToast(`已导入 ${file.name}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      showToast(`导入失败：${message}`, 6500);
-      console.error(error);
+      showError("导入失败", error);
     } finally {
       fileInput.value = "";
     }
   });
+
+  importGLBButton.addEventListener("click", () => {
+    if (!editorEnabled) {
+      showToast("请先进入编辑模式", 2400);
+      return;
+    }
+    glbFileInput.click();
+  });
+  glbFileInput.addEventListener("change", async () => {
+    const file = glbFileInput.files?.[0];
+    if (!file || !engine) return;
+    try {
+      statusElement.textContent = `解析 ${file.name}`;
+      const collider = await engine.importGLBCollider(file);
+      if (collider) {
+        showToast(`已提取 ${collider.indices.length / 3} 个碰撞三角形`, 4600);
+      }
+    } catch (error) {
+      showError("GLB 提取失败", error);
+    } finally {
+      glbFileInput.value = "";
+    }
+  });
+}
+
+function onComponentToggle(): void {
+  refreshComponentVisibility();
+  applyInspectorValues();
 }
 
 function applyInspectorValues(): void {
@@ -223,14 +285,16 @@ function applyInspectorValues(): void {
   const position = readVector(positionInputs);
   const rotationDeg = readVector(rotationInputs);
   if (!position || !rotationDeg) {
-    showToast("请输入有效数字", 2400);
-    updateSelection(selectedCollider);
+    showInvalidShape("请输入有效数字");
     return;
   }
 
   const behavior = readBehavior(selectedCollider);
   const interactable = readInteractable();
-  const common = { position, rotationDeg, behavior, interactable };
+  const body = readBody(selectedCollider, behavior);
+  const audio = readAudio();
+  if (audio === undefined) return;
+  const common = { position, rotationDeg, behavior, interactable, body, audio };
 
   if (selectedCollider.type === "box") {
     const size = readVector(sizeInputs, 0.05);
@@ -249,6 +313,7 @@ function applyInspectorValues(): void {
     engine.updateSelectedCollider({
       ...common,
       behavior: { mode: "solid" },
+      body: { mode: "fixed" },
       scale3,
     });
   }
@@ -266,6 +331,18 @@ function readBehavior(collider: ColliderData): ColliderBehavior {
   };
 }
 
+function readBody(collider: ColliderData, behavior: ColliderBehavior): RigidBodyData {
+  if (collider.type === "mesh" || behavior.mode === "trigger" || bodyMode.value !== "dynamic") {
+    return { mode: "fixed" };
+  }
+  return {
+    mode: "dynamic",
+    gravityScale: readFiniteNumber(gravityScaleInput) ?? 1,
+    linearDamping: readNonNegativeNumber(linearDampingInput) ?? 0.15,
+    angularDamping: readNonNegativeNumber(angularDampingInput) ?? 0.25,
+  };
+}
+
 function readInteractable(): InteractableData | null {
   if (!interactableEnabledInput.checked) return null;
   return {
@@ -273,6 +350,22 @@ function readInteractable(): InteractableData | null {
     event: interactableEventInput.value.trim() || "interact",
     message: interactableMessageInput.value.trim() || "Interaction fired",
     maxDistance: readPositiveNumber(interactableDistanceInput) ?? 3,
+  };
+}
+
+function readAudio(): AudioSourceData | null | undefined {
+  if (!audioEnabledInput.checked) return null;
+  const url = audioUrlInput.value.trim();
+  if (!url) {
+    showInvalidShape("Audio Source 需要可访问的 URL");
+    return undefined;
+  }
+  return {
+    url,
+    volume: clamp(readFiniteNumber(audioVolumeInput) ?? 1, 0, 1),
+    refDistance: readPositiveNumber(audioRefDistanceInput) ?? 2,
+    loop: audioLoopInput.checked,
+    autoplay: audioAutoplayInput.checked,
   };
 }
 
@@ -309,24 +402,45 @@ function updateSelection(collider: ColliderData | null): void {
   triggerMessageInput.value = behavior.mode === "trigger" ? behavior.message : "";
   triggerOnceInput.checked = behavior.mode === "trigger" && Boolean(behavior.once);
 
+  const body = collider?.body ?? { mode: "fixed" };
+  const bodyForcedFixed = isMesh || behavior.mode === "trigger";
+  bodyMode.value = bodyForcedFixed ? "fixed" : body.mode;
+  dynamicBodyOption.disabled = bodyForcedFixed;
+  gravityScaleInput.value = String(body.gravityScale ?? 1);
+  linearDampingInput.value = String(body.linearDamping ?? 0.15);
+  angularDampingInput.value = String(body.angularDamping ?? 0.25);
+
   const interactable = collider?.interactable;
   interactableEnabledInput.checked = Boolean(interactable);
   interactablePromptInput.value = interactable?.prompt ?? "";
   interactableEventInput.value = interactable?.event ?? "";
   interactableMessageInput.value = interactable?.message ?? "";
   interactableDistanceInput.value = String(interactable?.maxDistance ?? 3);
-  refreshBehaviorVisibility();
+
+  const audio = collider?.audio;
+  audioEnabledInput.checked = Boolean(audio);
+  audioUrlInput.value = audio?.url ?? "";
+  audioVolumeInput.value = String(audio?.volume ?? 1);
+  audioRefDistanceInput.value = String(audio?.refDistance ?? 2);
+  audioLoopInput.checked = Boolean(audio?.loop);
+  audioAutoplayInput.checked = Boolean(audio?.autoplay);
+  refreshComponentVisibility();
 
   for (const input of inspectorInputs) input.disabled = collider === null;
-  if (collider?.type === "mesh") triggerOption.disabled = true;
+  if (collider?.type === "mesh") {
+    triggerOption.disabled = true;
+    dynamicBodyOption.disabled = true;
+  }
   deleteColliderButton.disabled = collider === null;
   duplicateColliderButton.disabled = collider === null;
   focusSelectedButton.disabled = collider === null;
 }
 
-function refreshBehaviorVisibility(): void {
+function refreshComponentVisibility(): void {
   triggerFields.classList.toggle("hidden", behaviorMode.value !== "trigger");
+  dynamicBodyFields.classList.toggle("hidden", bodyMode.value !== "dynamic");
   interactableFields.classList.toggle("hidden", !interactableEnabledInput.checked);
+  audioFields.classList.toggle("hidden", !audioEnabledInput.checked);
 }
 
 function renderSceneTree(state: SceneTreeState): void {
@@ -339,12 +453,18 @@ function renderSceneTree(state: SceneTreeState): void {
   colliderTreeList.replaceChildren(
     ...state.colliders.map((item) => {
       const icon = item.type === "box" ? "B" : item.type === "capsule" ? "C" : "M";
-      const suffix = [item.mode === "trigger" ? "trigger" : item.type, item.interactable ? "E" : ""]
-        .filter(Boolean)
-        .join(" · ");
-      const button = createTreeItem(icon, item.id, suffix, item.id === state.selectedId);
+      const tags = [
+        item.mode === "trigger" ? "trigger" : item.type,
+        item.bodyMode === "dynamic" ? "dynamic" : "",
+        item.interactable ? "E" : "",
+        item.audio ? "audio" : "",
+      ].filter(Boolean);
+      const detail = item.sourceName ? `${tags.join(" · ")} · ${item.sourceName}` : tags.join(" · ");
+      const button = createTreeItem(icon, item.id, detail, item.id === state.selectedId);
       button.classList.toggle("trigger-item", item.mode === "trigger");
+      button.classList.toggle("dynamic-item", item.bodyMode === "dynamic");
       button.classList.toggle("interactable-item", item.interactable);
+      button.classList.toggle("audio-item", item.audio);
       button.addEventListener("click", () => engine?.selectCollider(item.id));
       return button;
     }),
@@ -394,6 +514,14 @@ async function loadManifest(url: string): Promise<WorldManifest> {
   return value;
 }
 
+async function unlockAudio(): Promise<void> {
+  try {
+    await engine?.resumeAudio();
+  } catch (error) {
+    console.warn("Unable to resume audio context.", error);
+  }
+}
+
 function requiredElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
   if (!element) throw new Error(`Missing DOM element #${id}`);
@@ -429,15 +557,35 @@ function readVector(
   return [values[0] ?? 0, values[1] ?? 0, values[2] ?? 0];
 }
 
-function readPositiveNumber(input: HTMLInputElement): number | null {
+function readFiniteNumber(input: HTMLInputElement): number | null {
   const value = Number(input.value);
-  return Number.isFinite(value) && value > 0 ? Math.max(value, 0.05) : null;
+  return Number.isFinite(value) ? value : null;
+}
+
+function readNonNegativeNumber(input: HTMLInputElement): number | null {
+  const value = readFiniteNumber(input);
+  return value !== null && value >= 0 ? value : null;
+}
+
+function readPositiveNumber(input: HTMLInputElement): number | null {
+  const value = readFiniteNumber(input);
+  return value !== null && value > 0 ? Math.max(value, 0.05) : null;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
 }
 
 function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`;
   if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / 1024 ** 2).toFixed(1)} MB`;
+}
+
+function showError(prefix: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  showToast(`${prefix}：${message}`, 7000);
+  console.error(error);
 }
 
 function showToast(message: string, duration = 3200): void {

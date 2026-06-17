@@ -33,6 +33,21 @@ export interface InteractableData {
   maxDistance?: number;
 }
 
+export interface RigidBodyData {
+  mode: "fixed" | "dynamic";
+  gravityScale?: number;
+  linearDamping?: number;
+  angularDamping?: number;
+}
+
+export interface AudioSourceData {
+  url: string;
+  loop?: boolean;
+  autoplay?: boolean;
+  volume?: number;
+  refDistance?: number;
+}
+
 export interface ColliderBaseData {
   id: string;
   position?: Vec3Tuple;
@@ -40,6 +55,8 @@ export interface ColliderBaseData {
   debugVisible?: boolean;
   behavior?: ColliderBehavior;
   interactable?: InteractableData;
+  body?: RigidBodyData;
+  audio?: AudioSourceData;
 }
 
 export interface BoxColliderData extends ColliderBaseData {
@@ -60,6 +77,7 @@ export interface MeshColliderData extends ColliderBaseData {
   vertices: Vec3Tuple[];
   indices: number[];
   scale3?: Vec3Tuple;
+  sourceName?: string;
 }
 
 export type ColliderData = BoxColliderData | CapsuleColliderData | MeshColliderData;
@@ -138,11 +156,14 @@ export function assertColliderData(value: unknown): asserts value is ColliderDat
 
   assertBehavior(collider.id, collider.behavior);
   assertInteractable(collider.id, collider.interactable);
+  assertBody(collider.id, collider.body);
+  assertAudio(collider.id, collider.audio);
 
   if (collider.type === "box") {
     if (!isPositiveVec3(collider.size)) {
       throw new Error(`Box collider ${collider.id} has an invalid size.`);
     }
+    assertBodyCompatibility(collider.id, collider.type, collider.behavior, collider.body);
     return;
   }
 
@@ -150,12 +171,16 @@ export function assertColliderData(value: unknown): asserts value is ColliderDat
     if (!isPositiveNumber(collider.radius) || !isPositiveNumber(collider.halfHeight)) {
       throw new Error(`Capsule collider ${collider.id} has invalid dimensions.`);
     }
+    assertBodyCompatibility(collider.id, collider.type, collider.behavior, collider.body);
     return;
   }
 
   if (collider.type === "mesh") {
     if (collider.behavior?.mode === "trigger") {
       throw new Error(`Mesh collider ${collider.id} cannot be used as a trigger.`);
+    }
+    if (collider.body?.mode === "dynamic") {
+      throw new Error(`Mesh collider ${collider.id} cannot be dynamic.`);
     }
     if (!Array.isArray(collider.vertices) || collider.vertices.length < 3) {
       throw new Error(`Mesh collider ${collider.id} needs at least three vertices.`);
@@ -179,6 +204,9 @@ export function assertColliderData(value: unknown): asserts value is ColliderDat
     }
     if (collider.scale3 !== undefined && !isPositiveVec3(collider.scale3)) {
       throw new Error(`Mesh collider ${collider.id} has an invalid scale.`);
+    }
+    if (collider.sourceName !== undefined && !isNonEmptyString(collider.sourceName)) {
+      throw new Error(`Mesh collider ${collider.id} has an invalid source name.`);
     }
     return;
   }
@@ -211,6 +239,52 @@ function assertInteractable(id: string, interactable: InteractableData | undefin
   }
 }
 
+function assertBody(id: string, body: RigidBodyData | undefined): void {
+  if (!body) return;
+  if (body.mode !== "fixed" && body.mode !== "dynamic") {
+    throw new Error(`Collider ${id} has an invalid rigid body mode.`);
+  }
+  if (body.gravityScale !== undefined && !isFiniteNumber(body.gravityScale)) {
+    throw new Error(`Collider ${id} has an invalid gravity scale.`);
+  }
+  if (body.linearDamping !== undefined && !isNonNegativeNumber(body.linearDamping)) {
+    throw new Error(`Collider ${id} has invalid linear damping.`);
+  }
+  if (body.angularDamping !== undefined && !isNonNegativeNumber(body.angularDamping)) {
+    throw new Error(`Collider ${id} has invalid angular damping.`);
+  }
+}
+
+function assertAudio(id: string, audio: AudioSourceData | undefined): void {
+  if (!audio) return;
+  if (!isNonEmptyString(audio.url)) {
+    throw new Error(`Collider ${id} has an invalid audio URL.`);
+  }
+  if (audio.loop !== undefined && typeof audio.loop !== "boolean") {
+    throw new Error(`Collider ${id} has an invalid audio loop flag.`);
+  }
+  if (audio.autoplay !== undefined && typeof audio.autoplay !== "boolean") {
+    throw new Error(`Collider ${id} has an invalid audio autoplay flag.`);
+  }
+  if (audio.volume !== undefined && (!isFiniteNumber(audio.volume) || audio.volume < 0 || audio.volume > 1)) {
+    throw new Error(`Collider ${id} has an invalid audio volume.`);
+  }
+  if (audio.refDistance !== undefined && !isPositiveNumber(audio.refDistance)) {
+    throw new Error(`Collider ${id} has an invalid audio reference distance.`);
+  }
+}
+
+function assertBodyCompatibility(
+  id: string,
+  type: "box" | "capsule",
+  behavior: ColliderBehavior | undefined,
+  body: RigidBodyData | undefined,
+): void {
+  if (behavior?.mode === "trigger" && body?.mode === "dynamic") {
+    throw new Error(`${type} trigger ${id} cannot be dynamic.`);
+  }
+}
+
 function isVec3(value: unknown): value is Vec3Tuple {
   return (
     Array.isArray(value) &&
@@ -223,8 +297,16 @@ function isPositiveVec3(value: unknown): value is Vec3Tuple {
   return isVec3(value) && value.every((item) => item > 0);
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 function isPositiveNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0;
+  return isFiniteNumber(value) && value > 0;
+}
+
+function isNonNegativeNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0;
 }
 
 function isNonEmptyString(value: unknown): value is string {

@@ -13,11 +13,13 @@
       <header class="topbar panel">
         <div>
           <strong>SPLAT WORLD</strong>
-          <span class="version">runtime 0.5</span>
+          <span class="version">runtime 0.6</span>
         </div>
         <div class="actions">
           <button id="mode-button" type="button">进入编辑</button>
           <button id="toggle-colliders" type="button">碰撞层：开</button>
+          <button id="import-glb" type="button">导入 GLB 碰撞</button>
+          <input id="glb-file" type="file" accept=".glb,model/gltf-binary" hidden />
           <button id="import-splat" type="button">导入 Splat</button>
           <input id="splat-file" type="file" accept=".ply,.spz,.splat,.ksplat,.sog,.zip,.rad" hidden />
         </div>
@@ -26,7 +28,7 @@
       <section id="launch-panel" class="launch panel">
         <div class="eyebrow">GAUSSIAN-FIRST PLAYABLE WORLD</div>
         <h1>走进高斯场景</h1>
-        <p>Gaussian Splats 负责视觉，代理几何、Trigger 与 Interactable 负责可玩的世界。</p>
+        <p>Gaussian Splats 负责视觉，代理碰撞、动态刚体、Trigger、交互和位置音频负责游戏世界。</p>
         <button id="enter-button" class="primary" type="button">进入世界</button>
         <small>WASD 移动 · Shift 加速 · Space 跳跃 · E 交互 · Esc 释放鼠标</small>
       </section>
@@ -43,7 +45,7 @@
           <div id="splat-tree-list" class="tree-list"></div>
         </div>
         <div class="tree-section">
-          <div class="tree-section-title">Colliders <span id="collider-count">0</span></div>
+          <div class="tree-section-title">Physics Objects <span id="collider-count">0</span></div>
           <div id="collider-tree-list" class="tree-list"></div>
         </div>
       </aside>
@@ -119,6 +121,24 @@
         </section>
 
         <section class="component-card">
+          <div class="component-title">Rigid Body</div>
+          <label class="field-label">
+            Body Mode
+            <select id="body-mode" disabled>
+              <option value="fixed">Fixed</option>
+              <option id="dynamic-body-option" value="dynamic">Dynamic</option>
+            </select>
+          </label>
+          <div id="dynamic-body-fields" class="stack-fields hidden">
+            <div class="scalar-grid three">
+              <label>Gravity<input id="body-gravity-scale" type="number" step="0.1" value="1" disabled /></label>
+              <label>Linear Damping<input id="body-linear-damping" type="number" min="0" step="0.05" value="0.15" disabled /></label>
+              <label>Angular Damping<input id="body-angular-damping" type="number" min="0" step="0.05" value="0.25" disabled /></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="component-card">
           <label class="component-toggle">
             <span class="component-title">Interactable</span>
             <input id="interactable-enabled" type="checkbox" disabled />
@@ -128,6 +148,24 @@
             <label class="field-label">Event<input id="interactable-event" type="text" placeholder="object:inspect" disabled /></label>
             <label class="field-label">Message<input id="interactable-message" type="text" placeholder="Interaction fired" disabled /></label>
             <label class="field-label">Distance<input id="interactable-distance" type="number" min="0.05" step="0.25" value="3" disabled /></label>
+          </div>
+        </section>
+
+        <section class="component-card">
+          <label class="component-toggle">
+            <span class="component-title">Audio Source</span>
+            <input id="audio-enabled" type="checkbox" disabled />
+          </label>
+          <div id="audio-fields" class="stack-fields hidden">
+            <label class="field-label">URL<input id="audio-url" type="url" placeholder="/audio/ambience.ogg" disabled /></label>
+            <div class="scalar-grid">
+              <label>Volume<input id="audio-volume" type="number" min="0" max="1" step="0.05" value="1" disabled /></label>
+              <label>Ref Distance<input id="audio-ref-distance" type="number" min="0.05" step="0.25" value="2" disabled /></label>
+            </div>
+            <div class="inline-checks">
+              <label class="check-row"><input id="audio-loop" type="checkbox" disabled /> Loop</label>
+              <label class="check-row"><input id="audio-autoplay" type="checkbox" disabled /> Autoplay</label>
+            </div>
           </div>
         </section>
 
@@ -141,7 +179,7 @@
           <button id="delete-collider" type="button" disabled>删除</button>
           <button id="export-world" type="button">导出 world.json</button>
         </div>
-        <small>对象树或视口选择 · ⌘/Ctrl+D 复制 · Delete 删除 · F 聚焦</small>
+        <small>导入 GLB 会提取所有三角网格并合并为静态 TriMesh Collider，最多 100,000 个三角形。</small>
       </aside>
 
       <aside class="telemetry panel">
