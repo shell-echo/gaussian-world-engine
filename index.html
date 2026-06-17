@@ -13,7 +13,7 @@
       <header class="topbar panel">
         <div class="brand">
           <strong>SPLAT WORLD</strong>
-          <span class="version">runtime 0.8</span>
+          <span class="version">runtime 0.9</span>
         </div>
         <div class="actions">
           <button id="mode-button" type="button">进入编辑</button>
@@ -29,6 +29,10 @@
           <select id="glb-mode" class="top-select" title="GLB collision mode">
             <option value="trimesh">GLB → TriMesh</option>
             <option value="convex">GLB → Convex</option>
+          </select>
+          <select id="glb-algorithm" class="top-select" title="Proxy simplifier">
+            <option value="qem" selected>简化 QEM</option>
+            <option value="cluster">简化 Cluster</option>
           </select>
           <select id="glb-detail" class="top-select" title="Proxy detail">
             <option value="1">细节 100%</option>
@@ -46,7 +50,7 @@
       <section id="launch-panel" class="launch panel">
         <div class="eyebrow">GAUSSIAN-FIRST PLAYABLE WORLD</div>
         <h1>走进高斯场景</h1>
-        <p>Gaussian Splats、GLB、碰撞代理、音频和游戏组件现在可以封装为一个可分发的 .splatworld 世界包。</p>
+        <p>GLB 碰撞代理现在由 Web Worker 在后台生成，QEM 在保留轮廓的同时显著减少物理三角形。</p>
         <button id="enter-button" class="primary" type="button">进入世界</button>
         <small>WASD 移动 · Shift 加速 · Space 跳跃 · E 交互 · Esc 释放鼠标</small>
       </section>
@@ -210,7 +214,7 @@
           <button id="delete-collider" type="button" disabled>删除</button>
           <button id="export-world" type="button">导出 world.json</button>
         </div>
-        <small>TriMesh 适合静态建筑；Convex 支持动态刚体。完整项目可通过顶部导出为 .splatworld。</small>
+        <small>TriMesh 可选择 QEM 或 Cluster；Convex 使用后台点聚类。完整项目可导出为 .splatworld。</small>
       </aside>
 
       <aside class="telemetry panel">
@@ -219,6 +223,23 @@
         <div><span>FPS</span><b id="fps">--</b></div>
         <div><span>坐标</span><b id="position">0.0, 0.0, 0.0</b></div>
       </aside>
+
+      <section id="proxy-task" class="proxy-task panel hidden" aria-live="polite">
+        <div class="proxy-task-heading">
+          <div>
+            <span class="eyebrow">BACKGROUND PROXY JOB</span>
+            <strong id="proxy-task-stage">准备代理生成</strong>
+          </div>
+          <b id="proxy-task-percent">0%</b>
+        </div>
+        <div class="proxy-progress-track" aria-hidden="true">
+          <div id="proxy-progress-bar" class="proxy-progress-bar"></div>
+        </div>
+        <div class="proxy-task-footer">
+          <small id="proxy-task-detail">GLB 几何将在 Web Worker 中处理</small>
+          <button id="cancel-proxy-task" type="button">取消</button>
+        </div>
+      </section>
 
       <div id="interaction-prompt" class="interaction-prompt hidden">
         <kbd>E</kbd><span id="interaction-prompt-text"></span>
