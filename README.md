@@ -1,4 +1,4 @@
-# Splat World Engine — Runtime Prototype
+# Splat World Engine — Runtime + Collider Editor
 
 一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。
 
@@ -23,11 +23,15 @@ First-person playable world
 - JSON 世界清单
 - 浏览器本地导入 Splat 文件
 - 碰撞代理可视化开关
+- Orbit 编辑模式与 Transform Gizmo
+- 数值化 Position / Rotation / Size Inspector
+- Undo / Redo、复制与删除碰撞体
+- 导出更新后的 `world.json`
 - 自适应分辨率与基础运行指标
 
 ## 运行
 
-要求 Node.js 20.19+ 或 22.12+。
+要求 Node.js 20+。
 
 ```bash
 npm install
@@ -92,6 +96,7 @@ http://localhost:5173/?world=/worlds/my-world/world.json
 ```text
 src/
   core/Engine.ts                  主循环与系统编排
+  editor/EditorController.ts      Orbit、Gizmo 与编辑快捷键
   render/GaussianWorld.ts         Spark / Splat 视觉层
   physics/PhysicsWorld.ts         Rapier 代理碰撞世界
   player/FirstPersonController.ts 第一人称角色控制
@@ -112,7 +117,7 @@ src/
 
 ## 接下来三步
 
-### M1 — Runtime vertical slice（当前）
+### M1 — Runtime vertical slice
 
 - [x] 高斯加载
 - [x] 第一人称漫游
@@ -120,12 +125,15 @@ src/
 - [x] 世界清单
 - [x] 本地导入
 
-### M2 — Playable scene authoring
+### M2 — Playable scene authoring（当前）
 
-- [ ] Orbit / Fly 编辑模式
-- [ ] Transform gizmo
-- [ ] 可视化绘制 Box / Capsule / Mesh Collider
-- [ ] 保存世界清单
+- [x] Orbit 编辑模式
+- [x] Transform Gizmo
+- [x] 数值 Inspector
+- [x] Undo / Redo
+- [x] 新增、复制、删除 Box Collider
+- [x] 导出世界清单
+- [ ] Capsule / Mesh Collider
 - [ ] Trigger、Audio、Interactable
 - [ ] 简单脚本组件
 
@@ -140,8 +148,8 @@ src/
 ## 已知边界
 
 - 默认示例从 Spark 官方资源服务器加载示例 SPZ，离线使用时请替换成本地资源。
-- 当前代理碰撞只支持 Box；这故意保持第一版简单、稳定。
-- 本地导入的 Splat 会放在玩家前方，但尚无编辑 Gizmo。
+- 当前代理碰撞只支持 Box；下一阶段加入 Capsule / Mesh Collider。
+- 本地导入的 Splat 会放在玩家前方，但尚未进入资产 Inspector。
 - 移动端还没有触屏摇杆。
 - 尚未实现存档、ECS、音频、触发器和动态 Mesh 物理。
 

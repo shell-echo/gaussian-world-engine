@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#090b10" />
+    <title>Splat World Engine</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="viewport" aria-label="Splat World viewport"></canvas>
+
+      <header class="topbar panel">
+        <div>
+          <strong>SPLAT WORLD</strong>
+          <span class="version">runtime 0.3</span>
+        </div>
+        <div class="actions">
+          <button id="mode-button" type="button">进入编辑</button>
+          <button id="toggle-colliders" type="button">碰撞层：开</button>
+          <button id="import-splat" type="button">导入 Splat</button>
+          <input
+            id="splat-file"
+            type="file"
+            accept=".ply,.spz,.splat,.ksplat,.sog,.zip,.rad"
+            hidden
+          />
+        </div>
+      </header>
+
+      <section id="launch-panel" class="launch panel">
+        <div class="eyebrow">GAUSSIAN-FIRST PLAYABLE WORLD</div>
+        <h1>走进高斯场景</h1>
+        <p>主画面由 Gaussian Splats 渲染，行走与碰撞由隐藏代理几何驱动。</p>
+        <button id="enter-button" class="primary" type="button">进入世界</button>
+        <small>WASD 移动 · Shift 加速 · Space 跳跃 · Esc 释放鼠标</small>
+      </section>
+
+      <aside id="editor-panel" class="editor-panel panel hidden">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">COLLIDER EDITOR</span>
+            <strong id="selected-id">未选择</strong>
+          </div>
+          <button id="focus-selected" class="icon-button" type="button" title="聚焦选择 (F)" disabled>F</button>
+        </div>
+
+        <div class="history-row">
+          <button id="undo-button" type="button" title="撤销 (Ctrl/Cmd+Z)" disabled>撤销</button>
+          <button id="redo-button" type="button" title="重做 (Ctrl/Cmd+Shift+Z)" disabled>重做</button>
+        </div>
+
+        <div class="tool-row segmented" aria-label="Transform mode">
+          <button id="tool-translate" class="active" type="button">移动 W</button>
+          <button id="tool-rotate" type="button">旋转 E</button>
+          <button id="tool-scale" type="button">缩放 R</button>
+        </div>
+
+        <div class="numeric-inspector">
+          <div class="vector-row">
+            <span>Position</span>
+            <label>X<input id="position-x" type="number" step="0.05" disabled /></label>
+            <label>Y<input id="position-y" type="number" step="0.05" disabled /></label>
+            <label>Z<input id="position-z" type="number" step="0.05" disabled /></label>
+          </div>
+          <div class="vector-row">
+            <span>Rotation</span>
+            <label>X<input id="rotation-x" type="number" step="1" disabled /></label>
+            <label>Y<input id="rotation-y" type="number" step="1" disabled /></label>
+            <label>Z<input id="rotation-z" type="number" step="1" disabled /></label>
+          </div>
+          <div class="vector-row">
+            <span>Size</span>
+            <label>X<input id="size-x" type="number" min="0.05" step="0.05" disabled /></label>
+            <label>Y<input id="size-y" type="number" min="0.05" step="0.05" disabled /></label>
+            <label>Z<input id="size-z" type="number" min="0.05" step="0.05" disabled /></label>
+          </div>
+        </div>
+
+        <div class="editor-actions">
+          <button id="add-collider" class="primary compact" type="button">新增 Box</button>
+          <button id="duplicate-collider" type="button" disabled>复制</button>
+          <button id="delete-collider" type="button" disabled>删除</button>
+          <button id="export-world" type="button">导出 world.json</button>
+        </div>
+        <small>点击蓝色碰撞体选择 · ⌘/Ctrl+D 复制 · Delete 删除 · F 聚焦</small>
+      </aside>
+
+      <aside class="telemetry panel">
+        <div><span>世界</span><b id="world-name">加载中</b></div>
+        <div><span>状态</span><b id="status">初始化</b></div>
+        <div><span>FPS</span><b id="fps">--</b></div>
+        <div><span>坐标</span><b id="position">0.0, 0.0, 0.0</b></div>
+      </aside>
+
+      <div id="toast" role="status" aria-live="polite"></div>
+      <div class="crosshair" aria-hidden="true"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
