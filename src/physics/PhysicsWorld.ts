@@ -1,15 +1,18 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
+import { ConvexGeometry } from "three/addons/geometries/ConvexGeometry.js";
 import type {
   AudioSourceData,
   BoxColliderData,
   CapsuleColliderData,
   ColliderBehavior,
   ColliderData,
+  ConvexColliderData,
   InteractableData,
   MeshColliderData,
   RigidBodyData,
   Vec3Tuple,
+  VisualModelData,
 } from "../types/world";
 import { quaternionFromDegrees } from "../utils/transform";
 
@@ -39,12 +42,14 @@ export interface ColliderTransformPatch {
   interactable?: InteractableData | null;
   body?: RigidBodyData;
   audio?: AudioSourceData | null;
+  visual?: VisualModelData | null;
 }
 
 const SOLID_COLOR = new THREE.Color(0x6bd4ff);
 const TRIGGER_COLOR = new THREE.Color(0x6fffb0);
 const INTERACTABLE_COLOR = new THREE.Color(0xc79cff);
 const DYNAMIC_COLOR = new THREE.Color(0xff9f6b);
+const VISUAL_COLOR = new THREE.Color(0x8ef0d0);
 const SELECTED_COLOR = new THREE.Color(0xffc857);
 const MIN_DIMENSION = 0.05;
 
@@ -91,6 +96,10 @@ export class PhysicsWorld {
     return this.addCollider(input);
   }
 
+  addConvexCollider(input: ConvexColliderData): THREE.Mesh {
+    return this.addCollider(input);
+  }
+
   removeCollider(id: string): boolean {
     const record = this.records.get(id);
     if (!record) return false;
@@ -132,6 +141,11 @@ export class PhysicsWorld {
         : patch.audio
           ? { audio: cloneAudio(patch.audio) }
           : {}),
+      ...(patch.visual === null
+        ? { visual: undefined }
+        : patch.visual
+          ? { visual: cloneVisual(patch.visual) }
+          : {}),
     };
 
     let data: ColliderData;
@@ -150,12 +164,18 @@ export class PhysicsWorld {
           ? { halfHeight: clampDimension(patch.halfHeight) }
           : {}),
       };
-    } else {
+    } else if (record.data.type === "mesh") {
       data = {
         ...cloneCollider(record.data),
         ...common,
         behavior: { mode: "solid" },
         body: { mode: "fixed" },
+        ...(patch.scale3 ? { scale3: patch.scale3.map(clampDimension) as Vec3Tuple } : {}),
+      };
+    } else {
+      data = {
+        ...cloneCollider(record.data),
+        ...common,
         ...(patch.scale3 ? { scale3: patch.scale3.map(clampDimension) as Vec3Tuple } : {}),
       };
     }
@@ -305,8 +325,12 @@ export class PhysicsWorld {
       geometry = new THREE.BoxGeometry(1, 1, 1);
     } else if (data.type === "capsule") {
       geometry = new THREE.CapsuleGeometry(0.5, 1, 8, 16);
-    } else {
+    } else if (data.type === "mesh") {
       geometry = createMeshGeometry(data);
+    } else {
+      geometry = new ConvexGeometry(
+        data.vertices.map((vertex) => new THREE.Vector3(vertex[0], vertex[1], vertex[2])),
+      );
     }
 
     const material = new THREE.MeshBasicMaterial({
@@ -364,16 +388,18 @@ export class PhysicsWorld {
       shape = RAPIER.ColliderDesc.cuboid(data.size[0] / 2, data.size[1] / 2, data.size[2] / 2);
     } else if (data.type === "capsule") {
       shape = RAPIER.ColliderDesc.capsule(data.halfHeight, data.radius);
+    } else if (data.type === "mesh") {
+      const scale = data.scale3 ?? [1, 1, 1];
+      const vertices = scaledVertices(data.vertices, scale);
+      shape = RAPIER.ColliderDesc.trimesh(vertices, new Uint32Array(data.indices));
     } else {
       const scale = data.scale3 ?? [1, 1, 1];
-      const vertices = new Float32Array(
-        data.vertices.flatMap((vertex) => [
-          vertex[0] * scale[0],
-          vertex[1] * scale[1],
-          vertex[2] * scale[2],
-        ]),
-      );
-      shape = RAPIER.ColliderDesc.trimesh(vertices, new Uint32Array(data.indices));
+      const convex = RAPIER.ColliderDesc.convexHull(scaledVertices(data.vertices, scale));
+      if (!convex) {
+        this.world.removeRigidBody(body);
+        throw new Error(`Unable to build convex hull for ${data.id}.`);
+      }
+      shape = convex;
     }
 
     const isTrigger = data.behavior?.mode === "trigger";
@@ -423,15 +449,24 @@ export class PhysicsWorld {
       clampDimension(record.mesh.scale.z),
     ];
     record.mesh.scale.fromArray(scale3);
+    if (record.data.type === "mesh") {
+      return {
+        ...common,
+        type: "mesh",
+        vertices: record.data.vertices.map(cloneVec3),
+        indices: [...record.data.indices],
+        scale3,
+        sourceName: record.data.sourceName,
+        behavior: { mode: "solid" },
+        body: { mode: "fixed" },
+      };
+    }
     return {
       ...common,
-      type: "mesh",
+      type: "convex",
       vertices: record.data.vertices.map(cloneVec3),
-      indices: [...record.data.indices],
       scale3,
       sourceName: record.data.sourceName,
-      behavior: { mode: "solid" },
-      body: { mode: "fixed" },
     };
   }
 
@@ -455,6 +490,7 @@ export function cloneCollider(data: ColliderData): ColliderData {
     body: cloneBody(data.body ?? { mode: "fixed" }),
     ...(data.interactable ? { interactable: cloneInteractable(data.interactable) } : {}),
     ...(data.audio ? { audio: cloneAudio(data.audio) } : {}),
+    ...(data.visual ? { visual: cloneVisual(data.visual) } : {}),
   };
   if (data.type === "box") {
     return { ...common, type: "box", size: cloneVec3(data.size) };
@@ -467,21 +503,33 @@ export function cloneCollider(data: ColliderData): ColliderData {
       halfHeight: data.halfHeight,
     };
   }
+  if (data.type === "mesh") {
+    return {
+      ...common,
+      type: "mesh",
+      vertices: data.vertices.map(cloneVec3),
+      indices: [...data.indices],
+      scale3: cloneVec3(data.scale3 ?? [1, 1, 1]),
+      sourceName: data.sourceName,
+      behavior: { mode: "solid" },
+      body: { mode: "fixed" },
+    };
+  }
   return {
     ...common,
-    type: "mesh",
+    type: "convex",
     vertices: data.vertices.map(cloneVec3),
-    indices: [...data.indices],
     scale3: cloneVec3(data.scale3 ?? [1, 1, 1]),
     sourceName: data.sourceName,
-    behavior: { mode: "solid" },
-    body: { mode: "fixed" },
   };
 }
 
 function normalizeCollider(data: ColliderData): ColliderData {
   const cloned = cloneCollider(data);
-  if (cloned.type === "mesh" || cloned.behavior?.mode === "trigger") {
+  if (cloned.type === "mesh") {
+    cloned.behavior = { mode: "solid" };
+    cloned.body = { mode: "fixed" };
+  } else if (cloned.behavior?.mode === "trigger") {
     cloned.body = { mode: "fixed" };
   }
   return cloned;
@@ -507,10 +555,21 @@ function createMeshGeometry(data: MeshColliderData): THREE.BufferGeometry {
   return geometry;
 }
 
+function scaledVertices(vertices: readonly Vec3Tuple[], scale: Vec3Tuple): Float32Array {
+  return new Float32Array(
+    vertices.flatMap((vertex) => [
+      vertex[0] * scale[0],
+      vertex[1] * scale[1],
+      vertex[2] * scale[2],
+    ]),
+  );
+}
+
 function colorFor(data: ColliderData): THREE.Color {
   if (data.behavior?.mode === "trigger") return TRIGGER_COLOR;
   if (data.body?.mode === "dynamic") return DYNAMIC_COLOR;
   if (data.interactable) return INTERACTABLE_COLOR;
+  if (data.visual) return VISUAL_COLOR;
   return SOLID_COLOR;
 }
 
@@ -550,6 +609,14 @@ function cloneAudio(value: AudioSourceData): AudioSourceData {
     autoplay: value.autoplay,
     volume: value.volume,
     refDistance: value.refDistance,
+  };
+}
+
+function cloneVisual(value: VisualModelData): VisualModelData {
+  return {
+    url: value.url,
+    sourceName: value.sourceName,
+    visible: value.visible,
   };
 }
 

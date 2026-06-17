@@ -4,13 +4,17 @@ import {
   TransformControls,
   type TransformControlsMode,
 } from "three/addons/controls/TransformControls.js";
-import { extractMeshColliderFromGLB } from "../assets/GLBColliderExtractor";
+import {
+  extractWorldObjectFromGLB,
+  type GLBImportOptions,
+} from "../assets/GLBColliderExtractor";
 import type { ColliderTransformPatch, PhysicsWorld } from "../physics/PhysicsWorld";
 import { cloneCollider } from "../physics/PhysicsWorld";
 import type {
   BoxColliderData,
   CapsuleColliderData,
   ColliderData,
+  ConvexColliderData,
   MeshColliderData,
   Vec3Tuple,
 } from "../types/world";
@@ -197,12 +201,38 @@ export class EditorController {
     return this.addAndSelect(data);
   }
 
-  async importGLBMeshCollider(file: File): Promise<MeshColliderData> {
-    const id = this.createUniqueColliderId(sanitizeId(file.name.replace(/\.glb$/i, "")) || "glb-mesh");
-    const data = await extractMeshColliderFromGLB(
+  addConvexCollider(): ConvexColliderData {
+    const data: ConvexColliderData = {
+      id: this.createUniqueColliderId("convex"),
+      type: "convex",
+      position: this.createPositionAtOrbitTarget(0.75),
+      rotationDeg: [0, 0, 0],
+      scale3: [1, 1, 1],
+      vertices: [
+        [-0.7, -0.6, -0.6],
+        [0.7, -0.6, -0.6],
+        [0.6, -0.6, 0.7],
+        [-0.6, -0.6, 0.7],
+        [0, 0.8, 0],
+      ],
+      behavior: { mode: "solid" },
+      body: { mode: "fixed" },
+    };
+    return this.addAndSelect(data);
+  }
+
+  async importGLBWorldObject(
+    file: File,
+    options: GLBImportOptions,
+  ): Promise<MeshColliderData | ConvexColliderData> {
+    const base = sanitizeId(file.name.replace(/\.glb$/i, "")) || "glb-object";
+    const suffix = options.mode === "convex" ? "convex" : "mesh";
+    const id = this.createUniqueColliderId(`${base}-${suffix}`);
+    const data = await extractWorldObjectFromGLB(
       file,
       id,
       this.createPositionAtOrbitTarget(0),
+      options,
     );
     return this.addAndSelect(data);
   }

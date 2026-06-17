@@ -1,5 +1,6 @@
 import type { TransformControlsMode } from "three/addons/controls/TransformControls.js";
 import "./styles.css";
+import type { GLBColliderMode } from "./assets/GLBColliderExtractor";
 import { Engine, type SceneTreeState } from "./core/Engine";
 import type { GameplayEvent, InteractionPrompt } from "./gameplay/GameplaySystem";
 import type {
@@ -9,6 +10,7 @@ import type {
   InteractableData,
   RigidBodyData,
   Vec3Tuple,
+  VisualModelData,
   WorldManifest,
 } from "./types/world";
 import { assertWorldManifest } from "./types/world";
@@ -24,8 +26,11 @@ const importButton = requiredElement<HTMLButtonElement>("import-splat");
 const fileInput = requiredElement<HTMLInputElement>("splat-file");
 const importGLBButton = requiredElement<HTMLButtonElement>("import-glb");
 const glbFileInput = requiredElement<HTMLInputElement>("glb-file");
+const glbModeSelect = requiredElement<HTMLSelectElement>("glb-mode");
+const glbDetailSelect = requiredElement<HTMLSelectElement>("glb-detail");
 const addBoxButton = requiredElement<HTMLButtonElement>("add-box-collider");
 const addCapsuleButton = requiredElement<HTMLButtonElement>("add-capsule-collider");
+const addConvexButton = requiredElement<HTMLButtonElement>("add-convex-collider");
 const addMeshButton = requiredElement<HTMLButtonElement>("add-mesh-collider");
 const duplicateColliderButton = requiredElement<HTMLButtonElement>("duplicate-collider");
 const deleteColliderButton = requiredElement<HTMLButtonElement>("delete-collider");
@@ -40,11 +45,14 @@ const selectedIdElement = requiredElement<HTMLElement>("selected-id");
 const selectedTypeElement = requiredElement<HTMLElement>("selected-type");
 const boxDimensions = requiredElement<HTMLElement>("box-dimensions");
 const capsuleDimensions = requiredElement<HTMLElement>("capsule-dimensions");
-const meshDimensions = requiredElement<HTMLElement>("mesh-dimensions");
+const polyDimensions = requiredElement<HTMLElement>("poly-dimensions");
 const splatTreeList = requiredElement<HTMLElement>("splat-tree-list");
 const colliderTreeList = requiredElement<HTMLElement>("collider-tree-list");
 const splatCountElement = requiredElement<HTMLElement>("splat-count");
 const colliderCountElement = requiredElement<HTMLElement>("collider-count");
+const visualCard = requiredElement<HTMLElement>("visual-card");
+const visualVisibleInput = requiredElement<HTMLInputElement>("visual-visible");
+const visualSourceName = requiredElement<HTMLElement>("visual-source-name");
 const behaviorMode = requiredElement<HTMLSelectElement>("behavior-mode");
 const triggerOption = requiredElement<HTMLOptionElement>("trigger-option");
 const triggerFields = requiredElement<HTMLElement>("trigger-fields");
@@ -81,16 +89,17 @@ const toastElement = requiredElement<HTMLElement>("toast");
 const positionInputs = getVectorInputs("position");
 const rotationInputs = getVectorInputs("rotation");
 const sizeInputs = getVectorInputs("size");
-const meshScaleInputs = getVectorInputs("mesh-scale");
+const polyScaleInputs = getVectorInputs("poly-scale");
 const radiusInput = requiredElement<HTMLInputElement>("capsule-radius");
 const halfHeightInput = requiredElement<HTMLInputElement>("capsule-half-height");
 const inspectorInputs: Array<HTMLInputElement | HTMLSelectElement> = [
   ...positionInputs,
   ...rotationInputs,
   ...sizeInputs,
-  ...meshScaleInputs,
+  ...polyScaleInputs,
   radiusInput,
   halfHeightInput,
+  visualVisibleInput,
   triggerEventInput,
   triggerMessageInput,
   triggerOnceInput,
@@ -171,7 +180,7 @@ async function bootstrap(): Promise<void> {
     onGameplayEvent: showGameplayEvent,
   });
   engine.start();
-  showToast("Runtime 0.6 已就绪：GLB、动态刚体和位置音频已接通。", 4800);
+  showToast("Runtime 0.7 已就绪：GLB Visual、TriMesh、Convex 与代理简化已接通。", 5200);
 
   enterButton.addEventListener("click", async () => {
     await unlockAudio();
@@ -196,6 +205,10 @@ async function bootstrap(): Promise<void> {
   });
   addCapsuleButton.addEventListener("click", () => {
     const collider = engine?.addCapsuleCollider();
+    if (collider) showToast(`已新增 ${collider.id}`);
+  });
+  addConvexButton.addEventListener("click", () => {
+    const collider = engine?.addConvexCollider();
     if (collider) showToast(`已新增 ${collider.id}`);
   });
   addMeshButton.addEventListener("click", () => {
@@ -225,12 +238,14 @@ async function bootstrap(): Promise<void> {
   bodyMode.addEventListener("change", onComponentToggle);
   interactableEnabledInput.addEventListener("change", onComponentToggle);
   audioEnabledInput.addEventListener("change", onComponentToggle);
+  visualVisibleInput.addEventListener("change", applyInspectorValues);
   for (const input of inspectorInputs) {
     if (
       input === behaviorMode ||
       input === bodyMode ||
       input === interactableEnabledInput ||
-      input === audioEnabledInput
+      input === audioEnabledInput ||
+      input === visualVisibleInput
     ) {
       continue;
     }
@@ -262,13 +277,21 @@ async function bootstrap(): Promise<void> {
     const file = glbFileInput.files?.[0];
     if (!file || !engine) return;
     try {
-      statusElement.textContent = `解析 ${file.name}`;
-      const collider = await engine.importGLBCollider(file);
+      statusElement.textContent = `解析并简化 ${file.name}`;
+      const mode = glbModeSelect.value as GLBColliderMode;
+      const detail = Number(glbDetailSelect.value);
+      const collider = await engine.importGLBWorldObject(file, { mode, detail });
       if (collider) {
-        showToast(`已提取 ${collider.indices.length / 3} 个碰撞三角形`, 4600);
+        const proxy =
+          collider.type === "mesh"
+            ? `${collider.indices.length / 3} 个 TriMesh 三角形`
+            : collider.type === "convex"
+              ? `${collider.vertices.length} 个 Convex 点`
+              : collider.type;
+        showToast(`已导入可视模型并生成 ${proxy}`, 5200);
       }
     } catch (error) {
-      showError("GLB 提取失败", error);
+      showError("GLB 世界对象导入失败", error);
     } finally {
       glbFileInput.value = "";
     }
@@ -294,7 +317,8 @@ function applyInspectorValues(): void {
   const body = readBody(selectedCollider, behavior);
   const audio = readAudio();
   if (audio === undefined) return;
-  const common = { position, rotationDeg, behavior, interactable, body, audio };
+  const visual = readVisual(selectedCollider);
+  const common = { position, rotationDeg, behavior, interactable, body, audio, visual };
 
   if (selectedCollider.type === "box") {
     const size = readVector(sizeInputs, 0.05);
@@ -308,12 +332,12 @@ function applyInspectorValues(): void {
     }
     engine.updateSelectedCollider({ ...common, radius, halfHeight });
   } else {
-    const scale3 = readVector(meshScaleInputs, 0.05);
-    if (!scale3) return showInvalidShape("请输入有效 Mesh Scale");
+    const scale3 = readVector(polyScaleInputs, 0.05);
+    if (!scale3) return showInvalidShape("请输入有效代理 Scale");
     engine.updateSelectedCollider({
       ...common,
-      behavior: { mode: "solid" },
-      body: { mode: "fixed" },
+      behavior: selectedCollider.type === "mesh" ? { mode: "solid" } : behavior,
+      body: selectedCollider.type === "mesh" ? { mode: "fixed" } : body,
       scale3,
     });
   }
@@ -369,6 +393,14 @@ function readAudio(): AudioSourceData | null | undefined {
   };
 }
 
+function readVisual(collider: ColliderData): VisualModelData | null {
+  if (!collider.visual) return null;
+  return {
+    ...collider.visual,
+    visible: visualVisibleInput.checked,
+  };
+}
+
 function showInvalidShape(message: string): void {
   showToast(message, 2400);
   updateSelection(selectedCollider);
@@ -386,14 +418,20 @@ function updateSelection(collider: ColliderData | null): void {
 
   const isBox = collider?.type === "box";
   const isCapsule = collider?.type === "capsule";
+  const isPoly = collider?.type === "mesh" || collider?.type === "convex";
   const isMesh = collider?.type === "mesh";
   boxDimensions.classList.toggle("hidden", !isBox);
   capsuleDimensions.classList.toggle("hidden", !isCapsule);
-  meshDimensions.classList.toggle("hidden", !isMesh);
+  polyDimensions.classList.toggle("hidden", !isPoly);
   setVectorInputs(sizeInputs, isBox ? collider.size : null);
-  setVectorInputs(meshScaleInputs, isMesh ? collider.scale3 ?? [1, 1, 1] : null);
+  setVectorInputs(polyScaleInputs, isPoly ? collider.scale3 ?? [1, 1, 1] : null);
   radiusInput.value = isCapsule ? collider.radius.toFixed(3) : "";
   halfHeightInput.value = isCapsule ? collider.halfHeight.toFixed(3) : "";
+
+  const visual = collider?.visual;
+  visualCard.classList.toggle("hidden", !visual);
+  visualVisibleInput.checked = visual?.visible ?? true;
+  visualSourceName.textContent = visual?.sourceName ?? "—";
 
   const behavior = collider?.behavior ?? { mode: "solid" };
   behaviorMode.value = isMesh ? "solid" : behavior.mode;
@@ -427,7 +465,8 @@ function updateSelection(collider: ColliderData | null): void {
   refreshComponentVisibility();
 
   for (const input of inspectorInputs) input.disabled = collider === null;
-  if (collider?.type === "mesh") {
+  visualVisibleInput.disabled = !visual;
+  if (isMesh) {
     triggerOption.disabled = true;
     dynamicBodyOption.disabled = true;
   }
@@ -452,10 +491,18 @@ function renderSceneTree(state: SceneTreeState): void {
   );
   colliderTreeList.replaceChildren(
     ...state.colliders.map((item) => {
-      const icon = item.type === "box" ? "B" : item.type === "capsule" ? "C" : "M";
+      const icon =
+        item.type === "box"
+          ? "B"
+          : item.type === "capsule"
+            ? "C"
+            : item.type === "convex"
+              ? "V"
+              : "M";
       const tags = [
         item.mode === "trigger" ? "trigger" : item.type,
         item.bodyMode === "dynamic" ? "dynamic" : "",
+        item.visual ? "visual" : "",
         item.interactable ? "E" : "",
         item.audio ? "audio" : "",
       ].filter(Boolean);
@@ -463,6 +510,7 @@ function renderSceneTree(state: SceneTreeState): void {
       const button = createTreeItem(icon, item.id, detail, item.id === state.selectedId);
       button.classList.toggle("trigger-item", item.mode === "trigger");
       button.classList.toggle("dynamic-item", item.bodyMode === "dynamic");
+      button.classList.toggle("visual-item", item.visual);
       button.classList.toggle("interactable-item", item.interactable);
       button.classList.toggle("audio-item", item.audio);
       button.addEventListener("click", () => engine?.selectCollider(item.id));

@@ -1,7 +1,7 @@
 {
   "format": "splat-world",
   "version": 1,
-  "name": "Butterfly Physics Lab",
+  "name": "Butterfly Proxy Lab",
   "spawn": {
     "position": [0, 0.05, 4.2],
     "yawDeg": 0
@@ -93,6 +93,30 @@
         "event": "demo:inspect-crate",
         "message": "这个 Box 由 Rapier 动态刚体驱动",
         "maxDistance": 3.5
+      }
+    },
+    {
+      "id": "dynamic-convex-rock",
+      "type": "convex",
+      "position": [-0.8, 4.4, -1.4],
+      "rotationDeg": [15, 25, 8],
+      "scale3": [0.8, 0.8, 0.8],
+      "vertices": [
+        [-0.8, -0.5, -0.6],
+        [0.7, -0.6, -0.5],
+        [0.8, -0.4, 0.6],
+        [-0.6, -0.5, 0.8],
+        [-0.4, 0.7, -0.3],
+        [0.5, 0.8, 0.2],
+        [0.1, 0.3, 0.9]
+      ],
+      "sourceName": "procedural-rock",
+      "behavior": { "mode": "solid" },
+      "body": {
+        "mode": "dynamic",
+        "gravityScale": 1,
+        "linearDamping": 0.1,
+        "angularDamping": 0.18
       }
     },
     {
