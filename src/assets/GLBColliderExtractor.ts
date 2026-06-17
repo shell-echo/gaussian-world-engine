@@ -20,11 +20,7 @@ export interface GLBImportOptions {
   algorithm?: ProxySimplifierAlgorithm;
   signal?: AbortSignal;
   onProgress?: (progress: ProxyProgress) => void;
-}
-
-export interface GLBImportOutput {
-  collider: MeshColliderData | ConvexColliderData;
-  stats: ProxyTaskStats;
+  onComplete?: (stats: ProxyTaskStats) => void;
 }
 
 interface GeometryData {
@@ -40,7 +36,7 @@ export async function extractWorldObjectFromGLB(
   id: string,
   position: Vec3Tuple,
   options: GLBImportOptions,
-): Promise<GLBImportOutput> {
+): Promise<MeshColliderData | ConvexColliderData> {
   if (file.size > MAX_EMBEDDED_FILE_BYTES) {
     throw new Error("GLB exceeds the 25 MB embedded-asset limit.");
   }
@@ -78,6 +74,7 @@ export async function extractWorldObjectFromGLB(
     );
     throwIfAborted(options.signal);
     options.onProgress?.({ progress: 0.97, stage: "创建世界对象" });
+    options.onComplete?.(simplified.stats);
 
     if (options.mode === "convex") {
       const vertices = tuplesFromVertices(simplified.vertices);
@@ -101,7 +98,7 @@ export async function extractWorldObjectFromGLB(
         },
       };
       options.onProgress?.({ progress: 1, stage: "Convex Hull 已完成" });
-      return { collider, stats: simplified.stats };
+      return collider;
     }
 
     const collider: MeshColliderData = {
@@ -122,7 +119,7 @@ export async function extractWorldObjectFromGLB(
       },
     };
     options.onProgress?.({ progress: 1, stage: "TriMesh 已完成" });
-    return { collider, stats: simplified.stats };
+    return collider;
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
