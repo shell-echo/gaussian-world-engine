@@ -1,6 +1,12 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import type {
+  ProxyProgress,
+  ProxySimplifierAlgorithm,
+  ProxyTaskStats,
+} from "./proxy/ProxyProtocol";
+import { proxyWorkerClient } from "./proxy/ProxyWorkerClient";
+import type {
   ConvexColliderData,
   MeshColliderData,
   Vec3Tuple,
@@ -11,15 +17,22 @@ export type GLBColliderMode = "trimesh" | "convex";
 export interface GLBImportOptions {
   mode: GLBColliderMode;
   detail: number;
+  algorithm?: ProxySimplifierAlgorithm;
+  signal?: AbortSignal;
+  onProgress?: (progress: ProxyProgress) => void;
+}
+
+export interface GLBImportOutput {
+  collider: MeshColliderData | ConvexColliderData;
+  stats: ProxyTaskStats;
 }
 
 interface GeometryData {
-  vertices: Vec3Tuple[];
-  indices: number[];
+  vertices: Float32Array;
+  indices: Uint32Array;
 }
 
 const MAX_SOURCE_TRIANGLES = 500_000;
-const MAX_PROXY_TRIANGLES = 100_000;
 const MAX_EMBEDDED_FILE_BYTES = 25 * 1024 * 1024;
 
 export async function extractWorldObjectFromGLB(
@@ -27,23 +40,48 @@ export async function extractWorldObjectFromGLB(
   id: string,
   position: Vec3Tuple,
   options: GLBImportOptions,
-): Promise<MeshColliderData | ConvexColliderData> {
+): Promise<GLBImportOutput> {
   if (file.size > MAX_EMBEDDED_FILE_BYTES) {
     throw new Error("GLB exceeds the 25 MB embedded-asset limit.");
   }
+  throwIfAborted(options.signal);
+  options.onProgress?.({ progress: 0.03, stage: "读取 GLB" });
 
   const objectUrl = URL.createObjectURL(file);
   try {
     const loader = new GLTFLoader();
-    const gltf = await loader.loadAsync(objectUrl);
-    const source = collectGeometry(gltf.scene);
-    const detail = THREE.MathUtils.clamp(options.detail, 0.05, 1);
-    const visualUrl = await readFileAsDataUrl(file);
+    const [gltf, visualUrl] = await Promise.all([
+      loader.loadAsync(objectUrl),
+      readFileAsDataUrl(file, options.signal),
+    ]);
+    throwIfAborted(options.signal);
+    options.onProgress?.({ progress: 0.12, stage: "合并 GLB 节点变换" });
+    const source = collectGeometry(gltf.scene, options.signal);
+    const detail = THREE.MathUtils.clamp(options.detail, 0.02, 1);
+    const algorithm = options.mode === "convex" ? "cluster" : options.algorithm ?? "qem";
+
+    const simplified = await proxyWorkerClient.simplify(
+      {
+        mode: options.mode,
+        algorithm,
+        detail,
+        vertices: source.vertices,
+        indices: source.indices,
+      },
+      (progress) => {
+        options.onProgress?.({
+          progress: 0.15 + progress.progress * 0.8,
+          stage: progress.stage,
+        });
+      },
+      options.signal,
+    );
+    throwIfAborted(options.signal);
+    options.onProgress?.({ progress: 0.97, stage: "创建世界对象" });
 
     if (options.mode === "convex") {
-      const clustered = clusterPoints(source.vertices, detail);
-      const centered = centerVertices(clustered);
-      if (centered.vertices.length < 4) {
+      const vertices = tuplesFromVertices(simplified.vertices);
+      if (vertices.length < 4) {
         throw new Error("GLB does not contain enough distinct vertices for a convex hull.");
       }
       const collider: ConvexColliderData = {
@@ -52,7 +90,7 @@ export async function extractWorldObjectFromGLB(
         position,
         rotationDeg: [0, 0, 0],
         scale3: [1, 1, 1],
-        vertices: centered.vertices,
+        vertices,
         sourceName: file.name,
         behavior: { mode: "solid" },
         body: { mode: "fixed" },
@@ -62,19 +100,18 @@ export async function extractWorldObjectFromGLB(
           visible: true,
         },
       };
-      return collider;
+      options.onProgress?.({ progress: 1, stage: "Convex Hull 已完成" });
+      return { collider, stats: simplified.stats };
     }
 
-    const simplified = simplifyTriMesh(source, detail);
-    const centered = centerGeometry(simplified);
     const collider: MeshColliderData = {
       id,
       type: "mesh",
       position,
       rotationDeg: [0, 0, 0],
       scale3: [1, 1, 1],
-      vertices: centered.vertices,
-      indices: centered.indices,
+      vertices: tuplesFromVertices(simplified.vertices),
+      indices: Array.from(simplified.indices),
       sourceName: file.name,
       behavior: { mode: "solid" },
       body: { mode: "fixed" },
@@ -84,21 +121,23 @@ export async function extractWorldObjectFromGLB(
         visible: true,
       },
     };
-    return collider;
+    options.onProgress?.({ progress: 1, stage: "TriMesh 已完成" });
+    return { collider, stats: simplified.stats };
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
 }
 
-function collectGeometry(root: THREE.Object3D): GeometryData {
+function collectGeometry(root: THREE.Object3D, signal?: AbortSignal): GeometryData {
   root.updateMatrixWorld(true);
   const rootInverse = root.matrixWorld.clone().invert();
-  const vertices: Vec3Tuple[] = [];
+  const vertices: number[] = [];
   const indices: number[] = [];
   const transformed = new THREE.Vector3();
   let triangleCount = 0;
 
   root.traverse((object) => {
+    throwIfAborted(signal);
     if (!(object instanceof THREE.Mesh)) return;
     const geometry = object.geometry as THREE.BufferGeometry;
     const attribute = geometry.getAttribute("position");
@@ -106,13 +145,13 @@ function collectGeometry(root: THREE.Object3D): GeometryData {
 
     object.updateWorldMatrix(true, false);
     const matrix = rootInverse.clone().multiply(object.matrixWorld);
-    const baseIndex = vertices.length;
+    const baseIndex = vertices.length / 3;
 
     for (let index = 0; index < attribute.count; index += 1) {
       transformed
         .set(attribute.getX(index), attribute.getY(index), attribute.getZ(index))
         .applyMatrix4(matrix);
-      vertices.push([transformed.x, transformed.y, transformed.z]);
+      vertices.push(transformed.x, transformed.y, transformed.z);
     }
 
     if (geometry.index) {
@@ -138,181 +177,53 @@ function collectGeometry(root: THREE.Object3D): GeometryData {
     }
   });
 
-  if (vertices.length < 3 || indices.length < 3) {
+  if (vertices.length < 9 || indices.length < 3) {
     throw new Error("GLB does not contain triangle mesh geometry.");
   }
-  return { vertices, indices };
-}
-
-function simplifyTriMesh(source: GeometryData, detail: number): GeometryData {
-  if (detail >= 0.999 && source.indices.length / 3 <= MAX_PROXY_TRIANGLES) {
-    return source;
-  }
-
-  const clustered = clusterGeometry(source, detail);
-  if (clustered.vertices.length < 3 || clustered.indices.length < 3) {
-    return limitTriangles(source, MAX_PROXY_TRIANGLES);
-  }
-  return limitTriangles(clustered, MAX_PROXY_TRIANGLES);
-}
-
-function clusterGeometry(source: GeometryData, detail: number): GeometryData {
-  const bounds = boundsFor(source.vertices);
-  const targetVertices = Math.max(32, Math.round(source.vertices.length * detail));
-  const resolution = Math.max(2, Math.round(Math.cbrt(targetVertices)));
-  const extent = bounds.max.clone().sub(bounds.min);
-  const cells = new Map<string, { index: number; sum: THREE.Vector3; count: number }>();
-  const remap = new Uint32Array(source.vertices.length);
-
-  source.vertices.forEach((vertex, sourceIndex) => {
-    const key = gridKey(vertex, bounds.min, extent, resolution);
-    let cell = cells.get(key);
-    if (!cell) {
-      cell = { index: cells.size, sum: new THREE.Vector3(), count: 0 };
-      cells.set(key, cell);
-    }
-    cell.sum.add(new THREE.Vector3(vertex[0], vertex[1], vertex[2]));
-    cell.count += 1;
-    remap[sourceIndex] = cell.index;
-  });
-
-  const vertices: Vec3Tuple[] = Array.from(cells.values(), (cell) => {
-    cell.sum.multiplyScalar(1 / cell.count);
-    return [cell.sum.x, cell.sum.y, cell.sum.z];
-  });
-  const indices: number[] = [];
-  const seen = new Set<string>();
-
-  for (let index = 0; index + 2 < source.indices.length; index += 3) {
-    const a = remap[source.indices[index] ?? 0] ?? 0;
-    const b = remap[source.indices[index + 1] ?? 0] ?? 0;
-    const c = remap[source.indices[index + 2] ?? 0] ?? 0;
-    if (a === b || b === c || c === a) continue;
-    const key = [a, b, c].sort((left, right) => left - right).join(":");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    indices.push(a, b, c);
-  }
-
-  return { vertices, indices };
-}
-
-function clusterPoints(vertices: readonly Vec3Tuple[], detail: number): Vec3Tuple[] {
-  if (detail >= 0.999 && vertices.length <= 20_000) {
-    return deduplicatePoints(vertices);
-  }
-  const bounds = boundsFor(vertices);
-  const targetVertices = Math.max(32, Math.min(20_000, Math.round(vertices.length * detail)));
-  const resolution = Math.max(2, Math.round(Math.cbrt(targetVertices)));
-  const extent = bounds.max.clone().sub(bounds.min);
-  const cells = new Map<string, { sum: THREE.Vector3; count: number }>();
-
-  for (const vertex of vertices) {
-    const key = gridKey(vertex, bounds.min, extent, resolution);
-    let cell = cells.get(key);
-    if (!cell) {
-      cell = { sum: new THREE.Vector3(), count: 0 };
-      cells.set(key, cell);
-    }
-    cell.sum.add(new THREE.Vector3(vertex[0], vertex[1], vertex[2]));
-    cell.count += 1;
-  }
-
-  return Array.from(cells.values(), (cell) => {
-    cell.sum.multiplyScalar(1 / cell.count);
-    return [cell.sum.x, cell.sum.y, cell.sum.z];
-  });
-}
-
-function deduplicatePoints(vertices: readonly Vec3Tuple[]): Vec3Tuple[] {
-  const seen = new Set<string>();
-  const result: Vec3Tuple[] = [];
-  for (const vertex of vertices) {
-    const key = vertex.map((value) => value.toFixed(6)).join(":");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push([vertex[0], vertex[1], vertex[2]]);
-    if (result.length >= 20_000) break;
-  }
-  return result;
-}
-
-function limitTriangles(source: GeometryData, maximum: number): GeometryData {
-  const triangleCount = source.indices.length / 3;
-  if (triangleCount <= maximum) return source;
-  const stride = Math.ceil(triangleCount / maximum);
-  const indices: number[] = [];
-  for (let triangle = 0; triangle < triangleCount; triangle += stride) {
-    const offset = triangle * 3;
-    indices.push(
-      source.indices[offset] ?? 0,
-      source.indices[offset + 1] ?? 0,
-      source.indices[offset + 2] ?? 0,
-    );
-  }
-  return { vertices: source.vertices, indices };
-}
-
-function centerGeometry(source: GeometryData): GeometryData {
-  const centered = centerVertices(source.vertices);
-  return { vertices: centered.vertices, indices: source.indices };
-}
-
-function centerVertices(vertices: readonly Vec3Tuple[]): {
-  vertices: Vec3Tuple[];
-  center: Vec3Tuple;
-} {
-  const bounds = boundsFor(vertices);
-  const center = bounds.getCenter(new THREE.Vector3());
   return {
-    vertices: vertices.map(
-      (vertex): Vec3Tuple => [
-        vertex[0] - center.x,
-        vertex[1] - center.y,
-        vertex[2] - center.z,
-      ],
-    ),
-    center: [center.x, center.y, center.z],
+    vertices: new Float32Array(vertices),
+    indices: new Uint32Array(indices),
   };
 }
 
-function boundsFor(vertices: readonly Vec3Tuple[]): THREE.Box3 {
-  const bounds = new THREE.Box3();
-  for (const vertex of vertices) {
-    bounds.expandByPoint(new THREE.Vector3(vertex[0], vertex[1], vertex[2]));
+function tuplesFromVertices(vertices: Float32Array): Vec3Tuple[] {
+  const output: Vec3Tuple[] = [];
+  for (let index = 0; index + 2 < vertices.length; index += 3) {
+    output.push([
+      vertices[index] ?? 0,
+      vertices[index + 1] ?? 0,
+      vertices[index + 2] ?? 0,
+    ]);
   }
-  return bounds;
+  return output;
 }
 
-function gridKey(
-  vertex: Vec3Tuple,
-  minimum: THREE.Vector3,
-  extent: THREE.Vector3,
-  resolution: number,
-): string {
-  const x = Math.min(
-    resolution - 1,
-    Math.floor(((vertex[0] - minimum.x) / Math.max(extent.x, 1e-6)) * resolution),
-  );
-  const y = Math.min(
-    resolution - 1,
-    Math.floor(((vertex[1] - minimum.y) / Math.max(extent.y, 1e-6)) * resolution),
-  );
-  const z = Math.min(
-    resolution - 1,
-    Math.floor(((vertex[2] - minimum.z) / Math.max(extent.z, 1e-6)) * resolution),
-  );
-  return `${x}:${y}:${z}`;
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
+function readFileAsDataUrl(file: File, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+    const abort = (): void => reader.abort();
+    signal?.addEventListener("abort", abort, { once: true });
     reader.addEventListener("load", () => {
+      signal?.removeEventListener("abort", abort);
       if (typeof reader.result === "string") resolve(reader.result);
       else reject(new Error("Unable to embed GLB visual asset."));
     });
-    reader.addEventListener("error", () => reject(reader.error ?? new Error("Unable to read GLB.")));
+    reader.addEventListener("abort", () => {
+      signal?.removeEventListener("abort", abort);
+      reject(abortError());
+    });
+    reader.addEventListener("error", () => {
+      signal?.removeEventListener("abort", abort);
+      reject(reader.error ?? new Error("Unable to read GLB."));
+    });
     reader.readAsDataURL(file);
   });
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw abortError();
+}
+
+function abortError(): DOMException {
+  return new DOMException("Proxy generation was cancelled.", "AbortError");
 }
