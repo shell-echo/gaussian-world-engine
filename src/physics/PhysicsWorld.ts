@@ -1,12 +1,14 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import { ConvexGeometry } from "three/addons/geometries/ConvexGeometry.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type {
   AudioSourceData,
   BoxColliderData,
   CapsuleColliderData,
   ColliderBehavior,
   ColliderData,
+  CompoundColliderData,
   ConvexColliderData,
   InteractableData,
   MeshColliderData,
@@ -27,7 +29,7 @@ export interface CharacterHandle {
 interface ColliderRecord {
   data: ColliderData;
   body: RAPIER.RigidBody;
-  collider: RAPIER.Collider;
+  colliders: RAPIER.Collider[];
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
 }
 
@@ -78,9 +80,9 @@ export class PhysicsWorld {
 
     const data = normalizeCollider(input);
     const mesh = this.createDebugMesh(data);
-    const { body, collider } = this.createRapierCollider(data);
+    const { body, colliders } = this.createRapierColliders(data);
     this.debugGroup.add(mesh);
-    this.records.set(data.id, { data, body, collider, mesh });
+    this.records.set(data.id, { data, body, colliders, mesh });
     return mesh;
   }
 
@@ -97,6 +99,10 @@ export class PhysicsWorld {
   }
 
   addConvexCollider(input: ConvexColliderData): THREE.Mesh {
+    return this.addCollider(input);
+  }
+
+  addCompoundCollider(input: CompoundColliderData): THREE.Mesh {
     return this.addCollider(input);
   }
 
@@ -193,9 +199,9 @@ export class PhysicsWorld {
 
     const data = normalizeCollider(this.readMeshTransform(record));
     this.world.removeRigidBody(record.body);
-    const next = this.createRapierCollider(data);
+    const next = this.createRapierColliders(data);
     record.body = next.body;
-    record.collider = next.collider;
+    record.colliders = next.colliders;
     record.data = data;
     this.updateMaterial(record);
     return cloneCollider(data);
@@ -327,10 +333,10 @@ export class PhysicsWorld {
       geometry = new THREE.CapsuleGeometry(0.5, 1, 8, 16);
     } else if (data.type === "mesh") {
       geometry = createMeshGeometry(data);
+    } else if (data.type === "compound") {
+      geometry = createCompoundGeometry(data);
     } else {
-      geometry = new ConvexGeometry(
-        data.vertices.map((vertex) => new THREE.Vector3(vertex[0], vertex[1], vertex[2])),
-      );
+      geometry = createConvexGeometry(data.vertices, data.id);
     }
 
     const material = new THREE.MeshBasicMaterial({
@@ -363,9 +369,9 @@ export class PhysicsWorld {
     }
   }
 
-  private createRapierCollider(data: ColliderData): {
+  private createRapierColliders(data: ColliderData): {
     body: RAPIER.RigidBody;
-    collider: RAPIER.Collider;
+    colliders: RAPIER.Collider[];
   } {
     const position = data.position ?? [0, 0, 0];
     const rotation = quaternionFromDegrees(data.rotationDeg);
@@ -383,33 +389,44 @@ export class PhysicsWorld {
           .setRotation({ x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w });
     const body = this.world.createRigidBody(bodyDesc);
 
-    let shape: RAPIER.ColliderDesc;
+    try {
+      const shapes = this.createShapeDescriptors(data);
+      const isTrigger = data.behavior?.mode === "trigger";
+      const colliders = shapes.map((shape) => {
+        shape
+          .setSensor(isTrigger)
+          .setFriction(isTrigger ? 0 : 1)
+          .setRestitution(dynamic ? 0.15 : 0)
+          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+        return this.world.createCollider(shape, body);
+      });
+      return { body, colliders };
+    } catch (error) {
+      this.world.removeRigidBody(body);
+      throw error;
+    }
+  }
+
+  private createShapeDescriptors(data: ColliderData): RAPIER.ColliderDesc[] {
     if (data.type === "box") {
-      shape = RAPIER.ColliderDesc.cuboid(data.size[0] / 2, data.size[1] / 2, data.size[2] / 2);
-    } else if (data.type === "capsule") {
-      shape = RAPIER.ColliderDesc.capsule(data.halfHeight, data.radius);
-    } else if (data.type === "mesh") {
+      return [RAPIER.ColliderDesc.cuboid(data.size[0] / 2, data.size[1] / 2, data.size[2] / 2)];
+    }
+    if (data.type === "capsule") {
+      return [RAPIER.ColliderDesc.capsule(data.halfHeight, data.radius)];
+    }
+    if (data.type === "mesh") {
       const scale = data.scale3 ?? [1, 1, 1];
-      const vertices = scaledVertices(data.vertices, scale);
-      shape = RAPIER.ColliderDesc.trimesh(vertices, new Uint32Array(data.indices));
-    } else {
+      return [RAPIER.ColliderDesc.trimesh(scaledVertices(data.vertices, scale), new Uint32Array(data.indices))];
+    }
+    if (data.type === "convex") {
       const scale = data.scale3 ?? [1, 1, 1];
-      const convex = RAPIER.ColliderDesc.convexHull(scaledVertices(data.vertices, scale));
-      if (!convex) {
-        this.world.removeRigidBody(body);
-        throw new Error(`Unable to build convex hull for ${data.id}.`);
-      }
-      shape = convex;
+      return [createConvexDesc(data.vertices, scale, data.id)];
     }
 
-    const isTrigger = data.behavior?.mode === "trigger";
-    shape
-      .setSensor(isTrigger)
-      .setFriction(isTrigger ? 0 : 1)
-      .setRestitution(dynamic ? 0.15 : 0)
-      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
-    const collider = this.world.createCollider(shape, body);
-    return { body, collider };
+    const scale = data.scale3 ?? [1, 1, 1];
+    return data.parts.map((part, index) =>
+      createConvexDesc(part.vertices, scale, `${data.id} part ${index + 1}`),
+    );
   }
 
   private readMeshTransform(record: ColliderRecord): ColliderData {
@@ -459,6 +476,15 @@ export class PhysicsWorld {
         sourceName: record.data.sourceName,
         behavior: { mode: "solid" },
         body: { mode: "fixed" },
+      };
+    }
+    if (record.data.type === "compound") {
+      return {
+        ...common,
+        type: "compound",
+        parts: record.data.parts.map((part) => ({ vertices: part.vertices.map(cloneVec3) })),
+        scale3,
+        sourceName: record.data.sourceName,
       };
     }
     return {
@@ -515,6 +541,15 @@ export function cloneCollider(data: ColliderData): ColliderData {
       body: { mode: "fixed" },
     };
   }
+  if (data.type === "compound") {
+    return {
+      ...common,
+      type: "compound",
+      parts: data.parts.map((part) => ({ vertices: part.vertices.map(cloneVec3) })),
+      scale3: cloneVec3(data.scale3 ?? [1, 1, 1]),
+      sourceName: data.sourceName,
+    };
+  }
   return {
     ...common,
     type: "convex",
@@ -553,6 +588,37 @@ function createMeshGeometry(data: MeshColliderData): THREE.BufferGeometry {
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
   return geometry;
+}
+
+function createCompoundGeometry(data: CompoundColliderData): THREE.BufferGeometry {
+  const geometries = data.parts.map((part, index) =>
+    createConvexGeometry(part.vertices, `${data.id} part ${index + 1}`),
+  );
+  const merged = mergeGeometries(geometries, false);
+  for (const geometry of geometries) geometry.dispose();
+  if (!merged) throw new Error(`Unable to merge compound debug geometry for ${data.id}.`);
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+function createConvexGeometry(vertices: readonly Vec3Tuple[], label: string): THREE.BufferGeometry {
+  try {
+    return new ConvexGeometry(
+      vertices.map((vertex) => new THREE.Vector3(vertex[0], vertex[1], vertex[2])),
+    );
+  } catch (error) {
+    throw new Error(`Unable to build debug convex geometry for ${label}.`, { cause: error });
+  }
+}
+
+function createConvexDesc(
+  vertices: readonly Vec3Tuple[],
+  scale: Vec3Tuple,
+  label: string,
+): RAPIER.ColliderDesc {
+  const convex = RAPIER.ColliderDesc.convexHull(scaledVertices(vertices, scale));
+  if (!convex) throw new Error(`Unable to build convex hull for ${label}.`);
+  return convex;
 }
 
 function scaledVertices(vertices: readonly Vec3Tuple[], scale: Vec3Tuple): Float32Array {
