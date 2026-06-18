@@ -92,11 +92,23 @@ export interface ConvexColliderData extends ColliderBaseData {
   sourceName?: string;
 }
 
+export interface ConvexPartData {
+  vertices: Vec3Tuple[];
+}
+
+export interface CompoundColliderData extends ColliderBaseData {
+  type: "compound";
+  parts: ConvexPartData[];
+  scale3?: Vec3Tuple;
+  sourceName?: string;
+}
+
 export type ColliderData =
   | BoxColliderData
   | CapsuleColliderData
   | MeshColliderData
-  | ConvexColliderData;
+  | ConvexColliderData
+  | CompoundColliderData;
 export type ColliderType = ColliderData["type"];
 
 export interface SpawnPoint {
@@ -207,14 +219,27 @@ export function assertColliderData(value: unknown): asserts value is ColliderDat
   }
 
   if (collider.type === "convex") {
-    if (!Array.isArray(collider.vertices) || collider.vertices.length < 4) {
-      throw new Error(`Convex collider ${collider.id} needs at least four vertices.`);
-    }
-    if (!collider.vertices.every(isVec3)) {
-      throw new Error(`Convex collider ${collider.id} has invalid vertices.`);
-    }
+    assertConvexVertices(collider.id, collider.vertices, "Convex collider");
     if (collider.scale3 !== undefined && !isPositiveVec3(collider.scale3)) {
       throw new Error(`Convex collider ${collider.id} has an invalid scale.`);
+    }
+    assertSourceName(collider.id, collider.sourceName);
+    assertBodyCompatibility(collider.id, collider.type, collider.behavior, collider.body);
+    return;
+  }
+
+  if (collider.type === "compound") {
+    if (!Array.isArray(collider.parts) || collider.parts.length < 1 || collider.parts.length > 32) {
+      throw new Error(`Compound collider ${collider.id} needs between 1 and 32 convex parts.`);
+    }
+    collider.parts.forEach((part, index) => {
+      if (!part || typeof part !== "object") {
+        throw new Error(`Compound collider ${collider.id} has an invalid part at ${index}.`);
+      }
+      assertConvexVertices(collider.id, part.vertices, `Compound part ${index}`);
+    });
+    if (collider.scale3 !== undefined && !isPositiveVec3(collider.scale3)) {
+      throw new Error(`Compound collider ${collider.id} has an invalid scale.`);
     }
     assertSourceName(collider.id, collider.sourceName);
     assertBodyCompatibility(collider.id, collider.type, collider.behavior, collider.body);
@@ -241,6 +266,16 @@ function assertTriangleGeometry(
     )
   ) {
     throw new Error(`Mesh collider ${id} has invalid triangle indices.`);
+  }
+}
+
+function assertConvexVertices(
+  id: string,
+  vertices: Vec3Tuple[] | undefined,
+  label: string,
+): void {
+  if (!Array.isArray(vertices) || vertices.length < 4 || !vertices.every(isVec3)) {
+    throw new Error(`${label} ${id} needs at least four valid vertices.`);
   }
 }
 
@@ -324,7 +359,7 @@ function assertSourceName(id: string, sourceName: string | undefined): void {
 
 function assertBodyCompatibility(
   id: string,
-  type: "box" | "capsule" | "convex",
+  type: "box" | "capsule" | "convex" | "compound",
   behavior: ColliderBehavior | undefined,
   body: RigidBodyData | undefined,
 ): void {
