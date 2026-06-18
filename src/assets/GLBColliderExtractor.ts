@@ -1,26 +1,36 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import type {
+  DecompositionProgress,
+  DecompositionStats,
+} from "./decomposition/DecompositionProtocol";
+import { decompositionWorkerClient } from "./decomposition/DecompositionWorkerClient";
+import type {
   ProxyProgress,
   ProxySimplifierAlgorithm,
   ProxyTaskStats,
 } from "./proxy/ProxyProtocol";
 import { proxyWorkerClient } from "./proxy/ProxyWorkerClient";
 import type {
+  CompoundColliderData,
   ConvexColliderData,
+  ConvexPartData,
   MeshColliderData,
   Vec3Tuple,
 } from "../types/world";
 
-export type GLBColliderMode = "trimesh" | "convex";
+export type GLBColliderMode = "trimesh" | "convex" | "decomposition";
 
 export interface GLBImportOptions {
   mode: GLBColliderMode;
   detail: number;
   algorithm?: ProxySimplifierAlgorithm;
+  maxHulls?: number;
+  maxVerticesPerHull?: number;
   signal?: AbortSignal;
-  onProgress?: (progress: ProxyProgress) => void;
+  onProgress?: (progress: ProxyProgress | DecompositionProgress) => void;
   onComplete?: (stats: ProxyTaskStats) => void;
+  onDecompositionComplete?: (stats: DecompositionStats) => void;
 }
 
 interface GeometryData {
@@ -36,7 +46,7 @@ export async function extractWorldObjectFromGLB(
   id: string,
   position: Vec3Tuple,
   options: GLBImportOptions,
-): Promise<MeshColliderData | ConvexColliderData> {
+): Promise<MeshColliderData | ConvexColliderData | CompoundColliderData> {
   if (file.size > MAX_EMBEDDED_FILE_BYTES) {
     throw new Error("GLB exceeds the 25 MB embedded-asset limit.");
   }
@@ -51,31 +61,75 @@ export async function extractWorldObjectFromGLB(
       readFileAsDataUrl(file, options.signal),
     ]);
     throwIfAborted(options.signal);
-    options.onProgress?.({ progress: 0.12, stage: "合并 GLB 节点变换" });
+    options.onProgress?.({ progress: 0.1, stage: "合并 GLB 节点变换" });
     const source = collectGeometry(gltf.scene, options.signal);
     const detail = THREE.MathUtils.clamp(options.detail, 0.02, 1);
     const algorithm = options.mode === "convex" ? "cluster" : options.algorithm ?? "qem";
+    const simplifyMode = options.mode === "convex" ? "convex" : "trimesh";
 
     const simplified = await proxyWorkerClient.simplify(
       {
-        mode: options.mode,
+        mode: simplifyMode,
         algorithm,
         detail,
         vertices: source.vertices,
         indices: source.indices,
       },
       (progress) => {
+        const end = options.mode === "decomposition" ? 0.55 : 0.92;
         options.onProgress?.({
-          progress: 0.15 + progress.progress * 0.8,
+          progress: 0.14 + progress.progress * (end - 0.14),
           stage: progress.stage,
         });
       },
       options.signal,
     );
     throwIfAborted(options.signal);
-    options.onProgress?.({ progress: 0.97, stage: "创建世界对象" });
     options.onComplete?.(simplified.stats);
 
+    if (options.mode === "decomposition") {
+      const decomposition = await decompositionWorkerClient.decompose(
+        simplified.vertices,
+        simplified.indices,
+        {
+          maxHulls: options.maxHulls ?? 8,
+          maxVerticesPerHull: options.maxVerticesPerHull ?? 64,
+        },
+        (progress) => {
+          options.onProgress?.({
+            progress: 0.58 + progress.progress * 0.38,
+            stage: progress.stage,
+          });
+        },
+        options.signal,
+      );
+      throwIfAborted(options.signal);
+      options.onDecompositionComplete?.(decomposition.stats);
+      const parts = partsFromDecomposition(decomposition.vertices, decomposition.offsets);
+      if (parts.length === 0) {
+        throw new Error("GLB decomposition did not produce a valid convex part.");
+      }
+      const collider: CompoundColliderData = {
+        id,
+        type: "compound",
+        position,
+        rotationDeg: [0, 0, 0],
+        scale3: [1, 1, 1],
+        parts,
+        sourceName: file.name,
+        behavior: { mode: "solid" },
+        body: { mode: "fixed" },
+        visual: {
+          url: visualUrl,
+          sourceName: file.name,
+          visible: true,
+        },
+      };
+      options.onProgress?.({ progress: 1, stage: `Compound Collider 已完成 · ${parts.length} Hulls` });
+      return collider;
+    }
+
+    options.onProgress?.({ progress: 0.97, stage: "创建世界对象" });
     if (options.mode === "convex") {
       const vertices = tuplesFromVertices(simplified.vertices);
       if (vertices.length < 4) {
@@ -181,6 +235,21 @@ function collectGeometry(root: THREE.Object3D, signal?: AbortSignal): GeometryDa
     vertices: new Float32Array(vertices),
     indices: new Uint32Array(indices),
   };
+}
+
+function partsFromDecomposition(
+  vertices: Float32Array,
+  offsets: Uint32Array,
+): ConvexPartData[] {
+  const parts: ConvexPartData[] = [];
+  for (let index = 0; index + 1 < offsets.length; index += 1) {
+    const start = (offsets[index] ?? 0) * 3;
+    const end = (offsets[index + 1] ?? 0) * 3;
+    if (end <= start) continue;
+    const part = tuplesFromVertices(vertices.subarray(start, end));
+    if (part.length >= 4) parts.push({ vertices: part });
+  }
+  return parts;
 }
 
 function tuplesFromVertices(vertices: Float32Array): Vec3Tuple[] {
