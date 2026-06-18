@@ -229,20 +229,21 @@ export function assertColliderData(value: unknown): asserts value is ColliderDat
   }
 
   if (collider.type === "compound") {
+    const compoundId = collider.id;
     if (!Array.isArray(collider.parts) || collider.parts.length < 1 || collider.parts.length > 32) {
-      throw new Error(`Compound collider ${collider.id} needs between 1 and 32 convex parts.`);
+      throw new Error(`Compound collider ${compoundId} needs between 1 and 32 convex parts.`);
     }
     collider.parts.forEach((part, index) => {
       if (!part || typeof part !== "object") {
-        throw new Error(`Compound collider ${collider.id} has an invalid part at ${index}.`);
+        throw new Error(`Compound collider ${compoundId} has an invalid part at ${index}.`);
       }
-      assertConvexVertices(collider.id, part.vertices, `Compound part ${index}`);
+      assertConvexVertices(compoundId, part.vertices, `Compound part ${index}`);
     });
     if (collider.scale3 !== undefined && !isPositiveVec3(collider.scale3)) {
-      throw new Error(`Compound collider ${collider.id} has an invalid scale.`);
+      throw new Error(`Compound collider ${compoundId} has an invalid scale.`);
     }
-    assertSourceName(collider.id, collider.sourceName);
-    assertBodyCompatibility(collider.id, collider.type, collider.behavior, collider.body);
+    assertSourceName(compoundId, collider.sourceName);
+    assertBodyCompatibility(compoundId, collider.type, collider.behavior, collider.body);
     return;
   }
 
