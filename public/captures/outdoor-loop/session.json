@@ -1,0 +1,84 @@
+{
+  "format": "splat-capture-session",
+  "version": 1,
+  "name": "Outdoor Loop Capture",
+  "createdAt": "2026-06-22T00:00:00Z",
+  "coordinateSystem": "y-up",
+  "route": {
+    "kind": "loop",
+    "description": "Single outdoor loop capture with a mounted wide-angle camera. The operator should move smoothly, revisit the start area and preserve GPS/IMU sidecar files when available.",
+    "checkpoints": [
+      {
+        "id": "start-finish",
+        "label": "Start and loop closure area",
+        "t": 0
+      },
+      {
+        "id": "corner-01",
+        "label": "First visible corner"
+      },
+      {
+        "id": "corner-02",
+        "label": "Second visible corner"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "loop-main",
+      "url": "video/outdoor-loop.mp4",
+      "startTime": "2026-06-22T00:00:00Z",
+      "durationSeconds": 900,
+      "camera": {
+        "model": "Wide Camera",
+        "lens": "wide",
+        "width": 3840,
+        "height": 2160,
+        "fps": 30,
+        "stabilization": "standard",
+        "rollingShutter": true
+      },
+      "gpsTrack": "tracks/outdoor-loop.gpx",
+      "imuTrack": "tracks/outdoor-loop-imu.csv"
+    }
+  ],
+  "policy": {
+    "frames": {
+      "targetFps": 2,
+      "minDistanceMeters": 0.75,
+      "minYawDegrees": 8,
+      "blurThreshold": 0.55,
+      "duplicateThreshold": 0.92
+    },
+    "poses": {
+      "method": "hybrid",
+      "loopClosure": true,
+      "gpsPrior": true,
+      "imuPrior": true,
+      "rollingShutterCompensation": true
+    },
+    "chunks": {
+      "strategy": "distance",
+      "chunkMeters": 25,
+      "overlapRatio": 0.18
+    },
+    "training": {
+      "trainer": "external-3dgs",
+      "maxIterations": 30000,
+      "targetSplats": 1200000,
+      "appearanceNormalization": true
+    },
+    "export": {
+      "lodLevels": 3,
+      "highMaxDistance": 35,
+      "mediumMaxDistance": 90,
+      "lowMaxDistance": 180,
+      "gpuBudgetBytes": 384000000,
+      "outputFormat": "spz"
+    }
+  },
+  "expectedOutput": {
+    "largeWorldManifest": "large-world/world.json",
+    "assetRoot": "large-world/"
+  }
+}
