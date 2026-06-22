@@ -1,5 +1,6 @@
 import "./proxy-task.css";
 import type { GLBImportOptions } from "../GLBColliderExtractor";
+import type { DecompositionStats } from "../decomposition/DecompositionProtocol";
 import type {
   ProxyProgress,
   ProxySimplifierAlgorithm,
@@ -11,6 +12,7 @@ import type { ColliderData } from "../../types/world";
 const modeSelect = requiredElement<HTMLSelectElement>("glb-mode");
 const algorithmSelect = requiredElement<HTMLSelectElement>("glb-algorithm");
 const detailSelect = requiredElement<HTMLSelectElement>("glb-detail");
+const hullSelect = requiredElement<HTMLSelectElement>("glb-hulls");
 const importButton = requiredElement<HTMLButtonElement>("import-glb");
 const taskPanel = requiredElement<HTMLElement>("proxy-task");
 const taskStage = requiredElement<HTMLElement>("proxy-task-stage");
@@ -28,14 +30,14 @@ let lastTriMeshAlgorithm: ProxySimplifierAlgorithm = "qem";
 
 installEngineCreateNotice();
 installImportWrapper();
-modeSelect.addEventListener("change", syncAlgorithmAvailability);
+modeSelect.addEventListener("change", syncModeControls);
 algorithmSelect.addEventListener("change", () => {
-  if (modeSelect.value === "trimesh") {
+  if (modeSelect.value !== "convex") {
     lastTriMeshAlgorithm = algorithmSelect.value as ProxySimplifierAlgorithm;
   }
 });
 cancelButton.addEventListener("click", () => activeController?.abort());
-syncAlgorithmAvailability();
+syncModeControls();
 
 function installImportWrapper(): void {
   const original = Engine.prototype.importGLBWorldObject;
@@ -52,7 +54,8 @@ function installImportWrapper(): void {
       const externalSignal = options.signal;
       const abortFromExternal = (): void => controller.abort();
       externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
-      let stats: ProxyTaskStats | null = null;
+      let proxyStats: ProxyTaskStats | null = null;
+      let decompositionStats: DecompositionStats | null = null;
 
       setBusy(true, file.name);
       try {
@@ -63,18 +66,24 @@ function installImportWrapper(): void {
         const enhancedOptions: GLBImportOptions = {
           ...options,
           algorithm,
+          maxHulls: Number(hullSelect.value),
+          maxVerticesPerHull: 64,
           signal: controller.signal,
           onProgress: (progress) => {
-            options.onProgress?.(progress);
+            options.onProgress?.(progress as ProxyProgress);
             updateProgress(progress);
           },
           onComplete: (value) => {
-            stats = value;
+            proxyStats = value;
             options.onComplete?.(value);
+          },
+          onDecompositionComplete: (value) => {
+            decompositionStats = value;
+            options.onDecompositionComplete?.(value);
           },
         };
         const collider = await original.call(this, file, enhancedOptions);
-        if (collider && stats) showCompletedStats(stats);
+        if (collider && proxyStats) showCompletedStats(proxyStats, decompositionStats);
         return collider;
       } catch (error) {
         if (isAbortError(error)) {
@@ -92,6 +101,7 @@ function installImportWrapper(): void {
           activeController = null;
           setControlsDisabled(false);
           document.body.classList.remove("proxy-busy");
+          syncModeControls();
         }
       }
     },
@@ -105,26 +115,31 @@ function installEngineCreateNotice(): void {
     value: async (...args: Parameters<typeof Engine.create>): Promise<Engine> => {
       const instance = await original(...args);
       window.setTimeout(() => {
-        showToast("Runtime 0.9 已就绪：Web Worker + QEM 碰撞代理生成已启用。", 4600);
+        showToast("Runtime 0.10 已就绪：Compound Convex Decomposition 已启用。", 4800);
       }, 80);
       return instance;
     },
   });
 }
 
-function syncAlgorithmAvailability(): void {
+function syncModeControls(): void {
   if (modeSelect.value === "convex") {
     if (algorithmSelect.value !== "cluster") {
       lastTriMeshAlgorithm = algorithmSelect.value as ProxySimplifierAlgorithm;
     }
     algorithmSelect.value = "cluster";
     algorithmSelect.disabled = true;
-    algorithmSelect.title = "Convex Hull 使用空间点聚类";
+    algorithmSelect.title = "单 Convex Hull 使用空间点聚类";
   } else {
     algorithmSelect.disabled = activeController !== null;
     algorithmSelect.value = lastTriMeshAlgorithm;
-    algorithmSelect.title = "TriMesh proxy simplifier";
+    algorithmSelect.title = "TriMesh simplifier before proxy creation";
   }
+  hullSelect.disabled = activeController !== null || modeSelect.value !== "decomposition";
+  hullSelect.title =
+    modeSelect.value === "decomposition"
+      ? "Maximum convex hull count"
+      : "仅 Compound 分解模式使用";
 }
 
 function setBusy(busy: boolean, fileName: string): void {
@@ -145,10 +160,11 @@ function setControlsDisabled(disabled: boolean): void {
   modeSelect.disabled = disabled;
   detailSelect.disabled = disabled;
   algorithmSelect.disabled = disabled || modeSelect.value === "convex";
+  hullSelect.disabled = disabled || modeSelect.value !== "decomposition";
   cancelButton.disabled = !disabled;
 }
 
-function updateProgress(progress: ProxyProgress): void {
+function updateProgress(progress: { progress: number; stage: string }): void {
   const percent = Math.round(progress.progress * 100);
   taskStage.textContent = progress.stage;
   taskPercent.textContent = `${percent}%`;
@@ -156,20 +172,26 @@ function updateProgress(progress: ProxyProgress): void {
   statusElement.textContent = `${progress.stage} · ${percent}%`;
 }
 
-function showCompletedStats(stats: ProxyTaskStats): void {
-  const elapsed = stats.elapsedMs >= 1000
-    ? `${(stats.elapsedMs / 1000).toFixed(2)}s`
-    : `${Math.round(stats.elapsedMs)}ms`;
-  const execution = stats.worker ? "Web Worker" : "主线程回退";
+function showCompletedStats(
+  stats: ProxyTaskStats,
+  decomposition: DecompositionStats | null,
+): void {
+  const proxyElapsed = formatDuration(stats.elapsedMs);
+  const execution = stats.worker ? "Worker" : "主线程回退";
   const precluster = stats.preclustered ? " · 预聚类" : "";
   const geometry = stats.outputTriangles > 0
     ? `${stats.originalTriangles.toLocaleString()} → ${stats.outputTriangles.toLocaleString()} triangles`
     : `${stats.originalVertices.toLocaleString()} → ${stats.outputVertices.toLocaleString()} points`;
-  taskStage.textContent = "后台代理任务完成";
+
+  taskStage.textContent = decomposition
+    ? `Compound Collider 完成 · ${decomposition.outputHulls} Hulls`
+    : "后台代理任务完成";
   taskPercent.textContent = "100%";
   progressBar.style.width = "100%";
-  taskDetail.textContent = `${stats.algorithm.toUpperCase()} · ${geometry} · ${elapsed} · ${execution}${precluster}`;
-  hideTimer = window.setTimeout(() => taskPanel.classList.add("hidden"), 5200);
+  taskDetail.textContent = decomposition
+    ? `${stats.algorithm.toUpperCase()} · ${geometry} · ${decomposition.outputHulls} hulls / ${decomposition.outputPoints} points · ${proxyElapsed} + ${formatDuration(decomposition.elapsedMs)} · ${execution}${precluster}`
+    : `${stats.algorithm.toUpperCase()} · ${geometry} · ${proxyElapsed} · ${execution}${precluster}`;
+  hideTimer = window.setTimeout(() => taskPanel.classList.add("hidden"), 6200);
 }
 
 function showCancelled(): void {
@@ -186,6 +208,12 @@ function showToast(message: string, duration: number): void {
   toastElement.textContent = message;
   toastElement.classList.add("visible");
   toastTimer = window.setTimeout(() => toastElement.classList.remove("visible"), duration);
+}
+
+function formatDuration(milliseconds: number): string {
+  return milliseconds >= 1000
+    ? `${(milliseconds / 1000).toFixed(2)}s`
+    : `${Math.round(milliseconds)}ms`;
 }
 
 function isAbortError(error: unknown): boolean {

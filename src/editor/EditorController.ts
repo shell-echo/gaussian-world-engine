@@ -14,6 +14,7 @@ import type {
   BoxColliderData,
   CapsuleColliderData,
   ColliderData,
+  CompoundColliderData,
   ConvexColliderData,
   MeshColliderData,
   Vec3Tuple,
@@ -224,9 +225,14 @@ export class EditorController {
   async importGLBWorldObject(
     file: File,
     options: GLBImportOptions,
-  ): Promise<MeshColliderData | ConvexColliderData> {
+  ): Promise<MeshColliderData | ConvexColliderData | CompoundColliderData> {
     const base = sanitizeId(file.name.replace(/\.glb$/i, "")) || "glb-object";
-    const suffix = options.mode === "convex" ? "convex" : "mesh";
+    const suffix =
+      options.mode === "convex"
+        ? "convex"
+        : options.mode === "decomposition"
+          ? "compound"
+          : "mesh";
     const id = this.createUniqueColliderId(`${base}-${suffix}`);
     const data = await extractWorldObjectFromGLB(
       file,

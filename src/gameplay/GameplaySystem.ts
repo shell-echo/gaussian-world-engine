@@ -1,6 +1,11 @@
 import * as THREE from "three";
 import type { PhysicsWorld } from "../physics/PhysicsWorld";
-import type { ColliderData, ConvexColliderData } from "../types/world";
+import type {
+  ColliderData,
+  CompoundColliderData,
+  ConvexColliderData,
+  Vec3Tuple,
+} from "../types/world";
 import { quaternionFromDegrees } from "../utils/transform";
 
 export interface GameplayEvent {
@@ -160,19 +165,35 @@ function containsPoint(
     return dx * dx + dy * dy + dz * dz <= collider.radius * collider.radius;
   }
 
+  if (collider.type === "compound") {
+    return containsCompoundBounds(collider, local);
+  }
   return containsConvexBounds(collider, local);
+}
+
+function containsCompoundBounds(collider: CompoundColliderData, local: THREE.Vector3): boolean {
+  const scale = collider.scale3 ?? [1, 1, 1];
+  const unscaled = unscalePoint(local, scale);
+  return collider.parts.some((part) => containsBounds(part.vertices, unscaled));
 }
 
 function containsConvexBounds(collider: ConvexColliderData, local: THREE.Vector3): boolean {
   const scale = collider.scale3 ?? [1, 1, 1];
-  local.set(
+  return containsBounds(collider.vertices, unscalePoint(local, scale));
+}
+
+function unscalePoint(local: THREE.Vector3, scale: Vec3Tuple): THREE.Vector3 {
+  return local.clone().set(
     local.x / Math.max(scale[0], 1e-6),
     local.y / Math.max(scale[1], 1e-6),
     local.z / Math.max(scale[2], 1e-6),
   );
+}
+
+function containsBounds(vertices: readonly Vec3Tuple[], point: THREE.Vector3): boolean {
   const bounds = new THREE.Box3();
-  for (const vertex of collider.vertices) {
+  for (const vertex of vertices) {
     bounds.expandByPoint(new THREE.Vector3(vertex[0], vertex[1], vertex[2]));
   }
-  return bounds.containsPoint(local);
+  return bounds.containsPoint(point);
 }

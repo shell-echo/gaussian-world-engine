@@ -1,47 +1,42 @@
-# Splat World Engine — Gaussian Runtime + Background Proxy Pipeline
+# Splat World Engine — Gaussian Runtime + Compound Convex Physics
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Gaussian Splats 负责照片级世界，GLB 可视模型、代理碰撞、Rapier 刚体、Trigger、交互和位置音频负责可玩性。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Gaussian Splats 负责照片级世界，GLB 可视模型、碰撞代理、Rapier 刚体、Trigger、交互和位置音频负责可玩性。
 
-Runtime 0.9 将 GLB 碰撞代理生成迁移到 Web Worker，并加入 QEM Mesh Simplification。
+Runtime 0.10 增加了 **Compound Convex Decomposition**：凹形 GLB 可以拆成多个凸包，并以一个世界对象、一个共享 Transform 和一个 Rapier 刚体运行。
 
 ```text
-GLB file
-  ├── main thread
-  │     ├── GLTFLoader parse
-  │     ├── bake node transforms
-  │     └── Float32Array / Uint32Array
-  │                 │ Transferable
-  │                 ▼
-  └── Web Worker
-        ├── QEM batch edge collapse
-        ├── boundary preservation
-        ├── spatial clustering fallback
-        ├── cancellation + progress
-        └── compact collision proxy
-                   │ Transferable
-                   ▼
-             Rapier collider
+Concave GLB
+  │
+  ├── QEM / Cluster Worker
+  │       ↓ simplified TriMesh
+  │
+  └── Decomposition Worker
+          ├── recursive triangle partition
+          ├── convex point reduction
+          └── Hull 1 ... Hull N
+                    ↓
+        One world object / one rigid body
+          ├── Rapier Convex Collider 1
+          ├── Rapier Convex Collider 2
+          └── Rapier Convex Collider N
 ```
 
-## Runtime 0.9 能力
+## Runtime 0.10 能力
 
 - Spark 2.1 Gaussian Splat 渲染
-- Box、Capsule、TriMesh 与 Convex Hull Collider
+- Box、Capsule、TriMesh、Convex 和 Compound Collider
 - GLB 可视模型与碰撞代理同时导入
-- TriMesh 可选择 QEM 或 Cluster 简化
-- Convex 使用后台空间点聚类
-- Web Worker 后台代理生成
-- TypedArray Transferable，避免复制大规模顶点缓冲
-- 进度、阶段、耗时与输出统计
-- `AbortSignal` 取消任务
-- 取消后不创建对象、不写入 Undo 历史
-- 超大网格先聚类到 QEM 工作集，再执行边折叠
-- QEM 边界保护与退化三角形清理
-- 动态 Box、Capsule、Convex 刚体
-- Trigger、Interactable、位置音频
-- 场景对象树、Transform Gizmo、数值 Inspector
-- Undo / Redo
-- `.splatworld` 世界包导入与导出
+- TriMesh 支持 QEM / Cluster 简化
+- 单 Convex Hull 点聚类
+- Compound Convex Decomposition
+- 一个 Compound 对象挂载多个 Rapier Collider
+- Compound 支持 Fixed / Dynamic 刚体
+- Compound 支持 Trigger、Interactable、Audio 和 Visual Component
+- Web Worker + TypedArray Transferable
+- 代理生成与分解进度、取消和统计
+- Scene Tree、Transform Gizmo、数值 Inspector
+- Undo / Redo 和对象复制
+- `world.json` 与 `.splatworld` 导入导出
 
 ## 运行
 
@@ -60,61 +55,128 @@ npm run build
 npm run preview
 ```
 
-## GLB 代理生成
+## GLB 碰撞模式
 
-进入编辑模式后，在顶部选择：
+进入编辑模式后可以选择三种 GLB 代理：
+
+| 模式 | 适合 | 动态刚体 | 凹形表达 |
+|---|---|---:|---:|
+| TriMesh | 建筑、地面、静态场景 | 否 | 是 |
+| Convex | 简单道具、岩石、箱体 | 是 | 否 |
+| Compound | 凹形道具、家具、复杂动态物体 | 是 | 近似 |
+
+### Compound 导入
+
+顶部工具栏选择：
 
 ```text
-GLB → TriMesh
+GLB → Compound
 简化 QEM
 细节 25%
+最多 8 Hulls
 ```
 
-或者：
+处理流程：
+
+1. `GLTFLoader` 读取 GLB。
+2. 将所有 Mesh 节点变换烘焙到统一顶点空间。
+3. 第一阶段 Worker 使用 QEM 或 Cluster 生成简化 TriMesh。
+4. 第二阶段 Worker递归分割三角形簇。
+5. 每个簇提取并缩减为凸包点集。
+6. 无体积或退化的 Part 被丢弃。
+7. 所有有效 Part 挂到同一个 Rapier 刚体。
+8. 原始 GLB 继续作为共享 Visual Component。
+
+可选的最大 Hull 数：4、8、16、32。每个 Hull 默认最多保留 64 个点，Manifest 校验允许最多 256 个点预算。
+
+## 分解算法
+
+当前实现面向浏览器实时编辑，不声称是 VHACD。
+
+算法步骤：
+
+- 以全部三角形作为初始簇。
+- 根据簇的三角形数量和包围盒表面积选择最值得继续拆分的簇。
+- 计算三角形质心。
+- 沿质心分布最长轴进行中位数切分。
+- 重复切分，直到达到 Hull 上限或无法产生有效子簇。
+- 对每个簇提取唯一顶点。
+- 顶点过多时使用三维空间聚类压缩点集。
+- 检查点集是否具有非零体积。
+- 将结果交给 Rapier `convexHull` 创建真实碰撞体。
+
+它比单个 Convex Hull 更能贴合凹形道具，同时比动态 TriMesh 更适合实时物理。
+
+## Compound Manifest
+
+```json
+{
+  "id": "chair-compound",
+  "type": "compound",
+  "position": [0, 1, 0],
+  "rotationDeg": [0, 0, 0],
+  "scale3": [1, 1, 1],
+  "parts": [
+    {
+      "vertices": [
+        [-0.5, -0.5, -0.5],
+        [0.5, -0.5, -0.5],
+        [0, 0.5, 0],
+        [0, 0, 0.5]
+      ]
+    },
+    {
+      "vertices": [
+        [-0.4, 0.2, -0.3],
+        [0.4, 0.2, -0.3],
+        [0, 1.2, -0.2],
+        [0, 0.3, 0.3]
+      ]
+    }
+  ],
+  "body": {
+    "mode": "dynamic",
+    "gravityScale": 1,
+    "linearDamping": 0.15,
+    "angularDamping": 0.25
+  },
+  "behavior": { "mode": "solid" },
+  "visual": {
+    "url": "bundle:///models/chair.glb",
+    "sourceName": "chair.glb",
+    "visible": true
+  }
+}
+```
+
+Manifest 仍然使用：
+
+```json
+{
+  "format": "splat-world",
+  "version": 1
+}
+```
+
+因此 0.9 及更早的 Box、Capsule、Mesh 和 Convex 世界无需迁移。
+
+## Rapier 模型
 
 ```text
-GLB → TriMesh
-简化 Cluster
-细节 25%
+CompoundColliderData
+  ├── shared position / rotation / scale
+  ├── shared body settings
+  ├── shared gameplay components
+  ├── shared GLB visual
+  └── parts[]
+        ↓
+Rapier RigidBody
+  ├── Collider(convexHull(part 1))
+  ├── Collider(convexHull(part 2))
+  └── Collider(convexHull(part N))
 ```
 
-Convex 模式会自动切换到空间点聚类，因为 QEM 面向带三角拓扑的网格。
-
-### QEM 流程
-
-1. 从每个三角面构建平面二次误差矩阵。
-2. 将面误差累加到关联顶点。
-3. 为每条边计算组合误差与最优折叠点。
-4. 对边界点和非边界点之间的折叠施加高惩罚。
-5. 按误差排序，批量选择互不共享顶点的边。
-6. 折叠边、清理退化面和重复面。
-7. 重新压缩顶点索引并进入下一轮。
-8. 无法继续达到目标时，用聚类完成收尾。
-
-QEM 工作集最多约 120,000 个三角形。更大的源网格会先进行一次空间预聚类，最终代理仍限制在 100,000 个三角形以内。
-
-### Cluster 模式
-
-Cluster 使用三维网格单元聚合顶点：
-
-- 速度更快
-- 内存占用更低
-- 更适合快速预览和 Convex 点集
-- 对薄壁、小孔洞和尖锐轮廓的保留弱于 QEM
-
-### 后台任务 UI
-
-代理任务面板会显示：
-
-- 当前处理阶段
-- 完成百分比
-- 原始与输出三角形或点数量
-- QEM / Cluster 算法
-- Worker 执行状态
-- 预聚类状态
-- 实际耗时
-
-点击“取消”会触发 `AbortSignal`。QEM 每轮边折叠之间会让出 Worker 事件循环，以便及时处理取消请求。
+编辑器只显示一个对象和一个 Transform Gizmo。修改 Transform 或 Scale 后，会重建该刚体的全部子 Collider。
 
 ## `.splatworld` 世界包
 
@@ -129,69 +191,45 @@ world.splatworld
   audio/
 ```
 
-支持：
-
-- Data URL、Blob URL、同源和 CORS 可读资产自动打包
-- `bundle:///...` 内部资产 URL
-- Blob URL 生命周期管理
-- ZIP Store 导出
-- ZIP Store / Deflate 导入
-- CRC32 校验
-- 路径穿越、压缩炸弹和体积限制保护
-- IndexedDB 暂存后完整重启 Runtime
-
-无法读取的第三方远程资源会保留为外部 URL，并记录在 `bundle.json.externalAssets` 中。
+Compound 数据直接保存在 `world.json`；GLB、Splat 和音频仍使用 `bundle:///...` 内部 URL，因此不需要升级世界包格式。
 
 ## 代码结构
 
 ```text
 src/
-  RuntimeBootstrap.ts                    Runtime bootstrap composition
-  assets/GLBColliderExtractor.ts         GLB parse + worker dispatch
-  assets/proxy/ProxyProtocol.ts          Worker message and statistics types
-  assets/proxy/ProxySimplifier.ts        QEM and spatial clustering
-  assets/proxy/ProxyWorker.ts            Background worker entry
-  assets/proxy/ProxyWorkerClient.ts      Transferable client + cancellation
-  assets/proxy/ProxyImportBootstrap.ts   Progress UI and Engine integration
-  world/ZipArchive.ts                    Dependency-free ZIP codec
-  world/WorldBundle.ts                   .splatworld import and export
-  world/BundleBootstrap.ts               Bundle startup lifecycle
-  physics/PhysicsWorld.ts                Box / Capsule / TriMesh / Convex
-  editor/EditorController.ts             Object editing
-  render/VisualModelSystem.ts            GLB visual components
-  render/GaussianWorld.ts                Gaussian visual layer
-```
-
-## 架构原则
-
-```text
-照片级背景       = Gaussian Splats
-导入道具外观     = GLB Visual Component
-复杂静态碰撞     = QEM / Cluster TriMesh
-动态道具碰撞     = Convex Hull
-简单空间代理     = Box / Capsule
-游戏行为         = Trigger / Interactable / Audio
-分发单元         = .splatworld bundle
-CPU 重任务        = Web Worker + Transferable
+  assets/decomposition/
+    DecompositionProtocol.ts       Worker 协议与统计
+    ConvexDecomposer.ts            递归三角簇分解
+    DecompositionWorker.ts         后台 Worker
+    DecompositionWorkerClient.ts   Transferable 与取消
+    CompoundUiBootstrap.ts         导入控件和 Inspector 增强
+  assets/proxy/
+    ProxySimplifier.ts             QEM / Cluster
+    ProxyWorker.ts                 简化 Worker
+  physics/PhysicsWorld.ts          一个刚体挂载多个 Convex Collider
+  assets/GLBColliderExtractor.ts   两阶段导入流水线
+  types/world.ts                   Compound Manifest 联合类型
+  world/WorldBundle.ts             `.splatworld` 世界包
 ```
 
 ## 已知边界
 
-- GLTFLoader 解析与节点遍历仍在主线程，网格简化在 Worker。
-- QEM 采用批量互斥边折叠，不是逐边更新优先队列的离线工业实现。
-- QEM 不保留 UV、法线、骨骼和材质属性，因为输出只用于碰撞。
-- Cluster 模式不保证保留薄壁和小孔洞。
-- Convex Hull 无法表达凹形结构。
+- 当前分解是基于空间递归分区的实时近似方案，不是 VHACD。
+- Hull 之间可能重叠，也可能无法完全覆盖细小凹槽。
+- Trigger 的 CPU 预检测使用各 Part 的局部 AABB 并集；最终物理碰撞仍由 Rapier Convex Collider 决定。
+- GLTFLoader 解析与节点遍历仍在主线程。
+- QEM 只处理碰撞几何，不保留 UV、法线、骨骼和材质属性。
+- 复杂模型需要在 Hull 数量、代理精度和物理成本之间权衡。
 - `.splatworld` ZIP 导出当前使用 Store 模式。
-- GLB 动画、材质 Inspector 和独立 Visual Transform 尚未实现。
 
 ## 下一阶段
 
-- [x] `.splatworld` 资产包导入与导出
+- [x] `.splatworld` 世界包
 - [x] Web Worker 代理生成
 - [x] QEM Mesh Simplification
-- [ ] 将 GLB 解析和世界包压缩也迁移到 Worker
-- [ ] Convex Decomposition
+- [x] Compound Convex Decomposition
+- [ ] Hull 可视化、单 Part 选择与手工调整
+- [ ] GLB 解析和世界包压缩迁移到 Worker
 - [ ] GLB 动画和材质控制
 - [ ] 事件图 / 脚本组件
 - [ ] NavMesh 与大场景分块

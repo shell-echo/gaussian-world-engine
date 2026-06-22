@@ -90,7 +90,11 @@ export class VisualModelSystem {
   private applyTransform(root: THREE.Group, collider: ColliderData): void {
     root.position.fromArray(collider.position ?? [0, 0, 0]);
     root.quaternion.copy(quaternionFromDegrees(collider.rotationDeg));
-    if (collider.type === "mesh" || collider.type === "convex") {
+    if (
+      collider.type === "mesh" ||
+      collider.type === "convex" ||
+      collider.type === "compound"
+    ) {
       root.scale.fromArray(collider.scale3 ?? [1, 1, 1]);
     } else {
       root.scale.set(1, 1, 1);

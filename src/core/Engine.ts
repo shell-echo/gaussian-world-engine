@@ -235,7 +235,7 @@ export class Engine {
       this.gameplay.setEnabled(false);
       this.audio.setEnabled(false);
       this.editor.setEnabled(true);
-      this.events.onStatus?.("编辑模式：GLB Visual、TriMesh 与 Convex Hull 可用");
+      this.events.onStatus?.("编辑模式：TriMesh、Convex 与 Compound Hull 可用");
     } else {
       this.editor.setEnabled(false);
       this.editor.select(null);
@@ -307,13 +307,21 @@ export class Engine {
       const collider = await this.editor.importGLBWorldObject(file, options);
       this.commitHistoryMutation();
       this.syncObjectSystems();
-      const triangleCount = collider.type === "mesh" ? collider.indices.length / 3 : null;
       const detail = Math.round(options.detail * 100);
-      this.events.onStatus?.(
-        triangleCount === null
-          ? `已从 ${file.name} 创建 Convex Hull · ${collider.vertices.length} 点 · ${detail}% 细节`
-          : `已从 ${file.name} 创建 TriMesh · ${triangleCount} 三角形 · ${detail}% 细节`,
-      );
+      if (collider.type === "mesh") {
+        this.events.onStatus?.(
+          `已从 ${file.name} 创建 TriMesh · ${collider.indices.length / 3} 三角形 · ${detail}% 细节`,
+        );
+      } else if (collider.type === "compound") {
+        const points = collider.parts.reduce((sum, part) => sum + part.vertices.length, 0);
+        this.events.onStatus?.(
+          `已从 ${file.name} 创建 Compound · ${collider.parts.length} Hulls · ${points} 点 · ${detail}% 细节`,
+        );
+      } else {
+        this.events.onStatus?.(
+          `已从 ${file.name} 创建 Convex Hull · ${collider.vertices.length} 点 · ${detail}% 细节`,
+        );
+      }
       return collider;
     } catch (error) {
       this.cancelHistoryMutation();
@@ -507,7 +515,9 @@ export class Engine {
         audio: Boolean(collider.audio),
         visual: Boolean(collider.visual),
         sourceName:
-          collider.type === "mesh" || collider.type === "convex"
+          collider.type === "mesh" ||
+          collider.type === "convex" ||
+          collider.type === "compound"
             ? collider.sourceName
             : undefined,
       })),
