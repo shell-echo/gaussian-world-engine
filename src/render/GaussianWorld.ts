@@ -49,6 +49,19 @@ export class GaussianWorld {
     return mesh;
   }
 
+  removeAsset(id: string): boolean {
+    const mesh = this.splats.get(id);
+    if (!mesh) return false;
+    this.root.remove(mesh);
+    mesh.dispose();
+    this.splats.delete(id);
+    return true;
+  }
+
+  hasAsset(id: string): boolean {
+    return this.splats.has(id);
+  }
+
   addProceduralFallback(asset: SplatAsset): SplatMesh {
     const mesh = new SplatMesh({ maxSplats: 5200 });
     mesh.name = `${asset.id}:procedural-fallback`;
