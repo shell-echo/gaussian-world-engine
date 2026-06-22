@@ -41,6 +41,9 @@ export interface LargeWorldManifest {
     gpuBudgetBytes?: number;
     maxConcurrentLoads?: number;
     debugBounds?: boolean;
+    tileIndexCellSize?: number;
+    lodHysteresisRatio?: number;
+    minLodDwellSeconds?: number;
   };
 }
 
@@ -51,6 +54,9 @@ export interface LargeWorldRuntimeConfig {
   gpuBudgetBytes: number;
   maxConcurrentLoads: number;
   debugBounds: boolean;
+  tileIndexCellSize?: number;
+  lodHysteresisRatio: number;
+  minLodDwellSeconds: number;
 }
 
 const DEFAULT_CONFIG: LargeWorldRuntimeConfig = {
@@ -60,6 +66,8 @@ const DEFAULT_CONFIG: LargeWorldRuntimeConfig = {
   gpuBudgetBytes: 384 * 1024 * 1024,
   maxConcurrentLoads: 2,
   debugBounds: true,
+  lodHysteresisRatio: 0.12,
+  minLodDwellSeconds: 1,
 };
 
 export function assertLargeWorldManifest(value: unknown): asserts value is LargeWorldManifest {
@@ -111,6 +119,17 @@ export function resolveLargeWorldConfig(manifest: LargeWorldManifest): LargeWorl
       Math.min(Math.round(positiveOr(manifest.streaming?.maxConcurrentLoads, DEFAULT_CONFIG.maxConcurrentLoads)), 8),
     ),
     debugBounds: manifest.streaming?.debugBounds ?? DEFAULT_CONFIG.debugBounds,
+    tileIndexCellSize: isPositive(manifest.streaming?.tileIndexCellSize)
+      ? manifest.streaming.tileIndexCellSize
+      : undefined,
+    lodHysteresisRatio: Math.min(
+      Math.max(nonNegativeOr(manifest.streaming?.lodHysteresisRatio, DEFAULT_CONFIG.lodHysteresisRatio), 0),
+      0.45,
+    ),
+    minLodDwellSeconds: Math.min(
+      Math.max(nonNegativeOr(manifest.streaming?.minLodDwellSeconds, DEFAULT_CONFIG.minLodDwellSeconds), 0),
+      10,
+    ),
   };
 }
 
@@ -164,6 +183,14 @@ function isPositive(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
+function isNonNegative(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
 function positiveOr(value: unknown, fallback: number): number {
   return isPositive(value) ? value : fallback;
+}
+
+function nonNegativeOr(value: unknown, fallback: number): number {
+  return isNonNegative(value) ? value : fallback;
 }

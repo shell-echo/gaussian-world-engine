@@ -17,7 +17,10 @@
     "preloadRadius": 90,
     "gpuBudgetBytes": 160000000,
     "maxConcurrentLoads": 2,
-    "debugBounds": true
+    "debugBounds": true,
+    "tileIndexCellSize": 40,
+    "lodHysteresisRatio": 0.14,
+    "minLodDwellSeconds": 1.2
   },
   "colliders": [
     {

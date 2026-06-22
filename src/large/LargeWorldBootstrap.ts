@@ -92,6 +92,7 @@ function updateStats(stats: LargeTileStreamingStats): void {
   if (!statusElement) return;
   statusElement.textContent =
     `Tiles ${stats.loadedTiles}/${stats.visibleTiles}` +
+    ` · cand ${stats.indexCandidates}` +
     ` · loading ${stats.loadingTiles}` +
     ` · ${formatLargeBytes(stats.residentBytes)} / ${formatLargeBytes(stats.budgetBytes)}`;
 }

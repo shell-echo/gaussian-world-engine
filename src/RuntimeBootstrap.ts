@@ -1,3 +1,4 @@
+import "./VersionBootstrap";
 import "./large/LargeWorldBootstrap";
 import "./assets/decomposition/CompoundUiBootstrap";
 
