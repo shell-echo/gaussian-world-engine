@@ -51,14 +51,6 @@ function installCompoundControls(): void {
     const detail = requiredElement<HTMLSelectElement>("glb-detail");
     detail.insertAdjacentElement("afterend", hulls);
   }
-
-  const version = document.querySelector<HTMLElement>(".version");
-  if (version) version.textContent = "runtime 0.10";
-  const description = document.querySelector<HTMLElement>("#launch-panel p");
-  if (description) {
-    description.textContent =
-      "凹形 GLB 可在后台拆分成多个 Convex Hull，让复杂道具同时支持动态刚体、交互与世界包导出。";
-  }
 }
 
 function refreshCompoundInspector(): void {

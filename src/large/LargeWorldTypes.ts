@@ -1,0 +1,169 @@
+import type { Vec3Tuple, WorldManifest } from "../types/world";
+
+export interface BoundsData {
+  min: Vec3Tuple;
+  max: Vec3Tuple;
+}
+
+export interface LargeSplatTileLod {
+  level: number;
+  url: string;
+  maxDistance: number;
+  bytes?: number;
+  splatCount?: number;
+  lod?: boolean;
+  paged?: boolean;
+}
+
+export interface LargeSplatTile {
+  id: string;
+  bounds: BoundsData;
+  lods: LargeSplatTileLod[];
+  priority?: number;
+  neighbors?: string[];
+}
+
+export interface LargeWorldManifest {
+  format: "splatworld-large";
+  version: 1;
+  name: string;
+  spawn: {
+    position: Vec3Tuple;
+    yawDeg?: number;
+  };
+  tiles: LargeSplatTile[];
+  colliders?: WorldManifest["colliders"];
+  environment?: WorldManifest["environment"];
+  streaming?: {
+    loadRadius?: number;
+    unloadRadius?: number;
+    preloadRadius?: number;
+    gpuBudgetBytes?: number;
+    maxConcurrentLoads?: number;
+    debugBounds?: boolean;
+  };
+}
+
+export interface LargeWorldRuntimeConfig {
+  loadRadius: number;
+  unloadRadius: number;
+  preloadRadius: number;
+  gpuBudgetBytes: number;
+  maxConcurrentLoads: number;
+  debugBounds: boolean;
+}
+
+const DEFAULT_CONFIG: LargeWorldRuntimeConfig = {
+  loadRadius: 90,
+  unloadRadius: 130,
+  preloadRadius: 150,
+  gpuBudgetBytes: 384 * 1024 * 1024,
+  maxConcurrentLoads: 2,
+  debugBounds: true,
+};
+
+export function assertLargeWorldManifest(value: unknown): asserts value is LargeWorldManifest {
+  if (!value || typeof value !== "object") {
+    throw new Error("Large world manifest must be an object.");
+  }
+  const manifest = value as Partial<LargeWorldManifest>;
+  if (manifest.format !== "splatworld-large" || manifest.version !== 1) {
+    throw new Error("Unsupported large world manifest format/version.");
+  }
+  if (typeof manifest.name !== "string" || !manifest.name.trim()) {
+    throw new Error("Large world manifest is missing a name.");
+  }
+  if (!manifest.spawn || !isVec3(manifest.spawn.position)) {
+    throw new Error("Large world manifest has an invalid spawn point.");
+  }
+  if (!Array.isArray(manifest.tiles) || manifest.tiles.length === 0) {
+    throw new Error("Large world manifest needs at least one tile.");
+  }
+
+  const ids = new Set<string>();
+  for (const tile of manifest.tiles) {
+    assertTile(tile);
+    if (ids.has(tile.id)) throw new Error(`Duplicate large tile id: ${tile.id}`);
+    ids.add(tile.id);
+  }
+}
+
+export function largeWorldToBootstrapManifest(manifest: LargeWorldManifest): WorldManifest {
+  return {
+    format: "splat-world",
+    version: 1,
+    name: manifest.name,
+    spawn: manifest.spawn,
+    splats: [],
+    colliders: manifest.colliders ?? [],
+    environment: manifest.environment,
+  };
+}
+
+export function resolveLargeWorldConfig(manifest: LargeWorldManifest): LargeWorldRuntimeConfig {
+  return {
+    loadRadius: positiveOr(manifest.streaming?.loadRadius, DEFAULT_CONFIG.loadRadius),
+    unloadRadius: positiveOr(manifest.streaming?.unloadRadius, DEFAULT_CONFIG.unloadRadius),
+    preloadRadius: positiveOr(manifest.streaming?.preloadRadius, DEFAULT_CONFIG.preloadRadius),
+    gpuBudgetBytes: positiveOr(manifest.streaming?.gpuBudgetBytes, DEFAULT_CONFIG.gpuBudgetBytes),
+    maxConcurrentLoads: Math.max(
+      1,
+      Math.min(Math.round(positiveOr(manifest.streaming?.maxConcurrentLoads, DEFAULT_CONFIG.maxConcurrentLoads)), 8),
+    ),
+    debugBounds: manifest.streaming?.debugBounds ?? DEFAULT_CONFIG.debugBounds,
+  };
+}
+
+function assertTile(value: unknown): asserts value is LargeSplatTile {
+  if (!value || typeof value !== "object") throw new Error("Invalid large tile.");
+  const tile = value as Partial<LargeSplatTile>;
+  if (typeof tile.id !== "string" || !tile.id.trim()) {
+    throw new Error("Large tile is missing an id.");
+  }
+  if (!tile.bounds || !isVec3(tile.bounds.min) || !isVec3(tile.bounds.max)) {
+    throw new Error(`Large tile ${tile.id} has invalid bounds.`);
+  }
+  if (
+    tile.bounds.max[0] <= tile.bounds.min[0] ||
+    tile.bounds.max[1] <= tile.bounds.min[1] ||
+    tile.bounds.max[2] <= tile.bounds.min[2]
+  ) {
+    throw new Error(`Large tile ${tile.id} bounds are empty.`);
+  }
+  if (!Array.isArray(tile.lods) || tile.lods.length === 0) {
+    throw new Error(`Large tile ${tile.id} needs at least one LOD.`);
+  }
+  const levels = new Set<number>();
+  for (const lod of tile.lods) {
+    if (
+      !lod ||
+      !Number.isInteger(lod.level) ||
+      lod.level < 0 ||
+      typeof lod.url !== "string" ||
+      !lod.url.trim() ||
+      !isPositive(lod.maxDistance) ||
+      (lod.bytes !== undefined && !isPositive(lod.bytes)) ||
+      (lod.splatCount !== undefined && !isPositive(lod.splatCount))
+    ) {
+      throw new Error(`Large tile ${tile.id} has an invalid LOD.`);
+    }
+    if (levels.has(lod.level)) throw new Error(`Large tile ${tile.id} has duplicate LOD ${lod.level}.`);
+    levels.add(lod.level);
+  }
+}
+
+function isVec3(value: unknown): value is Vec3Tuple {
+  return (
+    Array.isArray(value) &&
+    value.length === 3 &&
+    value.every((item) => typeof item === "number" && Number.isFinite(item))
+  );
+}
+
+function isPositive(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function positiveOr(value: unknown, fallback: number): number {
+  return isPositive(value) ? value : fallback;
+}
