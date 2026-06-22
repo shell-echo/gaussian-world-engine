@@ -1,5 +1,5 @@
-import type { BoundsData, LargeWorldManifest } from "../large/LargeWorldTypes";
-import type { Vec3Tuple } from "../types/world";
+import type { BoundsData, LargeWorldManifest } from "../large/LargeWorldTypes.js";
+import type { Vec3Tuple } from "../types/world.js";
 
 export interface CaptureCameraProfile {
   model: string;
