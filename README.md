@@ -1,53 +1,63 @@
-# Splat World Engine — Gaussian Runtime + Compound Convex Physics
+# Splat World Engine — Large Gaussian Tile Streaming
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Gaussian Splats 负责照片级世界，GLB 可视模型、碰撞代理、Rapier 刚体、Trigger、交互和位置音频负责可玩性。
-
-Runtime 0.10 增加了 **Compound Convex Decomposition**：凹形 GLB 可以拆成多个凸包，并以一个世界对象、一个共享 Transform 和一个 Rapier 刚体运行。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime 0.11 加入了超大 Gaussian 场景的基础运行时：大场景不再尝试一次性加载一个巨型 Splat，而是按 Tile、LOD 和 GPU 预算流式加载。
 
 ```text
-Concave GLB
-  │
-  ├── QEM / Cluster Worker
-  │       ↓ simplified TriMesh
-  │
-  └── Decomposition Worker
-          ├── recursive triangle partition
-          ├── convex point reduction
-          └── Hull 1 ... Hull N
-                    ↓
-        One world object / one rigid body
-          ├── Rapier Convex Collider 1
-          ├── Rapier Convex Collider 2
-          └── Rapier Convex Collider N
+splatworld-large manifest
+  ├── tiles[]
+  │     ├── bounds
+  │     ├── lod0 high spz
+  │     ├── lod1 medium spz
+  │     └── lod2 low spz
+  ├── optional colliders
+  └── streaming budget
+        ↓
+LargeSplatTileManager
+  ├── camera distance query
+  ├── frustum test
+  ├── LOD selection
+  ├── concurrent loading limit
+  ├── GPU memory budget
+  ├── far tile eviction
+  └── debug bounds
 ```
 
-## Runtime 0.10 能力
+## Runtime 0.11 能力
 
 - Spark 2.1 Gaussian Splat 渲染
-- Box、Capsule、TriMesh、Convex 和 Compound Collider
-- GLB 可视模型与碰撞代理同时导入
-- TriMesh 支持 QEM / Cluster 简化
-- 单 Convex Hull 点聚类
-- Compound Convex Decomposition
-- 一个 Compound 对象挂载多个 Rapier Collider
-- Compound 支持 Fixed / Dynamic 刚体
-- Compound 支持 Trigger、Interactable、Audio 和 Visual Component
-- Web Worker + TypedArray Transferable
-- 代理生成与分解进度、取消和统计
-- Scene Tree、Transform Gizmo、数值 Inspector
-- Undo / Redo 和对象复制
-- `world.json` 与 `.splatworld` 导入导出
+- `splat-world` 小世界继续兼容
+- `.splatworld` 世界包继续兼容
+- 新增 `splatworld-large` 大场景 Manifest
+- 按相机位置和视锥选择可见 Tile
+- 每个 Tile 支持多个 LOD
+- 限制并发加载数量
+- 基于 `bytes` 估算 GPU 预算
+- 超预算时优先卸载远处 Tile
+- 离开 `unloadRadius` 后卸载 Tile
+- Tile Bounds Debug 可视化
+- 大场景仍可使用 Collider、Trigger、GLB Visual、Compound Convex 等已有系统
+- 为未来视频重建 Builder 输出格式预留接口
 
 ## 运行
-
-要求 Node.js 20.19+ 或 22.12+。
 
 ```bash
 npm install
 npm run dev
 ```
 
-打开 `http://localhost:5173`。
+打开普通世界：
+
+```text
+http://localhost:5173
+```
+
+打开大场景示例：
+
+```text
+http://localhost:5173?world=/worlds/large-demo/world.json
+```
+
+验证：
 
 ```bash
 npm run typecheck
@@ -55,172 +65,180 @@ npm run build
 npm run preview
 ```
 
-## GLB 碰撞模式
-
-进入编辑模式后可以选择三种 GLB 代理：
-
-| 模式 | 适合 | 动态刚体 | 凹形表达 |
-|---|---|---:|---:|
-| TriMesh | 建筑、地面、静态场景 | 否 | 是 |
-| Convex | 简单道具、岩石、箱体 | 是 | 否 |
-| Compound | 凹形道具、家具、复杂动态物体 | 是 | 近似 |
-
-### Compound 导入
-
-顶部工具栏选择：
-
-```text
-GLB → Compound
-简化 QEM
-细节 25%
-最多 8 Hulls
-```
-
-处理流程：
-
-1. `GLTFLoader` 读取 GLB。
-2. 将所有 Mesh 节点变换烘焙到统一顶点空间。
-3. 第一阶段 Worker 使用 QEM 或 Cluster 生成简化 TriMesh。
-4. 第二阶段 Worker递归分割三角形簇。
-5. 每个簇提取并缩减为凸包点集。
-6. 无体积或退化的 Part 被丢弃。
-7. 所有有效 Part 挂到同一个 Rapier 刚体。
-8. 原始 GLB 继续作为共享 Visual Component。
-
-可选的最大 Hull 数：4、8、16、32。每个 Hull 默认最多保留 64 个点，Manifest 校验允许最多 256 个点预算。
-
-## 分解算法
-
-当前实现面向浏览器实时编辑，不声称是 VHACD。
-
-算法步骤：
-
-- 以全部三角形作为初始簇。
-- 根据簇的三角形数量和包围盒表面积选择最值得继续拆分的簇。
-- 计算三角形质心。
-- 沿质心分布最长轴进行中位数切分。
-- 重复切分，直到达到 Hull 上限或无法产生有效子簇。
-- 对每个簇提取唯一顶点。
-- 顶点过多时使用三维空间聚类压缩点集。
-- 检查点集是否具有非零体积。
-- 将结果交给 Rapier `convexHull` 创建真实碰撞体。
-
-它比单个 Convex Hull 更能贴合凹形道具，同时比动态 TriMesh 更适合实时物理。
-
-## Compound Manifest
+## 大场景 Manifest
 
 ```json
 {
-  "id": "chair-compound",
-  "type": "compound",
-  "position": [0, 1, 0],
-  "rotationDeg": [0, 0, 0],
-  "scale3": [1, 1, 1],
-  "parts": [
+  "format": "splatworld-large",
+  "version": 1,
+  "name": "Large Tile Streaming Demo",
+  "spawn": {
+    "position": [0, 0.05, 6],
+    "yawDeg": 0
+  },
+  "streaming": {
+    "loadRadius": 45,
+    "unloadRadius": 75,
+    "preloadRadius": 90,
+    "gpuBudgetBytes": 160000000,
+    "maxConcurrentLoads": 2,
+    "debugBounds": true
+  },
+  "tiles": [
     {
-      "vertices": [
-        [-0.5, -0.5, -0.5],
-        [0.5, -0.5, -0.5],
-        [0, 0.5, 0],
-        [0, 0, 0.5]
-      ]
-    },
-    {
-      "vertices": [
-        [-0.4, 0.2, -0.3],
-        [0.4, 0.2, -0.3],
-        [0, 1.2, -0.2],
-        [0, 0.3, 0.3]
+      "id": "tile_000",
+      "bounds": {
+        "min": [-20, -2, -18],
+        "max": [20, 12, 18]
+      },
+      "lods": [
+        {
+          "level": 0,
+          "url": "splats/tile_000_lod0.spz",
+          "maxDistance": 35,
+          "bytes": 18000000
+        },
+        {
+          "level": 1,
+          "url": "splats/tile_000_lod1.spz",
+          "maxDistance": 90,
+          "bytes": 6000000
+        }
       ]
     }
-  ],
-  "body": {
-    "mode": "dynamic",
-    "gravityScale": 1,
-    "linearDamping": 0.15,
-    "angularDamping": 0.25
-  },
-  "behavior": { "mode": "solid" },
-  "visual": {
-    "url": "bundle:///models/chair.glb",
-    "sourceName": "chair.glb",
-    "visible": true
-  }
+  ]
 }
 ```
 
-Manifest 仍然使用：
+### 字段说明
 
-```json
-{
-  "format": "splat-world",
-  "version": 1
-}
-```
+| 字段 | 作用 |
+|---|---|
+| `bounds` | Tile 的世界空间 AABB，用于视锥检测和距离计算 |
+| `lods[].level` | LOD 等级，数字越小越精细 |
+| `lods[].maxDistance` | 相机距离小于该值时可选择该 LOD |
+| `lods[].bytes` | 预算估算，超预算时参与卸载策略 |
+| `streaming.loadRadius` | 视锥外但足够近时仍可加载 |
+| `streaming.preloadRadius` | 允许预取的最大距离 |
+| `streaming.unloadRadius` | 超过距离后卸载已加载 Tile |
+| `streaming.gpuBudgetBytes` | 近似 GPU 预算上限 |
+| `streaming.maxConcurrentLoads` | 最大并发加载数 |
 
-因此 0.9 及更早的 Box、Capsule、Mesh 和 Convex 世界无需迁移。
+## 启动兼容策略
 
-## Rapier 模型
-
-```text
-CompoundColliderData
-  ├── shared position / rotation / scale
-  ├── shared body settings
-  ├── shared gameplay components
-  ├── shared GLB visual
-  └── parts[]
-        ↓
-Rapier RigidBody
-  ├── Collider(convexHull(part 1))
-  ├── Collider(convexHull(part 2))
-  └── Collider(convexHull(part N))
-```
-
-编辑器只显示一个对象和一个 Transform Gizmo。修改 Transform 或 Scale 后，会重建该刚体的全部子 Collider。
-
-## `.splatworld` 世界包
-
-`.splatworld` 是标准 ZIP 容器：
+大场景不会改变原有 `Engine.create()` 入参。`LargeWorldBootstrap` 会先读取 URL 指向的 Manifest：
 
 ```text
-world.splatworld
-  bundle.json
+如果 format === "splatworld-large"
+  ↓
+转换成一个空 splat 的普通 splat-world manifest
+  ↓
+让现有 Engine 正常启动物理、编辑器、音频和交互
+  ↓
+创建 LargeSplatTileManager 接管 splat tiles
+```
+
+这样：
+
+- 小世界不受影响
+- `.splatworld` 不受影响
+- Engine 主类不需要知道大场景格式
+- Tile Streaming 可以独立演进
+
+## Runtime 调度
+
+每帧 LargeSplatTileManager 会执行：
+
+```text
+camera world position
+  ↓
+更新 frustum
+  ↓
+计算每个 tile 到 camera 的距离
+  ↓
+选择目标 LOD
+  ↓
+按距离排序并发加载
+  ↓
+卸载远处 tile
+  ↓
+如果 residentBytes > gpuBudgetBytes，继续卸载最远 tile
+```
+
+Tile 状态：
+
+```text
+unloaded → loading → loaded
+                  ↘ failed
+```
+
+Debug Bounds 颜色：
+
+```text
+灰色 = 未加载
+蓝色 = 期望加载
+黄色 = 加载中
+绿色 = 已加载
+```
+
+## 和长视频重建的关系
+
+浏览器 Runtime 不负责从长视频训练 Gaussian。建议离线 Builder 输出：
+
+```text
+large-world/
   world.json
   splats/
-  models/
-  audio/
+    tile_000_lod0.spz
+    tile_000_lod1.spz
+    tile_001_lod0.spz
+  proxy/
+    collision_000.glb
 ```
 
-Compound 数据直接保存在 `world.json`；GLB、Splat 和音频仍使用 `bundle:///...` 内部 URL，因此不需要升级世界包格式。
+后续 Builder Pipeline：
+
+```text
+video.mp4
+  ↓ 抽关键帧
+pose / depth / sparse points
+  ↓ 空间分块
+per-tile 3DGS training
+  ↓ LOD / prune / quantize
+large-world manifest
+  ↓
+Browser tile streaming
+```
 
 ## 代码结构
 
 ```text
 src/
-  assets/decomposition/
-    DecompositionProtocol.ts       Worker 协议与统计
-    ConvexDecomposer.ts            递归三角簇分解
-    DecompositionWorker.ts         后台 Worker
-    DecompositionWorkerClient.ts   Transferable 与取消
-    CompoundUiBootstrap.ts         导入控件和 Inspector 增强
-  assets/proxy/
-    ProxySimplifier.ts             QEM / Cluster
-    ProxyWorker.ts                 简化 Worker
-  physics/PhysicsWorld.ts          一个刚体挂载多个 Convex Collider
-  assets/GLBColliderExtractor.ts   两阶段导入流水线
-  types/world.ts                   Compound Manifest 联合类型
-  world/WorldBundle.ts             `.splatworld` 世界包
+  large/
+    LargeWorldTypes.ts          splatworld-large schema and validation
+    LargeSplatTileManager.ts    tile query, loading, LOD, cache, eviction
+    LargeWorldBootstrap.ts      large manifest interception and Engine hook
+  render/GaussianWorld.ts       add/remove individual splat assets
+  RuntimeBootstrap.ts           composed runtime startup
+```
+
+已有系统继续保留：
+
+```text
+assets/proxy/                 QEM / Cluster worker
+assets/decomposition/         Compound Convex worker
+world/WorldBundle.ts          .splatworld bundle
+physics/PhysicsWorld.ts       Rapier collision runtime
 ```
 
 ## 已知边界
 
-- 当前分解是基于空间递归分区的实时近似方案，不是 VHACD。
-- Hull 之间可能重叠，也可能无法完全覆盖细小凹槽。
-- Trigger 的 CPU 预检测使用各 Part 的局部 AABB 并集；最终物理碰撞仍由 Rapier Convex Collider 决定。
-- GLTFLoader 解析与节点遍历仍在主线程。
-- QEM 只处理碰撞几何，不保留 UV、法线、骨骼和材质属性。
-- 复杂模型需要在 Hull 数量、代理精度和物理成本之间权衡。
-- `.splatworld` ZIP 导出当前使用 Store 模式。
+- 当前 0.11 只实现 Runtime Streaming，不实现视频训练器。
+- LOD 切换目前是卸载旧 LOD 后加载新 LOD，尚未 cross-fade。
+- GPU 预算基于 Manifest `bytes` 估算，不是 WebGL 实际显存查询。
+- Tile 查询是线性扫描，后续应升级为 BVH / grid / octree。
+- `.splatworld` 适合小世界；超大世界推荐目录或 CDN 分片，而不是一个巨大 zip。
+- Tile 之间的色彩统一、接缝优化、外观补偿属于离线 Builder 范围。
 
 ## 下一阶段
 
@@ -228,11 +246,12 @@ src/
 - [x] Web Worker 代理生成
 - [x] QEM Mesh Simplification
 - [x] Compound Convex Decomposition
-- [ ] Hull 可视化、单 Part 选择与手工调整
-- [ ] GLB 解析和世界包压缩迁移到 Worker
-- [ ] GLB 动画和材质控制
-- [ ] 事件图 / 脚本组件
-- [ ] NavMesh 与大场景分块
+- [x] Large Gaussian Tile Streaming Runtime
+- [ ] Tile cross-fade 与 LOD hysteresis
+- [ ] Tile spatial index：grid / BVH / octree
+- [ ] Builder CLI：视频抽帧、分块、Manifest 生成
+- [ ] 离线 seam optimizer 与 exposure matching
+- [ ] NavMesh 与大场景分块碰撞
 
 ## 依赖与许可证
 
