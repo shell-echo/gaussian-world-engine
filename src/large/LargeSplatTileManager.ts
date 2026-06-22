@@ -8,6 +8,7 @@ import type {
   LargeWorldRuntimeConfig,
 } from "./LargeWorldTypes";
 import { resolveLargeWorldConfig } from "./LargeWorldTypes";
+import { estimateTileIndexCellSize, TileSpatialIndex } from "./TileSpatialIndex";
 
 export interface LargeTileManagerEvents {
   onStatus?: (message: string) => void;
@@ -21,6 +22,7 @@ export interface LargeTileStreamingStats {
   visibleTiles: number;
   residentBytes: number;
   budgetBytes: number;
+  indexCandidates: number;
 }
 
 interface TileRuntime {
@@ -33,6 +35,7 @@ interface TileRuntime {
   targetLod: LargeSplatTileLod | null;
   assetId: string | null;
   lastTouchedFrame: number;
+  lastLodChangeSeconds: number;
   distance: number;
   visible: boolean;
   bytes: number;
@@ -45,6 +48,7 @@ export class LargeSplatTileManager {
 
   private readonly config: LargeWorldRuntimeConfig;
   private readonly tiles = new Map<string, TileRuntime>();
+  private readonly index: TileSpatialIndex<TileRuntime>;
   private readonly frustum = new THREE.Frustum();
   private readonly projectionView = new THREE.Matrix4();
   private readonly cameraPosition = new THREE.Vector3();
@@ -52,6 +56,8 @@ export class LargeSplatTileManager {
   private loadingCount = 0;
   private disposed = false;
   private statsElapsed = 0;
+  private elapsedSeconds = 0;
+  private lastCandidateCount = 0;
 
   constructor(
     private readonly gaussianWorld: GaussianWorld,
@@ -70,11 +76,18 @@ export class LargeSplatTileManager {
         this.debugGroup.add(runtime.debug);
       }
     }
+
+    this.index = new TileSpatialIndex(
+      manifest.tiles,
+      (tile) => requiredTile(this.tiles, tile.id),
+      this.config.tileIndexCellSize ?? estimateTileIndexCellSize(manifest.tiles),
+    );
   }
 
   update(camera: THREE.PerspectiveCamera, deltaSeconds: number): void {
     if (this.disposed) return;
     this.frame += 1;
+    this.elapsedSeconds += deltaSeconds;
     camera.updateMatrixWorld();
     camera.updateProjectionMatrix();
     this.cameraPosition.copy(camera.position);
@@ -115,6 +128,7 @@ export class LargeSplatTileManager {
       visibleTiles,
       residentBytes,
       budgetBytes: this.config.gpuBudgetBytes,
+      indexCandidates: this.lastCandidateCount,
     };
   }
 
@@ -131,7 +145,11 @@ export class LargeSplatTileManager {
 
   private selectDesiredTiles(): Map<string, LargeSplatTileLod> {
     const desired = new Map<string, LargeSplatTileLod>();
-    for (const runtime of this.tiles.values()) {
+    const candidates = this.index.querySphere(this.cameraPosition, this.config.preloadRadius);
+    this.lastCandidateCount = candidates.length;
+
+    for (const candidate of candidates) {
+      const runtime = candidate.value;
       runtime.distance = runtime.bounds.distanceToPoint(this.cameraPosition);
       runtime.visible = this.frustum.intersectsSphere(runtime.sphere);
       const lod = this.selectLod(runtime);
@@ -148,10 +166,25 @@ export class LargeSplatTileManager {
       return null;
     }
     if (!runtime.visible && runtime.distance > this.config.loadRadius) return null;
-    for (const lod of runtime.lods) {
-      if (runtime.distance <= lod.maxDistance) return lod;
+
+    const ideal = idealLodForDistance(runtime.lods, runtime.distance);
+    const active = runtime.activeLod;
+    if (!ideal || !active || active.level === ideal.level) return ideal;
+
+    const dwell = this.elapsedSeconds - runtime.lastLodChangeSeconds;
+    if (dwell < this.config.minLodDwellSeconds) return active;
+
+    const activeIndex = runtime.lods.findIndex((lod) => lod.level === active.level);
+    const idealIndex = runtime.lods.findIndex((lod) => lod.level === ideal.level);
+    const hysteresis = this.config.lodHysteresisRatio;
+
+    if (idealIndex < activeIndex) {
+      return runtime.distance <= ideal.maxDistance * (1 - hysteresis) ? ideal : active;
     }
-    return runtime.lods[runtime.lods.length - 1] ?? null;
+    if (idealIndex > activeIndex) {
+      return runtime.distance >= active.maxDistance * (1 + hysteresis) ? ideal : active;
+    }
+    return ideal;
   }
 
   private scheduleLoads(desired: ReadonlyMap<string, LargeSplatTileLod>): void {
@@ -192,6 +225,7 @@ export class LargeSplatTileManager {
       }
       runtime.assetId = assetId;
       runtime.activeLod = lod;
+      runtime.lastLodChangeSeconds = this.elapsedSeconds;
       runtime.state = "loaded";
       runtime.bytes = lod.bytes ?? estimateLodBytes(lod);
       runtime.error = undefined;
@@ -271,6 +305,7 @@ function createTileRuntime(tile: LargeSplatTile): TileRuntime {
     targetLod: null,
     assetId: null,
     lastTouchedFrame: 0,
+    lastLodChangeSeconds: Number.NEGATIVE_INFINITY,
     distance: Number.POSITIVE_INFINITY,
     visible: false,
     bytes: 0,
@@ -315,6 +350,16 @@ function boundsLinePoints(bounds: THREE.Box3): THREE.Vector3[] {
   return edges.map((index) => vertices[index]?.clone() ?? new THREE.Vector3());
 }
 
+function idealLodForDistance(
+  lods: readonly LargeSplatTileLod[],
+  distance: number,
+): LargeSplatTileLod | null {
+  for (const lod of lods) {
+    if (distance <= lod.maxDistance) return lod;
+  }
+  return lods[lods.length - 1] ?? null;
+}
+
 function tileAssetId(tileId: string, level: number): string {
   return `large:${tileId}:lod${level}`;
 }
@@ -326,6 +371,12 @@ function maxLodDistance(lods: readonly LargeSplatTileLod[]): number {
 function estimateLodBytes(lod: LargeSplatTileLod): number {
   if (lod.splatCount) return lod.splatCount * 32;
   return 32 * 1024 * 1024;
+}
+
+function requiredTile(tiles: ReadonlyMap<string, TileRuntime>, id: string): TileRuntime {
+  const tile = tiles.get(id);
+  if (!tile) throw new Error(`Missing runtime tile ${id}.`);
+  return tile;
 }
 
 export function formatLargeBytes(value: number): string {
