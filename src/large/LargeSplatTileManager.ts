@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { GaussianWorld, LoadProgress } from "../render/GaussianWorld";
-import type { SplatAsset, Vec3Tuple } from "../types/world";
+import type { SplatAsset } from "../types/world";
 import type {
   LargeSplatTile,
   LargeSplatTileLod,
@@ -26,20 +26,18 @@ export interface LargeTileStreamingStats {
 interface TileRuntime {
   tile: LargeSplatTile;
   bounds: THREE.Box3;
-  center: THREE.Vector3;
   sphere: THREE.Sphere;
   lods: LargeSplatTileLod[];
   state: "unloaded" | "loading" | "loaded" | "failed";
   activeLod: LargeSplatTileLod | null;
   targetLod: LargeSplatTileLod | null;
   assetId: string | null;
-  loadingPromise: Promise<void> | null;
   lastTouchedFrame: number;
   distance: number;
   visible: boolean;
   bytes: number;
   error?: string;
-  debug?: THREE.LineSegments;
+  debug?: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>;
 }
 
 export class LargeSplatTileManager {
@@ -125,11 +123,7 @@ export class LargeSplatTileManager {
     for (const runtime of this.tiles.values()) {
       if (runtime.assetId) this.gaussianWorld.removeAsset(runtime.assetId);
       runtime.debug?.geometry.dispose();
-      if (runtime.debug) {
-        const material = runtime.debug.material;
-        if (Array.isArray(material)) material.forEach((item) => item.dispose());
-        else material.dispose();
-      }
+      runtime.debug?.material.dispose();
     }
     this.debugGroup.clear();
     this.tiles.clear();
@@ -137,8 +131,7 @@ export class LargeSplatTileManager {
 
   private selectDesiredTiles(): Map<string, LargeSplatTileLod> {
     const desired = new Map<string, LargeSplatTileLod>();
-    const candidates = Array.from(this.tiles.values());
-    for (const runtime of candidates) {
+    for (const runtime of this.tiles.values()) {
       runtime.distance = runtime.bounds.distanceToPoint(this.cameraPosition);
       runtime.visible = this.frustum.intersectsSphere(runtime.sphere);
       const lod = this.selectLod(runtime);
@@ -155,11 +148,10 @@ export class LargeSplatTileManager {
       return null;
     }
     if (!runtime.visible && runtime.distance > this.config.loadRadius) return null;
-    const sorted = runtime.lods;
-    for (const lod of sorted) {
+    for (const lod of runtime.lods) {
       if (runtime.distance <= lod.maxDistance) return lod;
     }
-    return sorted[sorted.length - 1] ?? null;
+    return runtime.lods[runtime.lods.length - 1] ?? null;
   }
 
   private scheduleLoads(desired: ReadonlyMap<string, LargeSplatTileLod>): void {
@@ -179,7 +171,6 @@ export class LargeSplatTileManager {
   private async loadTile(runtime: TileRuntime, lod: LargeSplatTileLod): Promise<void> {
     if (this.disposed) return;
     runtime.state = "loading";
-    runtime.loadingPromise = null;
     this.loadingCount += 1;
     const assetId = tileAssetId(runtime.tile.id, lod.level);
     this.events.onStatus?.(`加载 Tile ${runtime.tile.id} · LOD ${lod.level}`);
@@ -213,7 +204,6 @@ export class LargeSplatTileManager {
       console.warn(`Failed to load tile ${runtime.tile.id}.`, error);
     } finally {
       this.loadingCount = Math.max(0, this.loadingCount - 1);
-      runtime.loadingPromise = null;
     }
   }
 
@@ -251,7 +241,6 @@ export class LargeSplatTileManager {
   private updateDebugMaterials(desired: ReadonlyMap<string, LargeSplatTileLod>): void {
     for (const runtime of this.tiles.values()) {
       if (!runtime.debug) continue;
-      const material = runtime.debug.material;
       const color = runtime.state === "loaded"
         ? 0x6fffb0
         : runtime.state === "loading"
@@ -259,9 +248,8 @@ export class LargeSplatTileManager {
           : desired.has(runtime.tile.id)
             ? 0x6bd4ff
             : 0x666c7a;
-      if (Array.isArray(material)) continue;
-      material.color.setHex(color);
-      material.opacity = desired.has(runtime.tile.id) ? 0.55 : 0.22;
+      runtime.debug.material.color.setHex(color);
+      runtime.debug.material.opacity = desired.has(runtime.tile.id) ? 0.55 : 0.22;
     }
   }
 }
@@ -273,18 +261,15 @@ function createTileRuntime(tile: LargeSplatTile): TileRuntime {
   );
   const sphere = new THREE.Sphere();
   bounds.getBoundingSphere(sphere);
-  const center = bounds.getCenter(new THREE.Vector3());
   return {
     tile,
     bounds,
-    center,
     sphere,
     lods: [...tile.lods].sort((left, right) => left.level - right.level),
     state: "unloaded",
     activeLod: null,
     targetLod: null,
     assetId: null,
-    loadingPromise: null,
     lastTouchedFrame: 0,
     distance: Number.POSITIVE_INFINITY,
     visible: false,
@@ -292,12 +277,42 @@ function createTileRuntime(tile: LargeSplatTile): TileRuntime {
   };
 }
 
-function createBoundsDebug(bounds: THREE.Box3, name: string): THREE.LineSegments {
-  const helper = new THREE.Box3Helper(bounds, 0x666c7a);
-  helper.name = `Tile bounds: ${name}`;
-  helper.material.transparent = true;
-  helper.material.opacity = 0.22;
-  return helper;
+function createBoundsDebug(
+  bounds: THREE.Box3,
+  name: string,
+): THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial> {
+  const geometry = new THREE.BufferGeometry();
+  const points = boundsLinePoints(bounds);
+  geometry.setFromPoints(points);
+  const material = new THREE.LineBasicMaterial({
+    color: 0x666c7a,
+    transparent: true,
+    opacity: 0.22,
+  });
+  const lines = new THREE.LineSegments(geometry, material);
+  lines.name = `Tile bounds: ${name}`;
+  return lines;
+}
+
+function boundsLinePoints(bounds: THREE.Box3): THREE.Vector3[] {
+  const min = bounds.min;
+  const max = bounds.max;
+  const vertices = [
+    new THREE.Vector3(min.x, min.y, min.z),
+    new THREE.Vector3(max.x, min.y, min.z),
+    new THREE.Vector3(max.x, max.y, min.z),
+    new THREE.Vector3(min.x, max.y, min.z),
+    new THREE.Vector3(min.x, min.y, max.z),
+    new THREE.Vector3(max.x, min.y, max.z),
+    new THREE.Vector3(max.x, max.y, max.z),
+    new THREE.Vector3(min.x, max.y, max.z),
+  ];
+  const edges = [
+    0, 1, 1, 2, 2, 3, 3, 0,
+    4, 5, 5, 6, 6, 7, 7, 4,
+    0, 4, 1, 5, 2, 6, 3, 7,
+  ];
+  return edges.map((index) => vertices[index]?.clone() ?? new THREE.Vector3());
 }
 
 function tileAssetId(tileId: string, level: number): string {
@@ -319,9 +334,3 @@ export function formatLargeBytes(value: number): string {
   if (value < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MB`;
   return `${(value / 1024 ** 3).toFixed(2)} GB`;
 }
-
-function vec3ToArray(value: THREE.Vector3): Vec3Tuple {
-  return [value.x, value.y, value.z];
-}
-
-void vec3ToArray;
