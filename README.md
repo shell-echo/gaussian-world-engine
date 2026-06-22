@@ -1,19 +1,20 @@
-# Splat World Engine — Outdoor Capture Builder Contract
+# Splat World Engine — swe-builder CLI Scaffold
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime 0.13 在大场景 Tile Streaming 基础上加入了户外连续视频采集的 Builder 契约：运动相机跑一圈得到的视频不会在浏览器里训练，而是通过离线 Builder 转成 `splatworld-large` Tile 世界。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.14 把户外连续视频采集契约推进成可执行的 `swe-builder` CLI 脚手架：它不会在浏览器里训练 3DGS，而是为离线构建流程生成目录、计划文件和 `splatworld-large` 世界骨架。
 
 ```text
 mounted wide camera video
   ├── GPS / IMU sidecars optional
   ├── capture session manifest
   ↓
-offline builder
-  ├── frame selection
-  ├── pose solving + loop closure
-  ├── spatial chunk planning
-  ├── per-chunk 3DGS training
-  ├── LOD export
-  └── splatworld-large manifest
+swe-builder CLI scaffold
+  ├── validate session
+  ├── frame plan
+  ├── chunk plan
+  ├── large-world manifest skeleton
+  └── folders for splats / proxy assets
+       ↓
+external reconstruction / training tools
        ↓
 browser runtime
   ├── tile spatial index
@@ -22,19 +23,19 @@ browser runtime
   └── playable Gaussian world
 ```
 
-## Runtime 0.13 能力
+## Runtime/Builder 0.14 能力
 
 - `splat-world` 小世界继续兼容
 - `.splatworld` 世界包继续兼容
 - `splatworld-large` 大场景 Manifest 继续作为浏览器 Runtime 输入
-- 新增 `splat-capture-session` version 1 类型契约
-- 新增 Capture Builder stage / report 类型
-- 新增户外 loop capture 示例
-- 新增户外采集指南
-- 固化视频、相机、GPS、IMU、抽帧、pose、chunk、训练和导出策略字段
-- 为后续 `swe-builder` CLI 预留输入输出格式
+- `splat-capture-session` version 1 继续作为 Builder 输入契约
+- 新增 `swe-builder` CLI 脚手架
+- 新增独立 `tsconfig.builder.json`
+- 主 `npm run typecheck` 覆盖浏览器 Runtime、Vite 配置和 Builder CLI
+- 主 `npm run build` 会先编译 CLI，再执行 Vite 生产构建
+- CLI 支持初始化采集目录、校验 session、生成 frame plan、生成 chunk plan、导出 large-world skeleton
 
-## 运行
+## 运行 Runtime
 
 ```bash
 npm install
@@ -59,6 +60,61 @@ http://localhost:5173?world=/worlds/large-demo/world.json
 npm run typecheck
 npm run build
 npm run preview
+```
+
+## 使用 swe-builder
+
+先构建 CLI：
+
+```bash
+npm run builder:build
+```
+
+创建一个户外 loop capture 项目：
+
+```bash
+npm run builder -- init-capture ./capture/outdoor-loop --name "Outdoor Loop" --video video/outdoor-loop.mp4 --duration 900
+```
+
+校验采集契约：
+
+```bash
+npm run builder -- validate ./capture/outdoor-loop/session.json
+```
+
+生成抽帧计划：
+
+```bash
+npm run builder -- plan-frames ./capture/outdoor-loop/session.json
+```
+
+生成空间分块计划：
+
+```bash
+npm run builder -- plan-chunks ./capture/outdoor-loop/session.json
+```
+
+导出浏览器可消费的大场景骨架：
+
+```bash
+npm run builder -- export-large-world ./capture/outdoor-loop/session.json
+```
+
+输出结构：
+
+```text
+capture/outdoor-loop/
+  session.json
+  video/
+  tracks/
+  frames/
+    frame-plan.json
+  chunks/
+    chunk-plan.json
+  large-world/
+    world.json
+    splats/
+    proxy/
 ```
 
 ## 户外跑圈采集
@@ -163,24 +219,25 @@ public/captures/outdoor-loop/session.json
 
 ## Builder Pipeline
 
-第一版 Builder 不需要直接训练 Gaussian，可以先做文件夹、抽帧、分块和 manifest：
+0.14 的 Builder 还不调用 ffmpeg、COLMAP、SLAM 或 3DGS 训练器。它先做工程地基：
 
 ```bash
-swe-builder init-capture ./capture/session.json
-swe-builder extract-frames ./capture/session.json
-swe-builder plan-chunks ./capture/session.json
-swe-builder export-large-world ./capture/session.json
+swe-builder init-capture ./capture/outdoor-loop
+swe-builder validate ./capture/outdoor-loop/session.json
+swe-builder plan-frames ./capture/outdoor-loop/session.json
+swe-builder plan-chunks ./capture/outdoor-loop/session.json
+swe-builder export-large-world ./capture/outdoor-loop/session.json
 ```
 
-外部训练器填入每个 chunk 的 `.spz` 输出后，Builder 再生成：
+外部训练器填入每个 chunk 的 `.spz` 输出后，Builder 生成的 `large-world/world.json` 可以直接给浏览器 Runtime 使用：
 
 ```text
 large-world/
   world.json
   splats/
-    tile_000_lod0.spz
-    tile_000_lod1.spz
-    tile_001_lod0.spz
+    tile_0000_lod0.spz
+    tile_0000_lod1.spz
+    tile_0001_lod0.spz
   proxy/
     collision_000.glb
 ```
@@ -198,6 +255,10 @@ src/
     LargeWorldBootstrap.ts      large manifest interception and Engine hook
   builder/
     CaptureSessionTypes.ts      outdoor capture / builder contract
+
+tools/
+  swe-builder/
+    cli.ts                      Node CLI scaffold
 ```
 
 ## 拍摄建议
@@ -214,8 +275,8 @@ src/
 ## 已知边界
 
 - 浏览器 Runtime 不训练 3DGS。
-- Capture Session 是 Builder 输入契约，不是训练实现。
-- 户外大场景的 pose drift、rolling shutter、动态物体、曝光变化需要离线 Builder 处理。
+- CLI 当前是 scaffold，不实际抽帧、不解算 pose、不训练 Gaussian。
+- 户外大场景的 pose drift、rolling shutter、动态物体、曝光变化仍需要离线 Builder 后续阶段处理。
 - Tile 色彩统一、接缝优化、外观补偿仍属于离线阶段。
 - 当前 Runtime 的 Tile LOD 还没有 cross-fade。
 
@@ -228,8 +289,9 @@ src/
 - [x] Large Gaussian Tile Streaming Runtime
 - [x] Tile Spatial Index + LOD Hysteresis
 - [x] Outdoor Capture Builder Contract
-- [ ] `swe-builder` CLI scaffold
-- [ ] Builder frame extraction and chunk planning
+- [x] `swe-builder` CLI scaffold
+- [ ] Builder frame extraction adapter
+- [ ] Builder chunk job manifests for external trainers
 - [ ] Tile cross-fade
 - [ ] 离线 seam optimizer 与 exposure matching
 - [ ] NavMesh 与大场景分块碰撞
