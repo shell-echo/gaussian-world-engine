@@ -31,7 +31,7 @@ if (!bundleKey) {
     const value: unknown = await response.clone().json();
     if (isLargeWorldCandidate(value)) {
       assertLargeWorldManifest(value);
-      largeManifest = value;
+      largeManifest = resolveLargeManifestUrls(value, manifestUrl);
       window.fetch = interceptLargeManifest;
       installEngineHook();
       statusElement && (statusElement.textContent = "大场景 Tile Streaming 已启用");
@@ -110,6 +110,20 @@ function interceptLargeManifest(input: RequestInfo | URL, init?: RequestInit): P
     );
   }
   return nativeFetch(input, init);
+}
+
+function resolveLargeManifestUrls(
+  manifest: LargeWorldManifest,
+  sourceUrl: string,
+): LargeWorldManifest {
+  const base = new URL(sourceUrl);
+  const copy = structuredClone(manifest);
+  for (const tile of copy.tiles) {
+    for (const lod of tile.lods) {
+      lod.url = new URL(lod.url, base).href;
+    }
+  }
+  return copy;
 }
 
 function resolveRequestUrl(input: RequestInfo | URL): string {
