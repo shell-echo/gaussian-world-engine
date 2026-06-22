@@ -1,4 +1,4 @@
-import type { Vec3Tuple, WorldManifest } from "../types/world";
+import type { Vec3Tuple, WorldManifest } from "../types/world.js";
 
 export interface BoundsData {
   min: Vec3Tuple;
@@ -109,25 +109,26 @@ export function largeWorldToBootstrapManifest(manifest: LargeWorldManifest): Wor
 }
 
 export function resolveLargeWorldConfig(manifest: LargeWorldManifest): LargeWorldRuntimeConfig {
+  const streaming = manifest.streaming;
   return {
-    loadRadius: positiveOr(manifest.streaming?.loadRadius, DEFAULT_CONFIG.loadRadius),
-    unloadRadius: positiveOr(manifest.streaming?.unloadRadius, DEFAULT_CONFIG.unloadRadius),
-    preloadRadius: positiveOr(manifest.streaming?.preloadRadius, DEFAULT_CONFIG.preloadRadius),
-    gpuBudgetBytes: positiveOr(manifest.streaming?.gpuBudgetBytes, DEFAULT_CONFIG.gpuBudgetBytes),
+    loadRadius: positiveOr(streaming?.loadRadius, DEFAULT_CONFIG.loadRadius),
+    unloadRadius: positiveOr(streaming?.unloadRadius, DEFAULT_CONFIG.unloadRadius),
+    preloadRadius: positiveOr(streaming?.preloadRadius, DEFAULT_CONFIG.preloadRadius),
+    gpuBudgetBytes: positiveOr(streaming?.gpuBudgetBytes, DEFAULT_CONFIG.gpuBudgetBytes),
     maxConcurrentLoads: Math.max(
       1,
-      Math.min(Math.round(positiveOr(manifest.streaming?.maxConcurrentLoads, DEFAULT_CONFIG.maxConcurrentLoads)), 8),
+      Math.min(Math.round(positiveOr(streaming?.maxConcurrentLoads, DEFAULT_CONFIG.maxConcurrentLoads)), 8),
     ),
-    debugBounds: manifest.streaming?.debugBounds ?? DEFAULT_CONFIG.debugBounds,
-    tileIndexCellSize: isPositive(manifest.streaming?.tileIndexCellSize)
-      ? manifest.streaming.tileIndexCellSize
+    debugBounds: streaming?.debugBounds ?? DEFAULT_CONFIG.debugBounds,
+    tileIndexCellSize: isPositive(streaming?.tileIndexCellSize)
+      ? streaming.tileIndexCellSize
       : undefined,
     lodHysteresisRatio: Math.min(
-      Math.max(nonNegativeOr(manifest.streaming?.lodHysteresisRatio, DEFAULT_CONFIG.lodHysteresisRatio), 0),
+      Math.max(nonNegativeOr(streaming?.lodHysteresisRatio, DEFAULT_CONFIG.lodHysteresisRatio), 0),
       0.45,
     ),
     minLodDwellSeconds: Math.min(
-      Math.max(nonNegativeOr(manifest.streaming?.minLodDwellSeconds, DEFAULT_CONFIG.minLodDwellSeconds), 0),
+      Math.max(nonNegativeOr(streaming?.minLodDwellSeconds, DEFAULT_CONFIG.minLodDwellSeconds), 0),
       10,
     ),
   };
