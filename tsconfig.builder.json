@@ -6,6 +6,7 @@
     "lib": ["ES2023"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "types": ["node"],
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "strict": true,
@@ -17,5 +18,5 @@
     "rootDir": ".",
     "outDir": "dist-builder"
   },
-  "include": ["tools/swe-builder/**/*.ts", "tools/swe-builder/**/*.d.ts", "src/builder/**/*.ts", "src/large/LargeWorldTypes.ts", "src/types/world.ts"]
+  "include": ["tools/swe-builder/**/*.ts", "src/builder/**/*.ts", "src/large/LargeWorldTypes.ts", "src/types/world.ts"]
 }
