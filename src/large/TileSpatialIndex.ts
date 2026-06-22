@@ -8,6 +8,12 @@ export interface TileSpatialIndexEntry<T> {
   sphere: THREE.Sphere;
 }
 
+interface GridCell {
+  x: number;
+  y: number;
+  z: number;
+}
+
 export class TileSpatialIndex<T> {
   private readonly cells = new Map<string, TileSpatialIndexEntry<T>[]>();
   private readonly entries = new Map<string, TileSpatialIndexEntry<T>>();
@@ -16,7 +22,7 @@ export class TileSpatialIndex<T> {
   constructor(
     tiles: readonly LargeSplatTile[],
     valueForTile: (tile: LargeSplatTile) => T,
-    private readonly cellSize: number,
+    cellSize: number,
   ) {
     this.inverseCellSize = 1 / Math.max(cellSize, 1e-6);
     for (const tile of tiles) {
@@ -83,12 +89,12 @@ export class TileSpatialIndex<T> {
     }
   }
 
-  private cellForPoint(point: THREE.Vector3): THREE.Vector3 {
-    return new THREE.Vector3(
-      Math.floor(point.x * this.inverseCellSize),
-      Math.floor(point.y * this.inverseCellSize),
-      Math.floor(point.z * this.inverseCellSize),
-    );
+  private cellForPoint(point: THREE.Vector3): GridCell {
+    return {
+      x: Math.floor(point.x * this.inverseCellSize),
+      y: Math.floor(point.y * this.inverseCellSize),
+      z: Math.floor(point.z * this.inverseCellSize),
+    };
   }
 }
 
