@@ -34,6 +34,22 @@ interface FramePlan {
   sources: FramePlanSource[];
 }
 
+interface FrameExtractionCommand {
+  sourceId: string;
+  tool: "ffmpeg";
+  command: string;
+  outputDirectory: string;
+  outputPattern: string;
+  expectedFrames: number;
+}
+
+interface FrameExtractionPlan {
+  format: "splat-frame-extraction-plan";
+  version: 1;
+  session: string;
+  commands: FrameExtractionCommand[];
+}
+
 interface ChunkPlanFile {
   format: "splat-chunk-plan";
   version: 1;
@@ -41,12 +57,46 @@ interface ChunkPlanFile {
   chunks: CaptureChunkPlan[];
 }
 
+interface ChunkTrainingJob {
+  format: "splat-training-job";
+  version: 1;
+  session: string;
+  chunkId: string;
+  tileId: string;
+  trainer: CaptureSessionManifest["policy"]["training"]["trainer"];
+  frameRange: [number, number];
+  input: {
+    frameGlob: string;
+    poseFile: string;
+    maskGlob?: string;
+  };
+  output: {
+    tileDirectory: string;
+    lods: LargeSplatTileLod[];
+  };
+  bounds: CaptureChunkPlan["bounds"];
+  training: CaptureSessionManifest["policy"]["training"];
+}
+
+interface TrainingJobIndex {
+  format: "splat-training-job-index";
+  version: 1;
+  session: string;
+  jobs: Array<{
+    chunkId: string;
+    tileId: string;
+    job: string;
+  }>;
+}
+
 const commands: Record<string, CommandHandler> = {
   help: async () => printHelp(),
   "init-capture": initCapture,
   validate: validateSession,
   "plan-frames": planFrames,
+  "extract-frames": extractFrames,
   "plan-chunks": planChunks,
+  "write-training-jobs": writeTrainingJobs,
   "export-large-world": exportLargeWorld,
 };
 
@@ -161,7 +211,98 @@ async function planFrames(args: string[]): Promise<void> {
   const sessionPath = path.resolve(requiredArg(args, 0, "session.json"));
   const session = await readSession(sessionPath);
   const root = path.dirname(sessionPath);
-  const plan: FramePlan = {
+  const plan = createFramePlan(session, root, sessionPath);
+  const output = path.join(root, "frames", "frame-plan.json");
+  await writeJson(output, plan);
+  console.log(`Wrote frame plan: ${output}`);
+}
+
+async function extractFrames(args: string[]): Promise<void> {
+  const sessionPath = path.resolve(requiredArg(args, 0, "session.json"));
+  const session = await readSession(sessionPath);
+  const root = path.dirname(sessionPath);
+  const framePlan = createFramePlan(session, root, sessionPath);
+  const extractionPlan = createFrameExtractionPlan(framePlan);
+  const commandFile = path.join(root, "frames", "extract-commands.json");
+  const scriptFile = path.join(root, "frames", "extract-frames.sh");
+
+  for (const command of extractionPlan.commands) {
+    await mkdir(path.resolve(root, command.outputDirectory), { recursive: true });
+  }
+  await writeJson(path.join(root, "frames", "frame-plan.json"), framePlan);
+  await writeJson(commandFile, extractionPlan);
+  await writeFile(scriptFile, createExtractionScript(extractionPlan), "utf8");
+  console.log(`Wrote frame extraction plan: ${commandFile}`);
+  console.log(`Wrote frame extraction script: ${scriptFile}`);
+}
+
+async function planChunks(args: string[]): Promise<void> {
+  const sessionPath = path.resolve(requiredArg(args, 0, "session.json"));
+  const session = await readSession(sessionPath);
+  const root = path.dirname(sessionPath);
+  const chunks = createChunkPlan(session);
+  const output: ChunkPlanFile = {
+    format: "splat-chunk-plan",
+    version: 1,
+    session: relativePath(root, sessionPath),
+    chunks,
+  };
+  const outputPath = path.join(root, "chunks", "chunk-plan.json");
+  await writeJson(outputPath, output);
+  console.log(`Wrote chunk plan: ${outputPath}`);
+  console.log(`Chunks: ${chunks.length}`);
+}
+
+async function writeTrainingJobs(args: string[]): Promise<void> {
+  const sessionPath = path.resolve(requiredArg(args, 0, "session.json"));
+  const session = await readSession(sessionPath);
+  const root = path.dirname(sessionPath);
+  const chunks = await readChunkPlan(root).catch(() => createChunkPlan(session));
+  const index: TrainingJobIndex = {
+    format: "splat-training-job-index",
+    version: 1,
+    session: relativePath(root, sessionPath),
+    jobs: [],
+  };
+
+  for (const chunk of chunks) {
+    const job = createTrainingJob(session, root, sessionPath, chunk);
+    const jobPath = path.join(root, "chunks", "jobs", chunk.id, "job.json");
+    await writeJson(jobPath, job);
+    index.jobs.push({
+      chunkId: chunk.id,
+      tileId: chunk.expectedTileId,
+      job: relativePath(root, jobPath),
+    });
+  }
+
+  const indexPath = path.join(root, "chunks", "training-jobs.json");
+  await writeJson(indexPath, index);
+  console.log(`Wrote training job index: ${indexPath}`);
+  console.log(`Jobs: ${index.jobs.length}`);
+}
+
+async function exportLargeWorld(args: string[]): Promise<void> {
+  const sessionPath = path.resolve(requiredArg(args, 0, "session.json"));
+  const session = await readSession(sessionPath);
+  const root = path.dirname(sessionPath);
+  const outputRoot = path.resolve(root, session.expectedOutput.assetRoot);
+  const chunks = await readChunkPlan(root).catch(() => createChunkPlan(session));
+  const manifest = createLargeWorldManifest(session, chunks);
+  const outputPath = path.resolve(root, session.expectedOutput.largeWorldManifest);
+  await mkdir(path.join(outputRoot, "splats"), { recursive: true });
+  await mkdir(path.join(outputRoot, "proxy"), { recursive: true });
+  await writeJson(outputPath, manifest);
+  console.log(`Wrote large world manifest: ${outputPath}`);
+  console.log(`Tiles: ${manifest.tiles.length}`);
+}
+
+function createFramePlan(
+  session: CaptureSessionManifest,
+  root: string,
+  sessionPath: string,
+): FramePlan {
+  return {
     format: "splat-frame-plan",
     version: 1,
     session: relativePath(root, sessionPath),
@@ -180,43 +321,77 @@ async function planFrames(args: string[]): Promise<void> {
       };
     }),
   };
-  const output = path.join(root, "frames", "frame-plan.json");
-  await mkdir(path.dirname(output), { recursive: true });
-  await writeJson(output, plan);
-  console.log(`Wrote frame plan: ${output}`);
 }
 
-async function planChunks(args: string[]): Promise<void> {
-  const sessionPath = path.resolve(requiredArg(args, 0, "session.json"));
-  const session = await readSession(sessionPath);
-  const root = path.dirname(sessionPath);
-  const chunks = createChunkPlan(session);
-  const output: ChunkPlanFile = {
-    format: "splat-chunk-plan",
+function createFrameExtractionPlan(framePlan: FramePlan): FrameExtractionPlan {
+  return {
+    format: "splat-frame-extraction-plan",
+    version: 1,
+    session: framePlan.session,
+    commands: framePlan.sources.map((source) => {
+      const outputDirectory = `frames/${source.sourceId}`;
+      const outputPattern = `${outputDirectory}/frame_%06d.jpg`;
+      return {
+        sourceId: source.sourceId,
+        tool: "ffmpeg",
+        command: [
+          "ffmpeg",
+          "-y",
+          "-i",
+          shellQuote(source.sourceUrl),
+          "-vf",
+          shellQuote(`fps=${source.targetFps}`),
+          "-q:v",
+          "2",
+          shellQuote(outputPattern),
+        ].join(" "),
+        outputDirectory,
+        outputPattern,
+        expectedFrames: source.estimatedSelectedFrames,
+      };
+    }),
+  };
+}
+
+function createExtractionScript(plan: FrameExtractionPlan): string {
+  const lines = [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    "",
+    "# Generated by swe-builder. Run from the capture project root.",
+  ];
+  for (const command of plan.commands) {
+    lines.push("", `mkdir -p ${shellQuote(command.outputDirectory)}`, command.command);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+function createTrainingJob(
+  session: CaptureSessionManifest,
+  root: string,
+  sessionPath: string,
+  chunk: CaptureChunkPlan,
+): ChunkTrainingJob {
+  return {
+    format: "splat-training-job",
     version: 1,
     session: relativePath(root, sessionPath),
-    chunks,
+    chunkId: chunk.id,
+    tileId: chunk.expectedTileId,
+    trainer: session.policy.training.trainer,
+    frameRange: chunk.frameRange,
+    input: {
+      frameGlob: "frames/*/frame_*.jpg",
+      poseFile: `chunks/${chunk.id}/poses.json`,
+    },
+    output: {
+      tileDirectory: `large-world/splats/${chunk.expectedTileId}`,
+      lods: createLods(session, chunk.expectedTileId),
+    },
+    bounds: chunk.bounds ?? fallbackBounds(chunk),
+    training: session.policy.training,
   };
-  const outputPath = path.join(root, "chunks", "chunk-plan.json");
-  await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeJson(outputPath, output);
-  console.log(`Wrote chunk plan: ${outputPath}`);
-  console.log(`Chunks: ${chunks.length}`);
-}
-
-async function exportLargeWorld(args: string[]): Promise<void> {
-  const sessionPath = path.resolve(requiredArg(args, 0, "session.json"));
-  const session = await readSession(sessionPath);
-  const root = path.dirname(sessionPath);
-  const outputRoot = path.resolve(root, session.expectedOutput.assetRoot);
-  const chunks = await readChunkPlan(root).catch(() => createChunkPlan(session));
-  const manifest = createLargeWorldManifest(session, chunks);
-  const outputPath = path.resolve(root, session.expectedOutput.largeWorldManifest);
-  await mkdir(path.join(outputRoot, "splats"), { recursive: true });
-  await mkdir(path.join(outputRoot, "proxy"), { recursive: true });
-  await writeJson(outputPath, manifest);
-  console.log(`Wrote large world manifest: ${outputPath}`);
-  console.log(`Tiles: ${manifest.tiles.length}`);
 }
 
 function createChunkPlan(session: CaptureSessionManifest): CaptureChunkPlan[] {
@@ -353,6 +528,10 @@ function relativePath(root: string, target: string): string {
   return path.relative(root, target).replaceAll(path.sep, "/") || path.basename(target);
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 function printHelp(): void {
   console.log(`swe-builder
 
@@ -360,10 +539,12 @@ Usage:
   swe-builder init-capture <dir> [--name <name>] [--video <path>] [--duration <seconds>]
   swe-builder validate <session.json>
   swe-builder plan-frames <session.json>
+  swe-builder extract-frames <session.json>
   swe-builder plan-chunks <session.json>
+  swe-builder write-training-jobs <session.json>
   swe-builder export-large-world <session.json>
 
-This scaffold prepares files and manifests for an offline Gaussian builder. It does not run COLMAP, SLAM, ffmpeg or 3DGS training yet.`);
+This scaffold prepares files and manifests for an offline Gaussian builder. It writes ffmpeg extraction scripts and per-chunk training job manifests, but it does not run COLMAP, SLAM, ffmpeg or 3DGS training automatically yet.`);
 }
 
 main().catch((error: unknown) => {
