@@ -7,6 +7,10 @@ import {
   type CaptureChunkPlan,
   type CaptureSessionManifest,
 } from "../../src/builder/CaptureSessionTypes.js";
+import {
+  createEmptyPoseResult,
+  type PoseSolverJob,
+} from "../../src/builder/PoseSolverTypes.js";
 import type {
   LargeSplatTile,
   LargeSplatTileLod,
@@ -95,6 +99,7 @@ const commands: Record<string, CommandHandler> = {
   validate: validateSession,
   "plan-frames": planFrames,
   "extract-frames": extractFrames,
+  "plan-poses": planPoses,
   "plan-chunks": planChunks,
   "write-training-jobs": writeTrainingJobs,
   "export-large-world": exportLargeWorld,
@@ -119,6 +124,7 @@ async function initCapture(args: string[]): Promise<void> {
   await mkdir(path.join(root, "video"), { recursive: true });
   await mkdir(path.join(root, "tracks"), { recursive: true });
   await mkdir(path.join(root, "frames"), { recursive: true });
+  await mkdir(path.join(root, "poses"), { recursive: true });
   await mkdir(path.join(root, "chunks"), { recursive: true });
   await mkdir(path.join(root, "large-world", "splats"), { recursive: true });
   await mkdir(path.join(root, "large-world", "proxy"), { recursive: true });
@@ -234,6 +240,21 @@ async function extractFrames(args: string[]): Promise<void> {
   await writeFile(scriptFile, createExtractionScript(extractionPlan), "utf8");
   console.log(`Wrote frame extraction plan: ${commandFile}`);
   console.log(`Wrote frame extraction script: ${scriptFile}`);
+}
+
+async function planPoses(args: string[]): Promise<void> {
+  const sessionPath = path.resolve(requiredArg(args, 0, "session.json"));
+  const session = await readSession(sessionPath);
+  const root = path.dirname(sessionPath);
+  const framePlan = createFramePlan(session, root, sessionPath);
+  const job = createPoseSolverJob(session, root, sessionPath, framePlan);
+  const jobPath = path.join(root, "poses", "pose-job.json");
+  const resultPath = path.join(root, "poses", "poses.placeholder.json");
+  await writeJson(path.join(root, "frames", "frame-plan.json"), framePlan);
+  await writeJson(jobPath, job);
+  await writeJson(resultPath, createEmptyPoseResult(job));
+  console.log(`Wrote pose solver job: ${jobPath}`);
+  console.log(`Wrote placeholder pose result: ${resultPath}`);
 }
 
 async function planChunks(args: string[]): Promise<void> {
@@ -353,6 +374,49 @@ function createFrameExtractionPlan(framePlan: FramePlan): FrameExtractionPlan {
   };
 }
 
+function createPoseSolverJob(
+  session: CaptureSessionManifest,
+  root: string,
+  sessionPath: string,
+  framePlan: FramePlan,
+): PoseSolverJob {
+  const firstSource = session.sources[0];
+  return {
+    format: "splat-pose-solver-job",
+    version: 1,
+    session: relativePath(root, sessionPath),
+    method: session.policy.poses.method,
+    coordinateSystem: session.coordinateSystem,
+    inputs: {
+      frames: framePlan.sources.map((source) => {
+        const captureSource = session.sources.find((item) => item.id === source.sourceId) ?? firstSource;
+        if (!captureSource) throw new Error(`Missing capture source for ${source.sourceId}.`);
+        return {
+          sourceId: source.sourceId,
+          frameGlob: source.outputPattern.replace("%06d", "*"),
+          cameraModel: captureSource.camera.model,
+          width: captureSource.camera.width,
+          height: captureSource.camera.height,
+          fps: captureSource.camera.fps,
+        };
+      }),
+      gpsTrack: firstSource?.gpsTrack,
+      imuTrack: firstSource?.imuTrack,
+    },
+    options: {
+      loopClosure: session.policy.poses.loopClosure,
+      gpsPrior: session.policy.poses.gpsPrior,
+      imuPrior: session.policy.poses.imuPrior,
+      rollingShutterCompensation: session.policy.poses.rollingShutterCompensation ?? false,
+    },
+    output: {
+      poses: "poses/poses.json",
+      sparsePoints: "poses/sparse-points.json",
+      report: "poses/pose-report.json",
+    },
+  };
+}
+
 function createExtractionScript(plan: FrameExtractionPlan): string {
   const lines = [
     "#!/usr/bin/env bash",
@@ -383,7 +447,7 @@ function createTrainingJob(
     frameRange: chunk.frameRange,
     input: {
       frameGlob: "frames/*/frame_*.jpg",
-      poseFile: `chunks/${chunk.id}/poses.json`,
+      poseFile: "poses/poses.json",
     },
     output: {
       tileDirectory: `large-world/splats/${chunk.expectedTileId}`,
@@ -540,11 +604,12 @@ Usage:
   swe-builder validate <session.json>
   swe-builder plan-frames <session.json>
   swe-builder extract-frames <session.json>
+  swe-builder plan-poses <session.json>
   swe-builder plan-chunks <session.json>
   swe-builder write-training-jobs <session.json>
   swe-builder export-large-world <session.json>
 
-This scaffold prepares files and manifests for an offline Gaussian builder. It writes ffmpeg extraction scripts and per-chunk training job manifests, but it does not run COLMAP, SLAM, ffmpeg or 3DGS training automatically yet.`);
+This scaffold prepares files and manifests for an offline Gaussian builder. It writes ffmpeg extraction scripts, pose solver jobs and per-chunk training job manifests, but it does not run COLMAP, SLAM, ffmpeg or 3DGS training automatically yet.`);
 }
 
 main().catch((error: unknown) => {

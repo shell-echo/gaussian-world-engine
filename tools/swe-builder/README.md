@@ -2,7 +2,7 @@
 
 `swe-builder` is the offline CLI scaffold for turning an outdoor capture session into a browser-loadable large Gaussian world.
 
-It does not run COLMAP, SLAM or Gaussian training yet. Runtime/Builder 0.15 adds concrete adapter outputs for frame extraction and per-chunk training jobs: ffmpeg commands are written as scripts, and each planned chunk receives a trainer-agnostic `job.json`.
+It does not run COLMAP, SLAM or Gaussian training yet. Runtime/Builder 0.16 adds a pose solver adapter contract: `plan-poses` writes a standard pose solver job and a placeholder `splat-pose-result` file that COLMAP, SLAM or hybrid adapters can fill.
 
 ## Build
 
@@ -17,6 +17,7 @@ swe-builder init-capture ./capture/outdoor-loop --name "Outdoor Loop" --video vi
 swe-builder validate ./capture/outdoor-loop/session.json
 swe-builder plan-frames ./capture/outdoor-loop/session.json
 swe-builder extract-frames ./capture/outdoor-loop/session.json
+swe-builder plan-poses ./capture/outdoor-loop/session.json
 swe-builder plan-chunks ./capture/outdoor-loop/session.json
 swe-builder write-training-jobs ./capture/outdoor-loop/session.json
 swe-builder export-large-world ./capture/outdoor-loop/session.json
@@ -41,6 +42,9 @@ capture/outdoor-loop/
     extract-commands.json
     extract-frames.sh
     loop-main/
+  poses/
+    pose-job.json
+    poses.placeholder.json
   chunks/
     chunk-plan.json
     training-jobs.json
@@ -70,12 +74,38 @@ ffmpeg -y -i 'video/outdoor-loop.mp4' -vf 'fps=2' -q:v 2 'frames/loop-main/frame
 
 The CLI writes the commands but does not run ffmpeg automatically.
 
+## Pose solver adapter
+
+`plan-poses` writes:
+
+```text
+poses/pose-job.json
+poses/poses.placeholder.json
+```
+
+`pose-job.json` describes:
+
+- selected frame globs
+- camera metadata
+- GPS / IMU sidecar paths
+- pose method: `colmap`, `slam` or `hybrid`
+- loop closure and rolling shutter options
+- expected outputs: `poses/poses.json`, `poses/sparse-points.json`, `poses/pose-report.json`
+
+External pose solvers should replace `poses/poses.placeholder.json` with a real `poses/poses.json` using the `splat-pose-result` format.
+
 ## Training job manifests
 
 `write-training-jobs` writes one job per planned chunk:
 
 ```text
 chunks/jobs/chunk_0000/job.json
+```
+
+Each training job now references the shared pose output:
+
+```text
+poses/poses.json
 ```
 
 Each job includes:
@@ -100,7 +130,8 @@ http://localhost:5173?world=/path/to/large-world/world.json
 ## Future work
 
 - Real ffmpeg execution mode
-- Pose solving adapters
+- COLMAP adapter runner
+- SLAM adapter runner
 - Per-tile trainer integration
 - LOD pruning and compression
 - Seam normalization and exposure matching
