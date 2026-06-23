@@ -2,7 +2,7 @@
 
 `swe-builder` is the offline CLI scaffold for turning an outdoor capture session into a browser-loadable large Gaussian world.
 
-It does not run COLMAP, SLAM or Gaussian training yet. Runtime/Builder 0.16 adds a pose solver adapter contract: `plan-poses` writes a standard pose solver job and a placeholder `splat-pose-result` file that COLMAP, SLAM or hybrid adapters can fill.
+It does not train Gaussian splats yet. Runtime/Builder 0.17 adds a COLMAP runner scaffold: `write-colmap-runner` consumes the pose solver job and writes deterministic COLMAP command plans plus a shell script.
 
 ## Build
 
@@ -18,6 +18,7 @@ swe-builder validate ./capture/outdoor-loop/session.json
 swe-builder plan-frames ./capture/outdoor-loop/session.json
 swe-builder extract-frames ./capture/outdoor-loop/session.json
 swe-builder plan-poses ./capture/outdoor-loop/session.json
+swe-builder write-colmap-runner ./capture/outdoor-loop/session.json
 swe-builder plan-chunks ./capture/outdoor-loop/session.json
 swe-builder write-training-jobs ./capture/outdoor-loop/session.json
 swe-builder export-large-world ./capture/outdoor-loop/session.json
@@ -45,6 +46,12 @@ capture/outdoor-loop/
   poses/
     pose-job.json
     poses.placeholder.json
+    colmap/
+      colmap-runner.json
+      run-colmap.sh
+      colmap-report.placeholder.json
+      sparse/
+      model-text/
   chunks/
     chunk-plan.json
     training-jobs.json
@@ -59,7 +66,7 @@ capture/outdoor-loop/
 
 ## Frame extraction adapter
 
-`extract-frames` writes two files:
+`extract-frames` writes:
 
 ```text
 frames/extract-commands.json
@@ -72,8 +79,6 @@ The shell script is meant to be run from the capture project root. It contains d
 ffmpeg -y -i 'video/outdoor-loop.mp4' -vf 'fps=2' -q:v 2 'frames/loop-main/frame_%06d.jpg'
 ```
 
-The CLI writes the commands but does not run ffmpeg automatically.
-
 ## Pose solver adapter
 
 `plan-poses` writes:
@@ -83,16 +88,36 @@ poses/pose-job.json
 poses/poses.placeholder.json
 ```
 
-`pose-job.json` describes:
+`pose-job.json` describes selected frame globs, camera metadata, GPS/IMU sidecars, pose method and expected outputs.
 
-- selected frame globs
-- camera metadata
-- GPS / IMU sidecar paths
-- pose method: `colmap`, `slam` or `hybrid`
-- loop closure and rolling shutter options
-- expected outputs: `poses/poses.json`, `poses/sparse-points.json`, `poses/pose-report.json`
+## COLMAP runner scaffold
 
-External pose solvers should replace `poses/poses.placeholder.json` with a real `poses/poses.json` using the `splat-pose-result` format.
+`write-colmap-runner` writes:
+
+```text
+poses/colmap/colmap-runner.json
+poses/colmap/run-colmap.sh
+poses/colmap/colmap-report.placeholder.json
+```
+
+The generated script includes:
+
+```text
+colmap feature_extractor
+colmap exhaustive_matcher
+colmap mapper
+colmap model_converter
+```
+
+This command is intentionally conservative. For long outdoor videos, replace exhaustive matching with sequential or vocabulary-tree matching before running at scale.
+
+The runner still does not convert COLMAP output into `splat-pose-result`; the next adapter step should read `poses/colmap/model-text/` and write:
+
+```text
+poses/poses.json
+poses/sparse-points.json
+poses/pose-report.json
+```
 
 ## Training job manifests
 
@@ -102,35 +127,18 @@ External pose solvers should replace `poses/poses.placeholder.json` with a real 
 chunks/jobs/chunk_0000/job.json
 ```
 
-Each training job now references the shared pose output:
+Each training job references the shared pose output:
 
 ```text
 poses/poses.json
 ```
 
-Each job includes:
-
-- session path
-- chunk id and tile id
-- frame range
-- frame glob
-- expected pose file
-- output LOD paths
-- training policy copied from the capture session
-- tile bounds
-
 External training tools can consume these job files and write `.spz` outputs into `large-world/splats/`.
-
-The generated `large-world/world.json` can be served and opened by the browser runtime:
-
-```text
-http://localhost:5173?world=/path/to/large-world/world.json
-```
 
 ## Future work
 
-- Real ffmpeg execution mode
-- COLMAP adapter runner
+- COLMAP model-to-pose-result converter
+- Sequential matching preset for long videos
 - SLAM adapter runner
 - Per-tile trainer integration
 - LOD pruning and compression
