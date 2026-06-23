@@ -1,18 +1,19 @@
-# Splat World Engine — swe-builder CLI Scaffold
+# Splat World Engine — Builder Frame Jobs
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.14 把户外连续视频采集契约推进成可执行的 `swe-builder` CLI 脚手架：它不会在浏览器里训练 3DGS，而是为离线构建流程生成目录、计划文件和 `splatworld-large` 世界骨架。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.15 在 `swe-builder` CLI scaffold 基础上继续推进离线构建流水线：从户外连续视频采集契约生成 ffmpeg 抽帧脚本，并为每个空间 chunk 生成训练任务 JSON。
 
 ```text
 mounted wide camera video
   ├── GPS / IMU sidecars optional
   ├── capture session manifest
   ↓
-swe-builder CLI scaffold
+swe-builder
   ├── validate session
   ├── frame plan
+  ├── ffmpeg extraction script
   ├── chunk plan
-  ├── large-world manifest skeleton
-  └── folders for splats / proxy assets
+  ├── per-chunk training job manifests
+  └── large-world manifest skeleton
        ↓
 external reconstruction / training tools
        ↓
@@ -23,17 +24,17 @@ browser runtime
   └── playable Gaussian world
 ```
 
-## Runtime/Builder 0.14 能力
+## Runtime/Builder 0.15 能力
 
 - `splat-world` 小世界继续兼容
 - `.splatworld` 世界包继续兼容
 - `splatworld-large` 大场景 Manifest 继续作为浏览器 Runtime 输入
 - `splat-capture-session` version 1 继续作为 Builder 输入契约
-- 新增 `swe-builder` CLI 脚手架
-- 新增独立 `tsconfig.builder.json`
+- `swe-builder` CLI 继续可独立编译
+- 新增 `extract-frames`：生成 ffmpeg 命令 JSON 和 shell 脚本
+- 新增 `write-training-jobs`：为每个 chunk 写 `job.json`
 - 主 `npm run typecheck` 覆盖浏览器 Runtime、Vite 配置和 Builder CLI
 - 主 `npm run build` 会先编译 CLI，再执行 Vite 生产构建
-- CLI 支持初始化采集目录、校验 session、生成 frame plan、生成 chunk plan、导出 large-world skeleton
 
 ## 运行 Runtime
 
@@ -88,10 +89,22 @@ npm run builder -- validate ./capture/outdoor-loop/session.json
 npm run builder -- plan-frames ./capture/outdoor-loop/session.json
 ```
 
+生成 ffmpeg 抽帧脚本：
+
+```bash
+npm run builder -- extract-frames ./capture/outdoor-loop/session.json
+```
+
 生成空间分块计划：
 
 ```bash
 npm run builder -- plan-chunks ./capture/outdoor-loop/session.json
+```
+
+为外部训练器生成每个 chunk 的训练任务：
+
+```bash
+npm run builder -- write-training-jobs ./capture/outdoor-loop/session.json
 ```
 
 导出浏览器可消费的大场景骨架：
@@ -109,13 +122,50 @@ capture/outdoor-loop/
   tracks/
   frames/
     frame-plan.json
+    extract-commands.json
+    extract-frames.sh
+    loop-main/
   chunks/
     chunk-plan.json
+    training-jobs.json
+    jobs/
+      chunk_0000/
+        job.json
   large-world/
     world.json
     splats/
     proxy/
 ```
+
+## Frame extraction adapter
+
+`extract-frames` 不直接运行 ffmpeg，而是写出可审查、可复现的命令：
+
+```bash
+ffmpeg -y -i 'video/outdoor-loop.mp4' -vf 'fps=2' -q:v 2 'frames/loop-main/frame_%06d.jpg'
+```
+
+后续可以在本机、服务器或队列 worker 里执行 `frames/extract-frames.sh`。
+
+## Training job manifests
+
+`write-training-jobs` 为每个 chunk 写：
+
+```text
+chunks/jobs/chunk_0000/job.json
+```
+
+每个 job 包含：
+
+- `chunkId` / `tileId`
+- `frameRange`
+- `frameGlob`
+- `poseFile`
+- `output.lods`
+- `bounds`
+- `training` policy
+
+外部训练器只需要消费这些 job，输出对应 `.spz` 文件到 `large-world/splats/`，然后浏览器 Runtime 继续加载 `large-world/world.json`。
 
 ## 户外跑圈采集
 
@@ -148,99 +198,6 @@ A -> B -> C -> B -> D -> A
 ```
 
 因为中途回看可识别区域更有利于 loop closure 和降低轨迹漂移。
-
-## Capture Session Manifest
-
-示例文件：
-
-```text
-public/captures/outdoor-loop/session.json
-```
-
-核心结构：
-
-```json
-{
-  "format": "splat-capture-session",
-  "version": 1,
-  "name": "Outdoor Loop Capture",
-  "coordinateSystem": "y-up",
-  "route": {
-    "kind": "loop"
-  },
-  "sources": [
-    {
-      "id": "loop-main",
-      "url": "video/outdoor-loop.mp4",
-      "camera": {
-        "model": "Wide Camera",
-        "lens": "wide",
-        "width": 3840,
-        "height": 2160,
-        "fps": 30,
-        "rollingShutter": true
-      },
-      "gpsTrack": "tracks/outdoor-loop.gpx",
-      "imuTrack": "tracks/outdoor-loop-imu.csv"
-    }
-  ],
-  "policy": {
-    "frames": {
-      "targetFps": 2,
-      "minDistanceMeters": 0.75,
-      "minYawDegrees": 8
-    },
-    "poses": {
-      "method": "hybrid",
-      "loopClosure": true,
-      "gpsPrior": true,
-      "imuPrior": true
-    },
-    "chunks": {
-      "strategy": "distance",
-      "chunkMeters": 25,
-      "overlapRatio": 0.18
-    },
-    "training": {
-      "trainer": "external-3dgs",
-      "appearanceNormalization": true
-    },
-    "export": {
-      "lodLevels": 3,
-      "outputFormat": "spz"
-    }
-  },
-  "expectedOutput": {
-    "largeWorldManifest": "large-world/world.json",
-    "assetRoot": "large-world/"
-  }
-}
-```
-
-## Builder Pipeline
-
-0.14 的 Builder 还不调用 ffmpeg、COLMAP、SLAM 或 3DGS 训练器。它先做工程地基：
-
-```bash
-swe-builder init-capture ./capture/outdoor-loop
-swe-builder validate ./capture/outdoor-loop/session.json
-swe-builder plan-frames ./capture/outdoor-loop/session.json
-swe-builder plan-chunks ./capture/outdoor-loop/session.json
-swe-builder export-large-world ./capture/outdoor-loop/session.json
-```
-
-外部训练器填入每个 chunk 的 `.spz` 输出后，Builder 生成的 `large-world/world.json` 可以直接给浏览器 Runtime 使用：
-
-```text
-large-world/
-  world.json
-  splats/
-    tile_0000_lod0.spz
-    tile_0000_lod1.spz
-    tile_0001_lod0.spz
-  proxy/
-    collision_000.glb
-```
 
 ## 大场景 Runtime
 
@@ -275,7 +232,8 @@ tools/
 ## 已知边界
 
 - 浏览器 Runtime 不训练 3DGS。
-- CLI 当前是 scaffold，不实际抽帧、不解算 pose、不训练 Gaussian。
+- CLI 当前生成 ffmpeg 脚本，但不自动执行 ffmpeg。
+- CLI 当前生成训练 job，但不直接运行 COLMAP、SLAM 或 Gaussian trainer。
 - 户外大场景的 pose drift、rolling shutter、动态物体、曝光变化仍需要离线 Builder 后续阶段处理。
 - Tile 色彩统一、接缝优化、外观补偿仍属于离线阶段。
 - 当前 Runtime 的 Tile LOD 还没有 cross-fade。
@@ -290,8 +248,9 @@ tools/
 - [x] Tile Spatial Index + LOD Hysteresis
 - [x] Outdoor Capture Builder Contract
 - [x] `swe-builder` CLI scaffold
-- [ ] Builder frame extraction adapter
-- [ ] Builder chunk job manifests for external trainers
+- [x] Builder frame extraction adapter
+- [x] Builder chunk job manifests for external trainers
+- [ ] Pose solver adapter contract
 - [ ] Tile cross-fade
 - [ ] 离线 seam optimizer 与 exposure matching
 - [ ] NavMesh 与大场景分块碰撞
