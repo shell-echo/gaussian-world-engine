@@ -2,7 +2,7 @@
 
 `swe-builder` is the offline CLI scaffold for turning an outdoor capture session into a browser-loadable large Gaussian world.
 
-It does not train Gaussian splats yet. Runtime/Builder 0.18 adds a COLMAP text model converter: `convert-colmap-poses` reads COLMAP `images.txt` / `points3D.txt` and writes the standard `splat-pose-result` outputs consumed by chunk training jobs.
+It does not train Gaussian splats yet. Runtime/Builder 0.20 adds a seam/exposure optimizer scaffold: `plan-seams` writes tile adjacency pairs, placeholder exposure adjustments and a seam report contract for future appearance normalization.
 
 ## Build
 
@@ -23,6 +23,7 @@ swe-builder convert-colmap-poses ./capture/outdoor-loop/session.json
 swe-builder plan-chunks ./capture/outdoor-loop/session.json
 swe-builder write-training-jobs ./capture/outdoor-loop/session.json
 swe-builder export-large-world ./capture/outdoor-loop/session.json
+swe-builder plan-seams ./capture/outdoor-loop/session.json
 ```
 
 When using npm scripts locally:
@@ -63,8 +64,13 @@ capture/outdoor-loop/
     jobs/
       chunk_0000/
         job.json
+  seams/
+    seam-job.json
+    exposure-plan.json
+    seam-report.json
   large-world/
     world.json
+    world.adjusted.json
     splats/
     proxy/
 ```
@@ -157,10 +163,32 @@ poses/poses.json
 
 External training tools can consume these job files and write `.spz` outputs into `large-world/splats/`.
 
+## Seam / exposure planning
+
+`plan-seams` writes:
+
+```text
+seams/seam-job.json
+seams/exposure-plan.json
+seams/seam-report.json
+```
+
+The seam job contains tile inputs, neighbor pairs and overlap bounds when available. The placeholder exposure plan starts every tile at neutral gain/bias:
+
+```json
+{
+  "exposureStops": 0,
+  "gain": [1, 1, 1],
+  "bias": [0, 0, 0]
+}
+```
+
+A future optimizer should consume `seam-job.json`, analyze overlapping tile regions, then write corrected `exposure-plan.json` and `large-world/world.adjusted.json`.
+
 ## Future work
 
 - Sequential matching preset for long videos
 - SLAM adapter runner
 - Per-tile trainer integration
 - LOD pruning and compression
-- Seam normalization and exposure matching
+- Real seam normalization and exposure matching runner
