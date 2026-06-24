@@ -1,46 +1,30 @@
-# Splat World Engine — Builder COLMAP Pose Converter
+# Splat World Engine — Large Tile LOD Cross-fade
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.18 在 COLMAP runner scaffold 后补上 text model converter：`swe-builder` 现在可以把 COLMAP 导出的 `images.txt / points3D.txt` 转成 Builder 统一的 `splat-pose-result`，让后续 chunk training jobs 可以真正消费 `poses/poses.json`。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.19 聚焦大场景浏览器 Runtime：`splatworld-large` 的 LOD 切换现在支持 cross-fade，新 LOD 淡入，旧 LOD 短暂保留后移除，减少远近切换时的闪烁和突变。
 
 ```text
-mounted wide camera video
-  ├── GPS / IMU sidecars optional
-  ├── capture session manifest
-  ↓
-swe-builder
-  ├── validate session
-  ├── frame plan
-  ├── ffmpeg extraction script
-  ├── pose solver job
-  ├── COLMAP runner script
-  ├── COLMAP text model converter
-  ├── chunk plan
-  ├── per-chunk training job manifests
-  └── large-world manifest skeleton
-       ↓
-external COLMAP / training tools
-       ↓
-browser runtime
-  ├── tile spatial index
+splatworld-large manifest
+  ├── spatial tile index
+  ├── distance/frustum streaming
   ├── LOD hysteresis
-  ├── streaming budget
-  └── playable Gaussian world
+  ├── LOD cross-fade
+  └── delayed old LOD removal
 ```
 
-## Runtime/Builder 0.18 能力
+## Runtime/Builder 0.19 能力
 
 - `splat-world` 小世界继续兼容
 - `.splatworld` 世界包继续兼容
 - `splatworld-large` 大场景 Manifest 继续作为浏览器 Runtime 输入
-- `splat-capture-session` version 1 继续作为 Builder 输入契约
-- `swe-builder` CLI 继续可独立编译
-- 新增 `swe-builder convert-colmap-poses`
-- 新增 `src/builder/ColmapTextModel.ts`
-- 解析 COLMAP `images.txt` 到 `splat-pose-result`
-- 解析 COLMAP `points3D.txt` 到 `splat-sparse-points`
-- 写出 `poses/poses.json / poses/sparse-points.json / poses/pose-report.json`
-- 主 `npm run typecheck` 覆盖浏览器 Runtime、Vite 配置和 Builder CLI
-- 主 `npm run build` 会先编译 CLI，再执行 Vite 生产构建
+- `GaussianWorld` 新增 `setAssetOpacity(id, opacity)`
+- `SplatAsset` 新增可选 `opacity`
+- Large Tile Manager 新增 LOD cross-fade
+- 新 LOD 加载后从 0 到 1 淡入
+- 旧 LOD 作为 retained asset 保留一小段时间并淡出
+- resident bytes 统计会计入 retained LOD
+- `public/worlds/large-demo/world.json` 增加 fade 配置示例
+- package version 更新为 `0.19.0`
+- Runtime label 更新为 `runtime 0.19`
 
 ## 运行 Runtime
 
@@ -69,135 +53,68 @@ npm run build
 npm run preview
 ```
 
-## 使用 swe-builder
+## LOD Cross-fade 配置
 
-完整离线流水线骨架：
+在 `splatworld-large` 的 `streaming` 段里可以配置：
+
+```json
+{
+  "streaming": {
+    "lodHysteresisRatio": 0.14,
+    "minLodDwellSeconds": 1.2,
+    "lodCrossFadeSeconds": 0.28,
+    "lodRetainSeconds": 0.34
+  }
+}
+```
+
+字段含义：
+
+- `lodCrossFadeSeconds`：新 LOD 淡入、旧 LOD 淡出的时间。
+- `lodRetainSeconds`：旧 LOD 至少保留多久再移除。
+- `lodHysteresisRatio`：控制 LOD 阈值回差，避免距离边界抖动。
+- `minLodDwellSeconds`：控制同一个 tile 的最短 LOD 停留时间。
+
+## 当前大场景 Runtime 链路
+
+```text
+camera position
+  ↓
+TileSpatialIndex query
+  ↓
+frustum / preload radius filter
+  ↓
+LOD selection + hysteresis
+  ↓
+load target LOD
+  ↓
+fade in target LOD
+  ↓
+fade out retained LOD
+  ↓
+remove old LOD
+```
+
+## Builder 链路仍然保留
+
+离线 Builder 侧依旧支持：
 
 ```bash
 npm run builder -- init-capture ./capture/outdoor-loop --name "Outdoor Loop" --video video/outdoor-loop.mp4 --duration 900
-npm run builder -- validate ./capture/outdoor-loop/session.json
-npm run builder -- plan-frames ./capture/outdoor-loop/session.json
 npm run builder -- extract-frames ./capture/outdoor-loop/session.json
 npm run builder -- plan-poses ./capture/outdoor-loop/session.json
 npm run builder -- write-colmap-runner ./capture/outdoor-loop/session.json
-# bash ./capture/outdoor-loop/poses/colmap/run-colmap.sh
 npm run builder -- convert-colmap-poses ./capture/outdoor-loop/session.json
 npm run builder -- plan-chunks ./capture/outdoor-loop/session.json
 npm run builder -- write-training-jobs ./capture/outdoor-loop/session.json
 npm run builder -- export-large-world ./capture/outdoor-loop/session.json
 ```
 
-输出结构：
-
-```text
-capture/outdoor-loop/
-  session.json
-  video/
-  tracks/
-  frames/
-    frame-plan.json
-    extract-commands.json
-    extract-frames.sh
-    loop-main/
-  poses/
-    pose-job.json
-    poses.json
-    sparse-points.json
-    pose-report.json
-    colmap/
-      colmap-runner.json
-      run-colmap.sh
-      colmap-report.placeholder.json
-      database.db
-      sparse/
-      model-text/
-        images.txt
-        points3D.txt
-  chunks/
-    chunk-plan.json
-    training-jobs.json
-    jobs/
-      chunk_0000/
-        job.json
-  large-world/
-    world.json
-    splats/
-    proxy/
-```
-
-## COLMAP runner scaffold
-
-`write-colmap-runner` 会写：
-
-```text
-poses/colmap/colmap-runner.json
-poses/colmap/run-colmap.sh
-poses/colmap/colmap-report.placeholder.json
-```
-
-脚本包含保守默认命令：
-
-```text
-colmap feature_extractor
-colmap exhaustive_matcher
-colmap mapper
-colmap model_converter
-```
-
-对于真正的长视频户外采集，后续应该把 `exhaustive_matcher` 替换成 sequential matching 或 vocabulary-tree matching，否则帧数多时会非常慢。
-
-## COLMAP pose converter
-
-COLMAP 运行后，先确保 text model 存在：
-
-```text
-poses/colmap/model-text/images.txt
-poses/colmap/model-text/points3D.txt
-```
-
-再运行：
-
-```bash
-npm run builder -- convert-colmap-poses ./capture/outdoor-loop/session.json
-```
-
-它会写出：
-
-```text
-poses/poses.json
-poses/sparse-points.json
-poses/pose-report.json
-```
-
-转换器会把 COLMAP 的 world-to-camera quaternion / translation 转成 camera-center pose，并保持 `x, y, z, w` quaternion 格式。
-
-## Training job manifests
-
-`write-training-jobs` 为每个 chunk 写：
-
-```text
-chunks/jobs/chunk_0000/job.json
-```
-
-每个 training job 引用全局 pose 文件：
-
-```text
-poses/poses.json
-```
-
-也就是说 Builder 链路变成：
-
-```text
-frames -> COLMAP -> poses/poses.json -> chunks/jobs/*/job.json -> splat tiles -> large-world/world.json
-```
-
 ## 已知边界
 
-- 浏览器 Runtime 不训练 3DGS。
-- CLI 当前生成 COLMAP 脚本，但不自动运行 COLMAP。
-- CLI 当前只支持 COLMAP TXT 模型转换，不支持 binary 模型直接读取。
-- 户外大场景的 pose drift、rolling shutter、动态物体、曝光变化仍需要离线 Builder 后续阶段处理。
-- 当前 Runtime 的 Tile LOD 还没有 cross-fade。
+- Cross-fade 依赖 underlying splat renderer 对 opacity/material opacity 的支持；如果某些 splat 实现不支持透明度，仍会保留旧 LOD 到延迟移除时间。
+- Cross-fade 会在短时间内同时保留两个 LOD，因此 resident bytes 会临时升高。
+- 当前还没有 tile streaming 预取优先级的可视化 timeline。
 
 ## 下一阶段
 
@@ -214,7 +131,7 @@ frames -> COLMAP -> poses/poses.json -> chunks/jobs/*/job.json -> splat tiles ->
 - [x] Pose solver adapter contract
 - [x] COLMAP adapter runner
 - [x] COLMAP model-to-pose-result converter
-- [ ] Tile cross-fade
+- [x] Large Tile LOD cross-fade
 - [ ] 离线 seam optimizer 与 exposure matching
 - [ ] NavMesh 与大场景分块碰撞
 
