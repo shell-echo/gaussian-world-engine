@@ -12,6 +12,7 @@ import {
   createColmapRunnerReport,
   type ColmapRunnerPlan,
 } from "../../src/builder/ColmapAdapterTypes.js";
+import { convertColmapTextModel } from "../../src/builder/ColmapTextModel.js";
 import {
   createEmptyPoseResult,
   type PoseSolverJob,
@@ -98,6 +99,13 @@ interface TrainingJobIndex {
   }>;
 }
 
+interface SparsePointsFile {
+  format: "splat-sparse-points";
+  version: 1;
+  session: string;
+  points: ReturnType<typeof convertColmapTextModel>["sparsePoints"];
+}
+
 const commands: Record<string, CommandHandler> = {
   help: async () => printHelp(),
   "init-capture": initCapture,
@@ -106,6 +114,7 @@ const commands: Record<string, CommandHandler> = {
   "extract-frames": extractFrames,
   "plan-poses": planPoses,
   "write-colmap-runner": writeColmapRunner,
+  "convert-colmap-poses": convertColmapPoses,
   "plan-chunks": planChunks,
   "write-training-jobs": writeTrainingJobs,
   "export-large-world": exportLargeWorld,
@@ -285,6 +294,31 @@ async function writeColmapRunner(args: string[]): Promise<void> {
   console.log(`Wrote COLMAP runner plan: ${planPath}`);
   console.log(`Wrote COLMAP runner script: ${scriptPath}`);
   console.log(`Wrote COLMAP report placeholder: ${reportPath}`);
+}
+
+async function convertColmapPoses(args: string[]): Promise<void> {
+  const sessionPath = path.resolve(requiredArg(args, 0, "session.json"));
+  const modelDir = readOption(args, "--model-dir") ?? "poses/colmap/model-text";
+  const session = await readSession(sessionPath);
+  const root = path.dirname(sessionPath);
+  const framePlan = createFramePlan(session, root, sessionPath);
+  const job = createPoseSolverJob(session, root, sessionPath, framePlan);
+  const imagesText = await readFile(path.resolve(root, modelDir, "images.txt"), "utf8");
+  const points3DText = await readFile(path.resolve(root, modelDir, "points3D.txt"), "utf8").catch(() => "");
+  const conversion = convertColmapTextModel(job, imagesText, points3DText);
+  const sparseFile: SparsePointsFile = {
+    format: "splat-sparse-points",
+    version: 1,
+    session: job.session,
+    points: conversion.sparsePoints,
+  };
+
+  await writeJson(path.resolve(root, job.output.poses), conversion.poseResult);
+  await writeJson(path.resolve(root, job.output.sparsePoints), sparseFile);
+  await writeJson(path.resolve(root, job.output.report), conversion.report);
+  console.log(`Wrote pose result: ${path.resolve(root, job.output.poses)}`);
+  console.log(`Wrote sparse points: ${path.resolve(root, job.output.sparsePoints)}`);
+  console.log(`Wrote pose report: ${path.resolve(root, job.output.report)}`);
 }
 
 async function planChunks(args: string[]): Promise<void> {
@@ -657,11 +691,12 @@ Usage:
   swe-builder extract-frames <session.json>
   swe-builder plan-poses <session.json>
   swe-builder write-colmap-runner <session.json>
+  swe-builder convert-colmap-poses <session.json> [--model-dir <path>]
   swe-builder plan-chunks <session.json>
   swe-builder write-training-jobs <session.json>
   swe-builder export-large-world <session.json>
 
-This scaffold prepares files and manifests for an offline Gaussian builder. It writes ffmpeg extraction scripts, pose solver jobs, COLMAP runner scripts and per-chunk training job manifests, but it does not run external tools automatically yet.`);
+This scaffold prepares files and manifests for an offline Gaussian builder. It writes ffmpeg extraction scripts, pose solver jobs, COLMAP runner scripts, COLMAP pose conversion outputs and per-chunk training job manifests, but it does not run external tools automatically yet.`);
 }
 
 main().catch((error: unknown) => {
