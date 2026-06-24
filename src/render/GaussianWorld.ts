@@ -166,7 +166,11 @@ function setObjectOpacity(object: THREE.Object3D, value: number): void {
 
 function setObjectColorAdjustment(object: THREE.Object3D, adjustment: AssetColorAdjustment): void {
   const multiplier = Math.pow(2, adjustment.exposureStops);
-  const gain = adjustment.gain.map((value) => Math.max(0, value * multiplier)) as ColorTriplet;
+  const gain: ColorTriplet = [
+    Math.max(0, adjustment.gain[0] * multiplier),
+    Math.max(0, adjustment.gain[1] * multiplier),
+    Math.max(0, adjustment.gain[2] * multiplier),
+  ];
   object.userData["exposureAdjustment"] = {
     exposureStops: adjustment.exposureStops,
     gain,
