@@ -17,10 +17,16 @@ import {
   createEmptyPoseResult,
   type PoseSolverJob,
 } from "../../src/builder/PoseSolverTypes.js";
-import type {
-  LargeSplatTile,
-  LargeSplatTileLod,
-  LargeWorldManifest,
+import {
+  createPlaceholderExposurePlan,
+  createPlaceholderSeamReport,
+  createSeamOptimizationJob,
+} from "../../src/builder/SeamOptimizerTypes.js";
+import {
+  assertLargeWorldManifest,
+  type LargeSplatTile,
+  type LargeSplatTileLod,
+  type LargeWorldManifest,
 } from "../../src/large/LargeWorldTypes.js";
 import type { Vec3Tuple } from "../../src/types/world.js";
 
@@ -118,6 +124,7 @@ const commands: Record<string, CommandHandler> = {
   "plan-chunks": planChunks,
   "write-training-jobs": writeTrainingJobs,
   "export-large-world": exportLargeWorld,
+  "plan-seams": planSeams,
 };
 
 async function main(): Promise<void> {
@@ -141,6 +148,7 @@ async function initCapture(args: string[]): Promise<void> {
   await mkdir(path.join(root, "frames"), { recursive: true });
   await mkdir(path.join(root, "poses", "colmap"), { recursive: true });
   await mkdir(path.join(root, "chunks"), { recursive: true });
+  await mkdir(path.join(root, "seams"), { recursive: true });
   await mkdir(path.join(root, "large-world", "splats"), { recursive: true });
   await mkdir(path.join(root, "large-world", "proxy"), { recursive: true });
 
@@ -382,6 +390,34 @@ async function exportLargeWorld(args: string[]): Promise<void> {
   console.log(`Tiles: ${manifest.tiles.length}`);
 }
 
+async function planSeams(args: string[]): Promise<void> {
+  const sessionPath = path.resolve(requiredArg(args, 0, "session.json"));
+  const session = await readSession(sessionPath);
+  const root = path.dirname(sessionPath);
+  const chunks = await readChunkPlan(root).catch(() => createChunkPlan(session));
+  const manifestPath = path.resolve(root, session.expectedOutput.largeWorldManifest);
+  const manifest = await readLargeWorldManifest(manifestPath).catch(async () => {
+    const generated = createLargeWorldManifest(session, chunks);
+    await writeJson(manifestPath, generated);
+    return generated;
+  });
+  const job = createSeamOptimizationJob(
+    relativePath(root, sessionPath),
+    relativePath(root, manifestPath),
+    "chunks/training-jobs.json",
+    manifest.tiles,
+  );
+  const jobPath = path.join(root, "seams", "seam-job.json");
+  const exposurePath = path.resolve(root, job.output.exposurePlan);
+  const reportPath = path.resolve(root, job.output.seamReport);
+  await writeJson(jobPath, job);
+  await writeJson(exposurePath, createPlaceholderExposurePlan(job));
+  await writeJson(reportPath, createPlaceholderSeamReport(job));
+  console.log(`Wrote seam optimization job: ${jobPath}`);
+  console.log(`Wrote placeholder exposure plan: ${exposurePath}`);
+  console.log(`Wrote placeholder seam report: ${reportPath}`);
+}
+
 function createFramePlan(
   session: CaptureSessionManifest,
   root: string,
@@ -599,6 +635,8 @@ function createLargeWorldManifest(
       debugBounds: true,
       lodHysteresisRatio: 0.14,
       minLodDwellSeconds: 1.2,
+      lodCrossFadeSeconds: 0.28,
+      lodRetainSeconds: 0.34,
     },
     colliders: [],
     tiles,
@@ -631,6 +669,12 @@ async function readChunkPlan(root: string): Promise<CaptureChunkPlan[]> {
     throw new Error("Invalid chunk plan.");
   }
   return plan.chunks;
+}
+
+async function readLargeWorldManifest(filePath: string): Promise<LargeWorldManifest> {
+  const value = await readJson(filePath);
+  assertLargeWorldManifest(value);
+  return value;
 }
 
 async function readSession(sessionPath: string): Promise<CaptureSessionManifest> {
@@ -695,8 +739,9 @@ Usage:
   swe-builder plan-chunks <session.json>
   swe-builder write-training-jobs <session.json>
   swe-builder export-large-world <session.json>
+  swe-builder plan-seams <session.json>
 
-This scaffold prepares files and manifests for an offline Gaussian builder. It writes ffmpeg extraction scripts, pose solver jobs, COLMAP runner scripts, COLMAP pose conversion outputs and per-chunk training job manifests, but it does not run external tools automatically yet.`);
+This scaffold prepares files and manifests for an offline Gaussian builder. It writes ffmpeg extraction scripts, pose solver jobs, COLMAP runner scripts, COLMAP pose conversion outputs, per-chunk training job manifests and seam/exposure planning files, but it does not run external tools automatically yet.`);
 }
 
 main().catch((error: unknown) => {
