@@ -20,7 +20,9 @@
     "debugBounds": true,
     "tileIndexCellSize": 40,
     "lodHysteresisRatio": 0.14,
-    "minLodDwellSeconds": 1.2
+    "minLodDwellSeconds": 1.2,
+    "lodCrossFadeSeconds": 0.28,
+    "lodRetainSeconds": 0.34
   },
   "colliders": [
     {
