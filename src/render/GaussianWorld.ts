@@ -9,6 +9,8 @@ export interface LoadProgress {
   total?: number;
 }
 
+type MaterialLike = THREE.Material | THREE.Material[];
+
 export class GaussianWorld {
   readonly root = new THREE.Group();
   readonly sparkRenderer: SparkRenderer;
@@ -43,6 +45,7 @@ export class GaussianWorld {
     });
     mesh.name = asset.id;
     applyTransform(mesh, asset);
+    if (asset.opacity !== undefined) setObjectOpacity(mesh, asset.opacity);
     this.root.add(mesh);
     this.splats.set(asset.id, mesh);
     await mesh.initialized;
@@ -60,6 +63,13 @@ export class GaussianWorld {
 
   hasAsset(id: string): boolean {
     return this.splats.has(id);
+  }
+
+  setAssetOpacity(id: string, opacity: number): boolean {
+    const mesh = this.splats.get(id);
+    if (!mesh) return false;
+    setObjectOpacity(mesh, opacity);
+    return true;
   }
 
   addProceduralFallback(asset: SplatAsset): SplatMesh {
@@ -97,6 +107,7 @@ export class GaussianWorld {
       rotationDeg: asset.rotationDeg,
       scale: asset.scale,
     });
+    if (asset.opacity !== undefined) setObjectOpacity(mesh, asset.opacity);
     this.root.add(mesh);
     this.splats.set(mesh.name, mesh);
     return mesh;
@@ -125,4 +136,35 @@ export class GaussianWorld {
     }
     this.splats.clear();
   }
+}
+
+function setObjectOpacity(object: THREE.Object3D, value: number): void {
+  const opacity = clamp01(value);
+  object.visible = opacity > 0;
+  setUnknownOpacity(object, opacity);
+  object.traverse((child) => {
+    const material = (child as { material?: MaterialLike }).material;
+    if (material) setMaterialOpacity(material, opacity);
+    setUnknownOpacity(child, opacity);
+  });
+}
+
+function setMaterialOpacity(material: MaterialLike, opacity: number): void {
+  const materials = Array.isArray(material) ? material : [material];
+  for (const item of materials) {
+    item.transparent = opacity < 1;
+    item.opacity = opacity;
+    item.depthWrite = opacity >= 1;
+    item.needsUpdate = true;
+  }
+}
+
+function setUnknownOpacity(object: object, opacity: number): void {
+  const target = object as { opacity?: unknown };
+  if (typeof target.opacity === "number") target.opacity = opacity;
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.max(0, Math.min(1, value));
 }
