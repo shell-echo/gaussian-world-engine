@@ -25,6 +25,13 @@ export interface LargeTileStreamingStats {
   indexCandidates: number;
 }
 
+interface RetainedLodAsset {
+  assetId: string;
+  bytes: number;
+  startedSeconds: number;
+  removeAfterSeconds: number;
+}
+
 interface TileRuntime {
   tile: LargeSplatTile;
   bounds: THREE.Box3;
@@ -34,6 +41,8 @@ interface TileRuntime {
   activeLod: LargeSplatTileLod | null;
   targetLod: LargeSplatTileLod | null;
   assetId: string | null;
+  retainedAssets: RetainedLodAsset[];
+  activeFadeStartedSeconds: number;
   lastTouchedFrame: number;
   lastLodChangeSeconds: number;
   distance: number;
@@ -97,6 +106,7 @@ export class LargeSplatTileManager {
     const desired = this.selectDesiredTiles();
     this.scheduleLoads(desired);
     this.evictTiles(desired);
+    this.updateLodFades();
     this.updateDebugMaterials(desired);
 
     this.statsElapsed += deltaSeconds;
@@ -117,9 +127,10 @@ export class LargeSplatTileManager {
     for (const tile of this.tiles.values()) {
       if (tile.state === "loaded") {
         loadedTiles += 1;
-        residentBytes += tile.bytes;
+        residentBytes += tile.bytes + tile.retainedAssets.reduce((sum, asset) => sum + asset.bytes, 0);
       } else if (tile.state === "loading") {
         loadingTiles += 1;
+        residentBytes += tile.bytes + tile.retainedAssets.reduce((sum, asset) => sum + asset.bytes, 0);
       }
     }
     return {
@@ -136,6 +147,7 @@ export class LargeSplatTileManager {
     this.disposed = true;
     for (const runtime of this.tiles.values()) {
       if (runtime.assetId) this.gaussianWorld.removeAsset(runtime.assetId);
+      for (const retained of runtime.retainedAssets) this.gaussianWorld.removeAsset(retained.assetId);
       runtime.debug?.geometry.dispose();
       runtime.debug?.material.dispose();
     }
@@ -206,14 +218,18 @@ export class LargeSplatTileManager {
     runtime.state = "loading";
     this.loadingCount += 1;
     const assetId = tileAssetId(runtime.tile.id, lod.level);
+    this.removeRetainedAsset(runtime, assetId);
     this.events.onStatus?.(`加载 Tile ${runtime.tile.id} · LOD ${lod.level}`);
     try {
       const previousAssetId = runtime.assetId;
+      const previousBytes = runtime.bytes;
+      const fadeIn = this.config.lodCrossFadeSeconds > 0;
       const asset: SplatAsset = {
         id: assetId,
         url: lod.url,
         lod: lod.lod ?? true,
         paged: lod.paged ?? false,
+        opacity: fadeIn ? 0 : 1,
       };
       await this.gaussianWorld.addAsset(asset, this.events.onProgress);
       if (this.disposed) {
@@ -221,18 +237,25 @@ export class LargeSplatTileManager {
         return;
       }
       if (previousAssetId && previousAssetId !== assetId) {
-        this.gaussianWorld.removeAsset(previousAssetId);
+        runtime.retainedAssets.push({
+          assetId: previousAssetId,
+          bytes: previousBytes,
+          startedSeconds: this.elapsedSeconds,
+          removeAfterSeconds: this.elapsedSeconds + Math.max(this.config.lodCrossFadeSeconds, this.config.lodRetainSeconds),
+        });
       }
       runtime.assetId = assetId;
       runtime.activeLod = lod;
+      runtime.activeFadeStartedSeconds = this.elapsedSeconds;
       runtime.lastLodChangeSeconds = this.elapsedSeconds;
       runtime.state = "loaded";
       runtime.bytes = lod.bytes ?? estimateLodBytes(lod);
       runtime.error = undefined;
+      if (!fadeIn) this.gaussianWorld.setAssetOpacity(assetId, 1);
       this.events.onStatus?.(`Tile ${runtime.tile.id} 已加载 · LOD ${lod.level}`);
       this.enforceBudget();
     } catch (error) {
-      runtime.state = "failed";
+      runtime.state = runtime.assetId ? "loaded" : "failed";
       runtime.error = error instanceof Error ? error.message : String(error);
       this.events.onStatus?.(`Tile ${runtime.tile.id} 加载失败`);
       console.warn(`Failed to load tile ${runtime.tile.id}.`, error);
@@ -250,6 +273,31 @@ export class LargeSplatTileManager {
     }
   }
 
+  private updateLodFades(): void {
+    for (const runtime of this.tiles.values()) {
+      if (runtime.assetId) {
+        const fadeProgress = fadeProgressAt(
+          this.elapsedSeconds,
+          runtime.activeFadeStartedSeconds,
+          this.config.lodCrossFadeSeconds,
+        );
+        this.gaussianWorld.setAssetOpacity(runtime.assetId, fadeProgress);
+      }
+
+      const retained = runtime.retainedAssets;
+      for (let index = retained.length - 1; index >= 0; index -= 1) {
+        const item = retained[index];
+        if (!item) continue;
+        const fadeOut = 1 - fadeProgressAt(this.elapsedSeconds, item.startedSeconds, this.config.lodCrossFadeSeconds);
+        this.gaussianWorld.setAssetOpacity(item.assetId, fadeOut);
+        if (this.elapsedSeconds >= item.removeAfterSeconds) {
+          this.gaussianWorld.removeAsset(item.assetId);
+          retained.splice(index, 1);
+        }
+      }
+    }
+  }
+
   private enforceBudget(): void {
     let stats = this.getStats();
     if (stats.residentBytes <= this.config.gpuBudgetBytes) return;
@@ -264,12 +312,20 @@ export class LargeSplatTileManager {
   }
 
   private unload(runtime: TileRuntime): void {
-    if (!runtime.assetId) return;
-    this.gaussianWorld.removeAsset(runtime.assetId);
+    if (runtime.assetId) this.gaussianWorld.removeAsset(runtime.assetId);
+    for (const retained of runtime.retainedAssets) this.gaussianWorld.removeAsset(retained.assetId);
+    runtime.retainedAssets = [];
     runtime.assetId = null;
     runtime.activeLod = null;
     runtime.state = "unloaded";
     runtime.bytes = 0;
+  }
+
+  private removeRetainedAsset(runtime: TileRuntime, assetId: string): void {
+    const index = runtime.retainedAssets.findIndex((asset) => asset.assetId === assetId);
+    if (index < 0) return;
+    const [retained] = runtime.retainedAssets.splice(index, 1);
+    if (retained) this.gaussianWorld.removeAsset(retained.assetId);
   }
 
   private updateDebugMaterials(desired: ReadonlyMap<string, LargeSplatTileLod>): void {
@@ -304,6 +360,8 @@ function createTileRuntime(tile: LargeSplatTile): TileRuntime {
     activeLod: null,
     targetLod: null,
     assetId: null,
+    retainedAssets: [],
+    activeFadeStartedSeconds: Number.NEGATIVE_INFINITY,
     lastTouchedFrame: 0,
     lastLodChangeSeconds: Number.NEGATIVE_INFINITY,
     distance: Number.POSITIVE_INFINITY,
@@ -371,6 +429,11 @@ function maxLodDistance(lods: readonly LargeSplatTileLod[]): number {
 function estimateLodBytes(lod: LargeSplatTileLod): number {
   if (lod.splatCount) return lod.splatCount * 32;
   return 32 * 1024 * 1024;
+}
+
+function fadeProgressAt(now: number, started: number, duration: number): number {
+  if (duration <= 0) return 1;
+  return Math.max(0, Math.min(1, (now - started) / duration));
 }
 
 function requiredTile(tiles: ReadonlyMap<string, TileRuntime>, id: string): TileRuntime {
