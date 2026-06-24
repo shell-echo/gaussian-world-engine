@@ -11,6 +11,7 @@ export interface SplatAsset extends TransformData {
   url: string;
   lod?: boolean;
   paged?: boolean;
+  opacity?: number;
 }
 
 export interface SolidBehavior {
@@ -219,153 +220,103 @@ export function assertColliderData(value: unknown): asserts value is ColliderDat
   }
 
   if (collider.type === "convex") {
-    assertConvexVertices(collider.id, collider.vertices, "Convex collider");
-    if (collider.scale3 !== undefined && !isPositiveVec3(collider.scale3)) {
-      throw new Error(`Convex collider ${collider.id} has an invalid scale.`);
+    if (!Array.isArray(collider.vertices) || collider.vertices.length < 4 || !collider.vertices.every(isVec3)) {
+      throw new Error(`Convex collider ${collider.id} needs at least four vertices.`);
     }
-    assertSourceName(collider.id, collider.sourceName);
+    if (collider.behavior?.mode === "trigger") {
+      throw new Error(`Convex collider ${collider.id} cannot be used as a trigger.`);
+    }
     assertBodyCompatibility(collider.id, collider.type, collider.behavior, collider.body);
+    assertSourceName(collider.id, collider.sourceName);
     return;
   }
 
   if (collider.type === "compound") {
-    const compoundId = collider.id;
-    if (!Array.isArray(collider.parts) || collider.parts.length < 1 || collider.parts.length > 32) {
-      throw new Error(`Compound collider ${compoundId} needs between 1 and 32 convex parts.`);
+    if (!Array.isArray(collider.parts) || collider.parts.length === 0) {
+      throw new Error(`Compound collider ${collider.id} needs at least one part.`);
     }
-    collider.parts.forEach((part, index) => {
-      if (!part || typeof part !== "object") {
-        throw new Error(`Compound collider ${compoundId} has an invalid part at ${index}.`);
+    for (const part of collider.parts) {
+      if (!Array.isArray(part.vertices) || part.vertices.length < 4 || !part.vertices.every(isVec3)) {
+        throw new Error(`Compound collider ${collider.id} contains an invalid convex part.`);
       }
-      assertConvexVertices(compoundId, part.vertices, `Compound part ${index}`);
-    });
-    if (collider.scale3 !== undefined && !isPositiveVec3(collider.scale3)) {
-      throw new Error(`Compound collider ${compoundId} has an invalid scale.`);
     }
-    assertSourceName(compoundId, collider.sourceName);
-    assertBodyCompatibility(compoundId, collider.type, collider.behavior, collider.body);
+    if (collider.behavior?.mode === "trigger") {
+      throw new Error(`Compound collider ${collider.id} cannot be used as a trigger.`);
+    }
+    assertBodyCompatibility(collider.id, collider.type, collider.behavior, collider.body);
+    assertSourceName(collider.id, collider.sourceName);
     return;
   }
 
-  throw new Error(`Collider ${collider.id} has an unsupported type.`);
-}
-
-function assertTriangleGeometry(
-  id: string,
-  vertices: Vec3Tuple[] | undefined,
-  indices: number[] | undefined,
-): void {
-  if (!Array.isArray(vertices) || vertices.length < 3 || !vertices.every(isVec3)) {
-    throw new Error(`Mesh collider ${id} has invalid vertices.`);
-  }
-  if (
-    !Array.isArray(indices) ||
-    indices.length < 3 ||
-    indices.length % 3 !== 0 ||
-    !indices.every(
-      (index) => Number.isInteger(index) && index >= 0 && index < vertices.length,
-    )
-  ) {
-    throw new Error(`Mesh collider ${id} has invalid triangle indices.`);
-  }
-}
-
-function assertConvexVertices(
-  id: string,
-  vertices: Vec3Tuple[] | undefined,
-  label: string,
-): void {
-  if (!Array.isArray(vertices) || vertices.length < 4 || !vertices.every(isVec3)) {
-    throw new Error(`${label} ${id} needs at least four valid vertices.`);
-  }
+  throw new Error(`Unsupported collider type: ${(collider as { type?: string }).type}`);
 }
 
 function assertBehavior(id: string, behavior: ColliderBehavior | undefined): void {
-  if (!behavior || behavior.mode === "solid") return;
-  if (
-    behavior.mode !== "trigger" ||
-    !isNonEmptyString(behavior.event) ||
-    !isNonEmptyString(behavior.message) ||
-    (behavior.once !== undefined && typeof behavior.once !== "boolean")
-  ) {
-    throw new Error(`Collider ${id} has an invalid behavior.`);
+  if (!behavior) return;
+  if (behavior.mode !== "solid" && behavior.mode !== "trigger") {
+    throw new Error(`Collider ${id} has invalid behavior mode.`);
   }
 }
 
 function assertInteractable(id: string, interactable: InteractableData | undefined): void {
   if (!interactable) return;
-  if (
-    !isNonEmptyString(interactable.prompt) ||
-    !isNonEmptyString(interactable.event) ||
-    !isNonEmptyString(interactable.message) ||
-    (interactable.maxDistance !== undefined && !isPositiveNumber(interactable.maxDistance))
-  ) {
-    throw new Error(`Collider ${id} has an invalid interactable component.`);
+  if (typeof interactable.prompt !== "string" || typeof interactable.event !== "string" || typeof interactable.message !== "string") {
+    throw new Error(`Collider ${id} has an invalid interactable config.`);
   }
 }
 
 function assertBody(id: string, body: RigidBodyData | undefined): void {
   if (!body) return;
   if (body.mode !== "fixed" && body.mode !== "dynamic") {
-    throw new Error(`Collider ${id} has an invalid rigid body mode.`);
-  }
-  if (body.gravityScale !== undefined && !isFiniteNumber(body.gravityScale)) {
-    throw new Error(`Collider ${id} has an invalid gravity scale.`);
-  }
-  if (body.linearDamping !== undefined && !isNonNegativeNumber(body.linearDamping)) {
-    throw new Error(`Collider ${id} has invalid linear damping.`);
-  }
-  if (body.angularDamping !== undefined && !isNonNegativeNumber(body.angularDamping)) {
-    throw new Error(`Collider ${id} has invalid angular damping.`);
+    throw new Error(`Collider ${id} has invalid rigid body mode.`);
   }
 }
 
 function assertAudio(id: string, audio: AudioSourceData | undefined): void {
   if (!audio) return;
-  if (!isNonEmptyString(audio.url)) {
-    throw new Error(`Collider ${id} has an invalid audio URL.`);
-  }
-  if (audio.loop !== undefined && typeof audio.loop !== "boolean") {
-    throw new Error(`Collider ${id} has an invalid audio loop flag.`);
-  }
-  if (audio.autoplay !== undefined && typeof audio.autoplay !== "boolean") {
-    throw new Error(`Collider ${id} has an invalid audio autoplay flag.`);
-  }
-  if (audio.volume !== undefined && (!isFiniteNumber(audio.volume) || audio.volume < 0 || audio.volume > 1)) {
-    throw new Error(`Collider ${id} has an invalid audio volume.`);
-  }
-  if (audio.refDistance !== undefined && !isPositiveNumber(audio.refDistance)) {
-    throw new Error(`Collider ${id} has an invalid audio reference distance.`);
+  if (typeof audio.url !== "string" || !audio.url.trim()) {
+    throw new Error(`Collider ${id} has an invalid audio source.`);
   }
 }
 
 function assertVisual(id: string, visual: VisualModelData | undefined): void {
   if (!visual) return;
-  if (!isNonEmptyString(visual.url)) {
-    throw new Error(`Collider ${id} has an invalid visual model URL.`);
-  }
-  if (visual.sourceName !== undefined && !isNonEmptyString(visual.sourceName)) {
-    throw new Error(`Collider ${id} has an invalid visual model source name.`);
-  }
-  if (visual.visible !== undefined && typeof visual.visible !== "boolean") {
-    throw new Error(`Collider ${id} has an invalid visual visibility flag.`);
-  }
-}
-
-function assertSourceName(id: string, sourceName: string | undefined): void {
-  if (sourceName !== undefined && !isNonEmptyString(sourceName)) {
-    throw new Error(`Collider ${id} has an invalid source name.`);
+  if (typeof visual.url !== "string" || !visual.url.trim()) {
+    throw new Error(`Collider ${id} has an invalid visual model.`);
   }
 }
 
 function assertBodyCompatibility(
   id: string,
-  type: "box" | "capsule" | "convex" | "compound",
+  type: ColliderType,
   behavior: ColliderBehavior | undefined,
   body: RigidBodyData | undefined,
 ): void {
   if (behavior?.mode === "trigger" && body?.mode === "dynamic") {
-    throw new Error(`${type} trigger ${id} cannot be dynamic.`);
+    throw new Error(`Trigger collider ${id} cannot be dynamic.`);
+  }
+  if (type === "mesh" && body?.mode === "dynamic") {
+    throw new Error(`Mesh collider ${id} cannot be dynamic.`);
+  }
+}
+
+function assertTriangleGeometry(id: string, vertices: Vec3Tuple[] | undefined, indices: number[] | undefined): void {
+  if (!Array.isArray(vertices) || vertices.length < 3 || !vertices.every(isVec3)) {
+    throw new Error(`Mesh collider ${id} has invalid vertices.`);
+  }
+  if (!Array.isArray(indices) || indices.length < 3 || indices.length % 3 !== 0) {
+    throw new Error(`Mesh collider ${id} has invalid triangle indices.`);
+  }
+  for (const index of indices) {
+    if (!Number.isInteger(index) || index < 0 || index >= vertices.length) {
+      throw new Error(`Mesh collider ${id} has an out-of-range vertex index.`);
+    }
+  }
+}
+
+function assertSourceName(id: string, sourceName: string | undefined): void {
+  if (sourceName !== undefined && !sourceName.trim()) {
+    throw new Error(`Collider ${id} has an invalid sourceName.`);
   }
 }
 
@@ -381,18 +332,6 @@ function isPositiveVec3(value: unknown): value is Vec3Tuple {
   return isVec3(value) && value.every((item) => item > 0);
 }
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
 function isPositiveNumber(value: unknown): value is number {
-  return isFiniteNumber(value) && value > 0;
-}
-
-function isNonNegativeNumber(value: unknown): value is number {
-  return isFiniteNumber(value) && value >= 0;
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
