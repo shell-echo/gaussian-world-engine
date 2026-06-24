@@ -33,16 +33,17 @@ if (!bundleKey) {
     const value: unknown = await response.clone().json();
     if (isLargeWorldCandidate(value)) {
       assertLargeWorldManifest(value);
-      largeManifest = resolveLargeManifestUrls(value, manifestUrl);
-      exposurePlan = await loadExposurePlan(largeManifest).catch((error) => {
+      const resolvedManifest = resolveLargeManifestUrls(value, manifestUrl);
+      largeManifest = resolvedManifest;
+      exposurePlan = await loadExposurePlan(resolvedManifest).catch((error) => {
         console.warn("Large world exposure plan skipped.", error);
         return null;
       });
       window.fetch = interceptLargeManifest;
       installEngineHook();
       statusElement && (statusElement.textContent = exposurePlan
-        ? "大场景 Tile Streaming + Exposure Plan 已启用"
-        : "大场景 Tile Streaming 已启用");
+        ? "Large Tile Streaming + Exposure Plan enabled"
+        : "Large Tile Streaming enabled");
     }
   } catch (error) {
     console.warn("Large world bootstrap skipped.", error);
@@ -69,7 +70,7 @@ function installEngineHook(): void {
         },
         onProgress: ({ id, loaded, total }) => {
           const value = total ? `${Math.round((loaded / total) * 100)}%` : formatLargeBytes(loaded);
-          statusElement && (statusElement.textContent = `加载 ${id} · ${value}`);
+          statusElement && (statusElement.textContent = `Load ${id} · ${value}`);
         },
         onStats: updateStats,
       }, exposurePlan ?? undefined);
@@ -79,8 +80,8 @@ function installEngineHook(): void {
       window.setTimeout(() => {
         showToast(
           exposurePlan
-            ? `Large Tile Streaming 已就绪 · ${manifest.tiles.length} tiles · exposure plan`
-            : `Large Tile Streaming 已就绪 · ${manifest.tiles.length} tiles`,
+            ? `Large Tile Streaming ready · ${manifest.tiles.length} tiles · exposure plan`
+            : `Large Tile Streaming ready · ${manifest.tiles.length} tiles`,
           5200,
         );
       }, 120);
