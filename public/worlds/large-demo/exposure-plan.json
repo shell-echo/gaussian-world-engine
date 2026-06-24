@@ -1,0 +1,31 @@
+{
+  "format": "splat-exposure-plan",
+  "version": 1,
+  "session": "large-demo",
+  "adjustments": [
+    {
+      "tileId": "corridor-000",
+      "exposureStops": 0,
+      "gain": [1, 1, 1],
+      "bias": [0, 0, 0]
+    },
+    {
+      "tileId": "corridor-001",
+      "exposureStops": 0.12,
+      "gain": [1.02, 1, 0.98],
+      "bias": [0, 0, 0]
+    },
+    {
+      "tileId": "corridor-002",
+      "exposureStops": -0.08,
+      "gain": [0.98, 1, 1.03],
+      "bias": [0, 0, 0]
+    },
+    {
+      "tileId": "corridor-003",
+      "exposureStops": 0,
+      "gain": [1, 1, 1],
+      "bias": [0, 0, 0]
+    }
+  ]
+}
