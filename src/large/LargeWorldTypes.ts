@@ -44,6 +44,8 @@ export interface LargeWorldManifest {
     tileIndexCellSize?: number;
     lodHysteresisRatio?: number;
     minLodDwellSeconds?: number;
+    lodCrossFadeSeconds?: number;
+    lodRetainSeconds?: number;
   };
 }
 
@@ -57,6 +59,8 @@ export interface LargeWorldRuntimeConfig {
   tileIndexCellSize?: number;
   lodHysteresisRatio: number;
   minLodDwellSeconds: number;
+  lodCrossFadeSeconds: number;
+  lodRetainSeconds: number;
 }
 
 const DEFAULT_CONFIG: LargeWorldRuntimeConfig = {
@@ -68,6 +72,8 @@ const DEFAULT_CONFIG: LargeWorldRuntimeConfig = {
   debugBounds: true,
   lodHysteresisRatio: 0.12,
   minLodDwellSeconds: 1,
+  lodCrossFadeSeconds: 0.28,
+  lodRetainSeconds: 0.34,
 };
 
 export function assertLargeWorldManifest(value: unknown): asserts value is LargeWorldManifest {
@@ -129,6 +135,14 @@ export function resolveLargeWorldConfig(manifest: LargeWorldManifest): LargeWorl
     ),
     minLodDwellSeconds: Math.min(
       Math.max(nonNegativeOr(streaming?.minLodDwellSeconds, DEFAULT_CONFIG.minLodDwellSeconds), 0),
+      10,
+    ),
+    lodCrossFadeSeconds: Math.min(
+      Math.max(nonNegativeOr(streaming?.lodCrossFadeSeconds, DEFAULT_CONFIG.lodCrossFadeSeconds), 0),
+      5,
+    ),
+    lodRetainSeconds: Math.min(
+      Math.max(nonNegativeOr(streaming?.lodRetainSeconds, DEFAULT_CONFIG.lodRetainSeconds), 0),
       10,
     ),
   };
