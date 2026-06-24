@@ -2,7 +2,7 @@
 
 `swe-builder` is the offline CLI scaffold for turning an outdoor capture session into a browser-loadable large Gaussian world.
 
-It does not train Gaussian splats yet. Runtime/Builder 0.17 adds a COLMAP runner scaffold: `write-colmap-runner` consumes the pose solver job and writes deterministic COLMAP command plans plus a shell script.
+It does not train Gaussian splats yet. Runtime/Builder 0.18 adds a COLMAP text model converter: `convert-colmap-poses` reads COLMAP `images.txt` / `points3D.txt` and writes the standard `splat-pose-result` outputs consumed by chunk training jobs.
 
 ## Build
 
@@ -19,6 +19,7 @@ swe-builder plan-frames ./capture/outdoor-loop/session.json
 swe-builder extract-frames ./capture/outdoor-loop/session.json
 swe-builder plan-poses ./capture/outdoor-loop/session.json
 swe-builder write-colmap-runner ./capture/outdoor-loop/session.json
+swe-builder convert-colmap-poses ./capture/outdoor-loop/session.json
 swe-builder plan-chunks ./capture/outdoor-loop/session.json
 swe-builder write-training-jobs ./capture/outdoor-loop/session.json
 swe-builder export-large-world ./capture/outdoor-loop/session.json
@@ -45,13 +46,17 @@ capture/outdoor-loop/
     loop-main/
   poses/
     pose-job.json
-    poses.placeholder.json
+    poses.json
+    sparse-points.json
+    pose-report.json
     colmap/
       colmap-runner.json
       run-colmap.sh
       colmap-report.placeholder.json
       sparse/
       model-text/
+        images.txt
+        points3D.txt
   chunks/
     chunk-plan.json
     training-jobs.json
@@ -109,15 +114,32 @@ colmap mapper
 colmap model_converter
 ```
 
-This command is intentionally conservative. For long outdoor videos, replace exhaustive matching with sequential or vocabulary-tree matching before running at scale.
+For long outdoor videos, replace exhaustive matching with sequential or vocabulary-tree matching before running at scale.
 
-The runner still does not convert COLMAP output into `splat-pose-result`; the next adapter step should read `poses/colmap/model-text/` and write:
+## COLMAP pose converter
+
+After running the COLMAP script, export a text model into:
+
+```text
+poses/colmap/model-text/images.txt
+poses/colmap/model-text/points3D.txt
+```
+
+Then run:
+
+```bash
+swe-builder convert-colmap-poses ./capture/outdoor-loop/session.json
+```
+
+This writes:
 
 ```text
 poses/poses.json
 poses/sparse-points.json
 poses/pose-report.json
 ```
+
+The converter maps COLMAP world-to-camera quaternions and translations into camera-center poses in the shared `splat-pose-result` format.
 
 ## Training job manifests
 
@@ -137,7 +159,6 @@ External training tools can consume these job files and write `.spz` outputs int
 
 ## Future work
 
-- COLMAP model-to-pose-result converter
 - Sequential matching preset for long videos
 - SLAM adapter runner
 - Per-tile trainer integration
