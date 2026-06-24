@@ -95,27 +95,42 @@ function parseImagesText(content: string): ParsedColmapImage[] {
     if (!line) continue;
     const parts = line.trim().split(/\s+/);
     if (parts.length < 10) continue;
-    const [id, qw, qx, qy, qz, tx, ty, tz] = parts.slice(0, 8).map(Number);
+
+    const id = readNumber(parts, 0);
+    const qw = readNumber(parts, 1);
+    const qx = readNumber(parts, 2);
+    const qy = readNumber(parts, 3);
+    const qz = readNumber(parts, 4);
+    const tx = readNumber(parts, 5);
+    const ty = readNumber(parts, 6);
+    const tz = readNumber(parts, 7);
     const name = parts.slice(9).join(" ");
-    if ([id, qw, qx, qy, qz, tx, ty, tz].some((value) => !Number.isFinite(value))) continue;
+    if (!name) continue;
+    if (!allFinite(id, qw, qx, qy, qz, tx, ty, tz)) continue;
     images.push({ id, qw, qx, qy, qz, tx, ty, tz, name });
   }
   return images.sort((left, right) => left.id - right.id);
 }
 
 function parsePoints3DText(content: string): ParsedColmapPoint[] {
-  return nonCommentLines(content).flatMap((line) => {
+  const points: ParsedColmapPoint[] = [];
+  for (const line of nonCommentLines(content)) {
     const parts = line.trim().split(/\s+/);
-    if (parts.length < 8) return [];
-    const [, x, y, z, r, g, b] = parts.map(Number);
-    if ([x, y, z, r, g, b].some((value) => !Number.isFinite(value))) return [];
-    const trackLength = Math.max(0, parts.length - 8) / 2;
-    return [{
-      position: [x, y, z] as [number, number, number],
-      color: [clampByte(r), clampByte(g), clampByte(b)] as [number, number, number],
-      trackLength,
-    }];
-  });
+    if (parts.length < 8) continue;
+    const x = readNumber(parts, 1);
+    const y = readNumber(parts, 2);
+    const z = readNumber(parts, 3);
+    const r = readNumber(parts, 4);
+    const g = readNumber(parts, 5);
+    const b = readNumber(parts, 6);
+    if (!allFinite(x, y, z, r, g, b)) continue;
+    points.push({
+      position: [x, y, z],
+      color: [clampByte(r), clampByte(g), clampByte(b)],
+      trackLength: Math.max(0, parts.length - 8) / 2,
+    });
+  }
+  return points;
 }
 
 function colmapImageToPose(image: ParsedColmapImage, sourceId: string): CameraPoseSample {
@@ -181,6 +196,15 @@ function nonCommentLines(content: string): string[] {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith("#"));
+}
+
+function readNumber(parts: readonly string[], index: number): number {
+  const raw = parts[index];
+  return raw === undefined ? Number.NaN : Number(raw);
+}
+
+function allFinite(...values: readonly number[]): boolean {
+  return values.every(Number.isFinite);
 }
 
 function clampByte(value: number): number {
