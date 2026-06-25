@@ -1,0 +1,51 @@
+{
+  "format": "splat-navmesh",
+  "version": 1,
+  "name": "Large Demo Navigation",
+  "tiles": [
+    {
+      "tileId": "corridor-000",
+      "bounds": { "min": [-18, -0.05, -6], "max": [18, 0.1, 6] },
+      "walkable": true,
+      "layer": "ground"
+    },
+    {
+      "tileId": "corridor-001",
+      "bounds": { "min": [22, -0.05, -6], "max": [58, 0.1, 6] },
+      "walkable": true,
+      "layer": "ground"
+    },
+    {
+      "tileId": "corridor-002",
+      "bounds": { "min": [62, -0.05, -6], "max": [98, 0.1, 6] },
+      "walkable": true,
+      "layer": "ground"
+    },
+    {
+      "tileId": "corridor-003",
+      "bounds": { "min": [102, -0.05, -6], "max": [138, 0.1, 6] },
+      "walkable": true,
+      "layer": "ground"
+    }
+  ],
+  "links": [
+    {
+      "fromTileId": "corridor-000",
+      "toTileId": "corridor-001",
+      "portalBounds": { "min": [18, -0.05, -4], "max": [22, 0.1, 4] },
+      "bidirectional": true
+    },
+    {
+      "fromTileId": "corridor-001",
+      "toTileId": "corridor-002",
+      "portalBounds": { "min": [58, -0.05, -4], "max": [62, 0.1, 4] },
+      "bidirectional": true
+    },
+    {
+      "fromTileId": "corridor-002",
+      "toTileId": "corridor-003",
+      "portalBounds": { "min": [98, -0.05, -4], "max": [102, 0.1, 4] },
+      "bidirectional": true
+    }
+  ]
+}
