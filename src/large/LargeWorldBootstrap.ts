@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import { Engine } from "../core/Engine";
 import { assertExposurePlan, type ExposurePlan } from "./ExposurePlanTypes";
 import {
@@ -10,6 +11,11 @@ import {
   LargeSplatTileManager,
   type LargeTileStreamingStats,
 } from "./LargeSplatTileManager";
+import {
+  assertRuntimeNavMeshManifest,
+  createNavMeshDebugGroup,
+  type RuntimeNavMeshManifest,
+} from "./NavMeshTypes";
 
 const statusElement = optionalElement<HTMLElement>("status");
 const toastElement = optionalElement<HTMLElement>("toast");
@@ -22,6 +28,8 @@ const manifestUrl = new URL(pageUrl.searchParams.get("world") ?? "/worlds/demo/w
 
 let largeManifest: LargeWorldManifest | null = null;
 let exposurePlan: ExposurePlan | null = null;
+let navMesh: RuntimeNavMeshManifest | null = null;
+let navMeshDebugGroup: THREE.Group | null = null;
 let tileManager: LargeSplatTileManager | null = null;
 let loopHandle = 0;
 let lastTime = performance.now();
@@ -39,11 +47,13 @@ if (!bundleKey) {
         console.warn("Large world exposure plan skipped.", error);
         return null;
       });
+      navMesh = await loadNavMesh(resolvedManifest).catch((error) => {
+        console.warn("Large world navigation skipped.", error);
+        return null;
+      });
       window.fetch = interceptLargeManifest;
       installEngineHook();
-      statusElement && (statusElement.textContent = exposurePlan
-        ? "Large Tile Streaming + Exposure Plan enabled"
-        : "Large Tile Streaming enabled");
+      statusElement && (statusElement.textContent = runtimeStatusLabel());
     }
   } catch (error) {
     console.warn("Large world bootstrap skipped.", error);
@@ -53,6 +63,7 @@ if (!bundleKey) {
 window.addEventListener("beforeunload", () => {
   if (loopHandle) cancelAnimationFrame(loopHandle);
   tileManager?.dispose();
+  disposeGroup(navMeshDebugGroup);
 });
 
 function installEngineHook(): void {
@@ -64,6 +75,7 @@ function installEngineHook(): void {
     value: async (...args: Parameters<typeof Engine.create>): Promise<Engine> => {
       const instance = await originalCreate(...args);
       tileManager?.dispose();
+      disposeGroup(navMeshDebugGroup);
       tileManager = new LargeSplatTileManager(instance.gaussianWorld, manifest, {
         onStatus: (message) => {
           statusElement && (statusElement.textContent = message);
@@ -75,15 +87,14 @@ function installEngineHook(): void {
         onStats: updateStats,
       }, exposurePlan ?? undefined);
       instance.scene.add(tileManager.debugGroup);
+      if (navMesh) {
+        navMeshDebugGroup = createNavMeshDebugGroup(navMesh);
+        instance.scene.add(navMeshDebugGroup);
+      }
       worldNameElement && (worldNameElement.textContent = manifest.name);
       startTileLoop(instance);
       window.setTimeout(() => {
-        showToast(
-          exposurePlan
-            ? `Large Tile Streaming ready · ${manifest.tiles.length} tiles · exposure plan`
-            : `Large Tile Streaming ready · ${manifest.tiles.length} tiles`,
-          5200,
-        );
+        showToast(runtimeReadyLabel(manifest), 5200);
       }, 120);
       return instance;
     },
@@ -104,11 +115,13 @@ function startTileLoop(engine: Engine): void {
 
 function updateStats(stats: LargeTileStreamingStats): void {
   if (!statusElement) return;
+  const nav = navMesh ? ` · nav ${navMesh.tiles.length}/${navMesh.links?.length ?? 0}` : "";
   statusElement.textContent =
     `Tiles ${stats.loadedTiles}/${stats.visibleTiles}` +
     ` · cand ${stats.indexCandidates}` +
     ` · loading ${stats.loadingTiles}` +
-    ` · ${formatLargeBytes(stats.residentBytes)} / ${formatLargeBytes(stats.budgetBytes)}`;
+    ` · ${formatLargeBytes(stats.residentBytes)} / ${formatLargeBytes(stats.budgetBytes)}` +
+    nav;
 }
 
 function interceptLargeManifest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -127,13 +140,11 @@ function interceptLargeManifest(input: RequestInfo | URL, init?: RequestInit): P
   return nativeFetch(input, init);
 }
 
-function resolveLargeManifestUrls(
-  manifest: LargeWorldManifest,
-  sourceUrl: string,
-): LargeWorldManifest {
+function resolveLargeManifestUrls(manifest: LargeWorldManifest, sourceUrl: string): LargeWorldManifest {
   const base = new URL(sourceUrl);
   const copy = structuredClone(manifest);
   if (copy.exposurePlan) copy.exposurePlan = new URL(copy.exposurePlan, base).href;
+  if (copy.navigation) copy.navigation = new URL(copy.navigation, base).href;
   for (const tile of copy.tiles) {
     for (const lod of tile.lods) {
       lod.url = new URL(lod.url, base).href;
@@ -149,6 +160,48 @@ async function loadExposurePlan(manifest: LargeWorldManifest): Promise<ExposureP
   const value: unknown = await response.json();
   assertExposurePlan(value);
   return value;
+}
+
+async function loadNavMesh(manifest: LargeWorldManifest): Promise<RuntimeNavMeshManifest | null> {
+  if (!manifest.navigation) return null;
+  const response = await nativeFetch(manifest.navigation, { cache: "no-cache" });
+  if (!response.ok) throw new Error(`Failed to load navigation manifest: ${response.status}`);
+  const value: unknown = await response.json();
+  assertRuntimeNavMeshManifest(value);
+  return value;
+}
+
+function runtimeStatusLabel(): string {
+  const features = ["Large Tile Streaming"];
+  if (exposurePlan) features.push("Exposure Plan");
+  if (navMesh) features.push("NavMesh Debug");
+  return `${features.join(" + ")} enabled`;
+}
+
+function runtimeReadyLabel(manifest: LargeWorldManifest): string {
+  const suffix = [
+    exposurePlan ? "exposure" : "",
+    navMesh ? `${navMesh.tiles.length} nav tiles` : "",
+  ].filter(Boolean).join(" · ");
+  return suffix
+    ? `Large Tile Streaming ready · ${manifest.tiles.length} tiles · ${suffix}`
+    : `Large Tile Streaming ready · ${manifest.tiles.length} tiles`;
+}
+
+function disposeGroup(group: THREE.Group | null): void {
+  if (!group) return;
+  group.parent?.remove(group);
+  for (const child of group.children) {
+    if (child instanceof THREE.LineSegments) {
+      child.geometry.dispose();
+      if (Array.isArray(child.material)) {
+        child.material.forEach((material) => material.dispose());
+      } else {
+        child.material.dispose();
+      }
+    }
+  }
+  group.clear();
 }
 
 function resolveRequestUrl(input: RequestInfo | URL): string {

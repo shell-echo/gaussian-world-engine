@@ -1,31 +1,35 @@
-# Splat World Engine — NavMesh / Collision Scaffold
+# Splat World Engine — Runtime NavMesh Loader
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.22 补上离线 Builder 侧的 NavMesh / 大场景碰撞规划：`swe-builder plan-navigation` 会基于 `splatworld-large` 的 tile bounds 与 neighbors 输出导航网格计划、碰撞计划和导航报告占位。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.23 把 0.22 生成的导航规划往 Runtime 推进一步：`splatworld-large` 可以声明 `navigation`，Runtime 会加载 `splat-navmesh`，校验 tile / link，并以调试线框展示 nav tiles、portal links 和 portal bounds。
 
 ```text
-large-world/world.json
-  ├── tiles
-  ├── bounds
-  ├── neighbors
+splatworld-large world.json
+  ├── exposurePlan
+  ├── navigation
   ↓
-swe-builder plan-navigation
-  ├── navigation/navmesh-plan.json
-  ├── navigation/collision-plan.json
-  └── navigation/navigation-report.json
+Runtime bootstrap
+  ├── load exposure plan
+  ├── load navmesh manifest
+  ├── stream gaussian tiles
+  └── draw navmesh debug group
 ```
 
-## Runtime/Builder 0.22 能力
+## Runtime/Builder 0.23 能力
 
-- 新增 `src/builder/NavigationPlanTypes.ts`
-- 新增 `splat-navmesh-plan` v1
-- 新增 `splat-collision-plan` v1
-- 新增 `splat-navigation-report` v1
-- 新增 `swe-builder plan-navigation <session.json>`
-- 基于 tile bounds 生成每 tile navmesh tile plan
-- 基于 tile neighbors 生成跨 tile nav links
-- 基于 tile bounds 生成 conservative collision tile plan
-- package version 更新为 `0.22.0`
-- Runtime label 更新为 `runtime 0.22`
+- 新增 `src/large/NavMeshTypes.ts`
+- 新增运行时 `splat-navmesh` v1 格式
+- `splatworld-large` 新增可选 `navigation`
+- `LargeWorldBootstrap` 会按 world manifest 相对路径加载 navigation manifest
+- navigation 加载失败只 warning，不阻塞大场景 tile streaming
+- Runtime 会创建 NavMesh debug group
+- nav tile 用绿色/红色 bounds 显示 walkable 状态
+- nav link 用蓝色连线显示
+- portal bounds 用黄色线框显示
+- HUD 显示 nav tile/link 数量
+- `public/worlds/large-demo/world.json` 引用 `./navmesh.json`
+- 新增 `public/worlds/large-demo/navmesh.json`
+- package version 更新为 `0.23.0`
+- Runtime label 更新为 `runtime 0.23`
 
 ## 运行 Runtime
 
@@ -48,9 +52,45 @@ npm run build
 npm run preview
 ```
 
+## navigation 配置
+
+在 `splatworld-large` manifest 中添加：
+
+```json
+{
+  "format": "splatworld-large",
+  "version": 1,
+  "navigation": "./navmesh.json"
+}
+```
+
+`navmesh.json` 使用运行时格式：
+
+```json
+{
+  "format": "splat-navmesh",
+  "version": 1,
+  "tiles": [
+    {
+      "tileId": "corridor-000",
+      "bounds": { "min": [-18, -0.05, -6], "max": [18, 0.1, 6] },
+      "walkable": true,
+      "layer": "ground"
+    }
+  ],
+  "links": [
+    {
+      "fromTileId": "corridor-000",
+      "toTileId": "corridor-001",
+      "bidirectional": true
+    }
+  ]
+}
+```
+
 ## Builder 链路
 
-完整离线 Builder 骨架：
+完整离线 Builder 骨架仍然保留：
 
 ```bash
 npm run builder -- init-capture ./capture/outdoor-loop --name "Outdoor Loop" --video video/outdoor-loop.mp4 --duration 900
@@ -65,46 +105,11 @@ npm run builder -- plan-seams ./capture/outdoor-loop/session.json
 npm run builder -- plan-navigation ./capture/outdoor-loop/session.json
 ```
 
-`plan-navigation` 会写：
-
-```text
-navigation/navmesh-plan.json
-navigation/collision-plan.json
-navigation/navigation-report.json
-```
-
-如果 `large-world/world.json` 不存在，命令会先根据当前 chunk plan 生成一个大世界 manifest skeleton。
-
-## NavMesh plan
-
-`navmesh-plan.json` 包含：
-
-- 每个 tile 的 bounds
-- agent radius / height / slope / stepHeight
-- 每 tile navmesh 输出路径
-- 基于 neighbors 的 portal links
-- overlap bounds hint
-
-## Collision plan
-
-`collision-plan.json` 当前生成 conservative box collision plan：
-
-```json
-{
-  "tileId": "tile_0000",
-  "colliderId": "collision:tile_0000",
-  "type": "box",
-  "output": "navigation/colliders/tile_0000.collider.json"
-}
-```
-
-后续真实 builder 可以把这些 box plan 替换为 heightfield / mesh / compound collider 输出。
-
 ## 已知边界
 
-- 0.22 只生成规划文件，不构建真实 navmesh。
-- Runtime 尚未加载 `navigation/navmesh.json`。
-- 当前 collision plan 是保守 bounds box，不是精确几何。
+- 0.23 只加载并调试显示 navmesh，不做真正寻路。
+- Runtime 尚未加载 collision tile plan。
+- `splat-navmesh` 目前是轻量 bounds/links 表达，不是 Recast/Detour 多边形网格。
 
 ## 下一阶段
 
@@ -125,7 +130,7 @@ navigation/navigation-report.json
 - [x] Seam / exposure optimizer scaffold
 - [x] Apply exposure plan in Runtime
 - [x] NavMesh / 大场景碰撞规划 scaffold
-- [ ] Runtime NavMesh loader
+- [x] Runtime NavMesh loader
 - [ ] Runtime collision tile streaming
 
 ## 依赖与许可证
