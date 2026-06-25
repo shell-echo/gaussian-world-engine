@@ -1,18 +1,31 @@
-# Splat World Engine — Runtime Exposure Plan
+# Splat World Engine — NavMesh / Collision Scaffold
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.21 把 0.20 生成的 exposure plan 接到浏览器 Runtime：`splatworld-large` 可以声明 `exposurePlan`，Runtime 会加载并校验 `splat-exposure-plan`，然后在 tile LOD asset 加载后按 tile 应用 exposure / gain / bias。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.22 补上离线 Builder 侧的 NavMesh / 大场景碰撞规划：`swe-builder plan-navigation` 会基于 `splatworld-large` 的 tile bounds 与 neighbors 输出导航网格计划、碰撞计划和导航报告占位。
 
-## Runtime/Builder 0.21 能力
+```text
+large-world/world.json
+  ├── tiles
+  ├── bounds
+  ├── neighbors
+  ↓
+swe-builder plan-navigation
+  ├── navigation/navmesh-plan.json
+  ├── navigation/collision-plan.json
+  └── navigation/navigation-report.json
+```
 
-- `splatworld-large` 大场景 Manifest 新增可选 `exposurePlan`
-- 新增 `src/large/ExposurePlanTypes.ts`
-- Runtime 会校验 `splat-exposure-plan` v1
-- Runtime 会把 exposure plan 传给 `LargeSplatTileManager`
-- `GaussianWorld` 新增 `setAssetColorAdjustment(id, adjustment)`
-- Tile LOD 加载完成后会应用对应 tile 的 exposure / gain / bias
-- `public/worlds/large-demo/world.json` 已引用示例 exposure plan
-- package version 更新为 `0.21.0`
-- Runtime label 更新为 `runtime 0.21`
+## Runtime/Builder 0.22 能力
+
+- 新增 `src/builder/NavigationPlanTypes.ts`
+- 新增 `splat-navmesh-plan` v1
+- 新增 `splat-collision-plan` v1
+- 新增 `splat-navigation-report` v1
+- 新增 `swe-builder plan-navigation <session.json>`
+- 基于 tile bounds 生成每 tile navmesh tile plan
+- 基于 tile neighbors 生成跨 tile nav links
+- 基于 tile bounds 生成 conservative collision tile plan
+- package version 更新为 `0.22.0`
+- Runtime label 更新为 `runtime 0.22`
 
 ## 运行 Runtime
 
@@ -35,38 +48,6 @@ npm run build
 npm run preview
 ```
 
-## exposurePlan 配置
-
-在 `splatworld-large` manifest 中添加：
-
-```json
-{
-  "format": "splatworld-large",
-  "version": 1,
-  "exposurePlan": "./exposure-plan.json"
-}
-```
-
-`exposure-plan.json` 使用：
-
-```json
-{
-  "format": "splat-exposure-plan",
-  "version": 1,
-  "session": "large-demo",
-  "adjustments": [
-    {
-      "tileId": "tile_0000",
-      "exposureStops": 0.12,
-      "gain": [1.02, 1, 0.98],
-      "bias": [0, 0, 0]
-    }
-  ]
-}
-```
-
-Runtime 会把 `exposureStops` 转成亮度倍数，叠加到 gain 上，并尽量作用到 Three material color；同时会把调整值写入 `userData.exposureAdjustment`，方便后续 renderer adapter 使用。
-
 ## Builder 链路
 
 完整离线 Builder 骨架：
@@ -81,21 +62,49 @@ npm run builder -- plan-chunks ./capture/outdoor-loop/session.json
 npm run builder -- write-training-jobs ./capture/outdoor-loop/session.json
 npm run builder -- export-large-world ./capture/outdoor-loop/session.json
 npm run builder -- plan-seams ./capture/outdoor-loop/session.json
+npm run builder -- plan-navigation ./capture/outdoor-loop/session.json
 ```
 
-`plan-seams` 会写：
+`plan-navigation` 会写：
 
 ```text
-seams/seam-job.json
-seams/exposure-plan.json
-seams/seam-report.json
+navigation/navmesh-plan.json
+navigation/collision-plan.json
+navigation/navigation-report.json
 ```
+
+如果 `large-world/world.json` 不存在，命令会先根据当前 chunk plan 生成一个大世界 manifest skeleton。
+
+## NavMesh plan
+
+`navmesh-plan.json` 包含：
+
+- 每个 tile 的 bounds
+- agent radius / height / slope / stepHeight
+- 每 tile navmesh 输出路径
+- 基于 neighbors 的 portal links
+- overlap bounds hint
+
+## Collision plan
+
+`collision-plan.json` 当前生成 conservative box collision plan：
+
+```json
+{
+  "tileId": "tile_0000",
+  "colliderId": "collision:tile_0000",
+  "type": "box",
+  "output": "navigation/colliders/tile_0000.collider.json"
+}
+```
+
+后续真实 builder 可以把这些 box plan 替换为 heightfield / mesh / compound collider 输出。
 
 ## 已知边界
 
-- Runtime 只应用 exposure plan，不运行优化器。
-- 对 splat 的真实颜色校正效果取决于底层 renderer 是否暴露颜色调节 hook。
-- exposure plan 加载失败时不会阻塞大场景 streaming。
+- 0.22 只生成规划文件，不构建真实 navmesh。
+- Runtime 尚未加载 `navigation/navmesh.json`。
+- 当前 collision plan 是保守 bounds box，不是精确几何。
 
 ## 下一阶段
 
@@ -115,7 +124,9 @@ seams/seam-report.json
 - [x] Large Tile LOD cross-fade
 - [x] Seam / exposure optimizer scaffold
 - [x] Apply exposure plan in Runtime
-- [ ] NavMesh 与大场景分块碰撞
+- [x] NavMesh / 大场景碰撞规划 scaffold
+- [ ] Runtime NavMesh loader
+- [ ] Runtime collision tile streaming
 
 ## 依赖与许可证
 
