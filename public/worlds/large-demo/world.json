@@ -12,6 +12,7 @@
     "fogFar": 220
   },
   "exposurePlan": "./exposure-plan.json",
+  "navigation": "./navmesh.json",
   "streaming": {
     "loadRadius": 45,
     "unloadRadius": 75,
@@ -40,18 +41,8 @@
       "id": "corridor-000",
       "bounds": { "min": [-20, -2, -18], "max": [20, 12, 18] },
       "lods": [
-        {
-          "level": 0,
-          "url": "https://sparkjs.dev/assets/splats/butterfly.spz",
-          "maxDistance": 35,
-          "bytes": 18000000
-        },
-        {
-          "level": 1,
-          "url": "https://sparkjs.dev/assets/splats/butterfly.spz",
-          "maxDistance": 90,
-          "bytes": 6000000
-        }
+        { "level": 0, "url": "https://sparkjs.dev/assets/splats/butterfly.spz", "maxDistance": 35, "bytes": 18000000 },
+        { "level": 1, "url": "https://sparkjs.dev/assets/splats/butterfly.spz", "maxDistance": 90, "bytes": 6000000 }
       ],
       "neighbors": ["corridor-001"]
     },
@@ -59,18 +50,8 @@
       "id": "corridor-001",
       "bounds": { "min": [20, -2, -18], "max": [60, 12, 18] },
       "lods": [
-        {
-          "level": 0,
-          "url": "https://sparkjs.dev/assets/splats/butterfly.spz",
-          "maxDistance": 35,
-          "bytes": 18000000
-        },
-        {
-          "level": 1,
-          "url": "https://sparkjs.dev/assets/splats/butterfly.spz",
-          "maxDistance": 90,
-          "bytes": 6000000
-        }
+        { "level": 0, "url": "https://sparkjs.dev/assets/splats/butterfly.spz", "maxDistance": 35, "bytes": 18000000 },
+        { "level": 1, "url": "https://sparkjs.dev/assets/splats/butterfly.spz", "maxDistance": 90, "bytes": 6000000 }
       ],
       "neighbors": ["corridor-000", "corridor-002"]
     },
@@ -78,18 +59,8 @@
       "id": "corridor-002",
       "bounds": { "min": [60, -2, -18], "max": [100, 12, 18] },
       "lods": [
-        {
-          "level": 0,
-          "url": "https://sparkjs.dev/assets/splats/butterfly.spz",
-          "maxDistance": 35,
-          "bytes": 18000000
-        },
-        {
-          "level": 1,
-          "url": "https://sparkjs.dev/assets/splats/butterfly.spz",
-          "maxDistance": 90,
-          "bytes": 6000000
-        }
+        { "level": 0, "url": "https://sparkjs.dev/assets/splats/butterfly.spz", "maxDistance": 35, "bytes": 18000000 },
+        { "level": 1, "url": "https://sparkjs.dev/assets/splats/butterfly.spz", "maxDistance": 90, "bytes": 6000000 }
       ],
       "neighbors": ["corridor-001", "corridor-003"]
     },
@@ -97,18 +68,8 @@
       "id": "corridor-003",
       "bounds": { "min": [100, -2, -18], "max": [140, 12, 18] },
       "lods": [
-        {
-          "level": 0,
-          "url": "https://sparkjs.dev/assets/splats/butterfly.spz",
-          "maxDistance": 35,
-          "bytes": 18000000
-        },
-        {
-          "level": 1,
-          "url": "https://sparkjs.dev/assets/splats/butterfly.spz",
-          "maxDistance": 90,
-          "bytes": 6000000
-        }
+        { "level": 0, "url": "https://sparkjs.dev/assets/splats/butterfly.spz", "maxDistance": 35, "bytes": 18000000 },
+        { "level": 1, "url": "https://sparkjs.dev/assets/splats/butterfly.spz", "maxDistance": 90, "bytes": 6000000 }
       ],
       "neighbors": ["corridor-002"]
     }
