@@ -11,6 +11,7 @@
     "fogNear": 60,
     "fogFar": 220
   },
+  "exposurePlan": "./exposure-plan.json",
   "streaming": {
     "loadRadius": 45,
     "unloadRadius": 75,

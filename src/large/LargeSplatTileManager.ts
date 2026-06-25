@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { GaussianWorld, LoadProgress } from "../render/GaussianWorld";
 import type { SplatAsset } from "../types/world";
+import { exposurePlanToMap, type ExposurePlan, type TileExposureAdjustment } from "./ExposurePlanTypes";
 import type {
   LargeSplatTile,
   LargeSplatTileLod,
@@ -58,6 +59,7 @@ export class LargeSplatTileManager {
   private readonly config: LargeWorldRuntimeConfig;
   private readonly tiles = new Map<string, TileRuntime>();
   private readonly index: TileSpatialIndex<TileRuntime>;
+  private readonly exposureAdjustments: ReadonlyMap<string, TileExposureAdjustment>;
   private readonly frustum = new THREE.Frustum();
   private readonly projectionView = new THREE.Matrix4();
   private readonly cameraPosition = new THREE.Vector3();
@@ -72,8 +74,10 @@ export class LargeSplatTileManager {
     private readonly gaussianWorld: GaussianWorld,
     manifest: LargeWorldManifest,
     private readonly events: LargeTileManagerEvents = {},
+    exposurePlan?: ExposurePlan,
   ) {
     this.config = resolveLargeWorldConfig(manifest);
+    this.exposureAdjustments = exposurePlan ? exposurePlanToMap(exposurePlan) : new Map();
     this.debugGroup.name = "Large Splat Tile Bounds";
     this.debugGroup.visible = this.config.debugBounds;
 
@@ -236,6 +240,7 @@ export class LargeSplatTileManager {
         this.gaussianWorld.removeAsset(assetId);
         return;
       }
+      this.applyExposureAdjustment(runtime.tile.id, assetId);
       if (previousAssetId && previousAssetId !== assetId) {
         runtime.retainedAssets.push({
           assetId: previousAssetId,
@@ -326,6 +331,12 @@ export class LargeSplatTileManager {
     if (index < 0) return;
     const [retained] = runtime.retainedAssets.splice(index, 1);
     if (retained) this.gaussianWorld.removeAsset(retained.assetId);
+  }
+
+  private applyExposureAdjustment(tileId: string, assetId: string): void {
+    const adjustment = this.exposureAdjustments.get(tileId);
+    if (!adjustment) return;
+    this.gaussianWorld.setAssetColorAdjustment(assetId, adjustment);
   }
 
   private updateDebugMaterials(desired: ReadonlyMap<string, LargeSplatTileLod>): void {

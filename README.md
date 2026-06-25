@@ -1,50 +1,24 @@
-# Splat World Engine — Seam / Exposure Scaffold
+# Splat World Engine — Runtime Exposure Plan
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.20 补上离线 Builder 侧的 seam / exposure optimizer scaffold：`swe-builder plan-seams` 会基于 `splatworld-large` 的 tile 邻接关系生成接缝优化任务、曝光校正占位表和报告契约。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.21 把 0.20 生成的 exposure plan 接到浏览器 Runtime：`splatworld-large` 可以声明 `exposurePlan`，Runtime 会加载并校验 `splat-exposure-plan`，然后在 tile LOD asset 加载后按 tile 应用 exposure / gain / bias。
 
-```text
-trained Gaussian tiles
-  ├── large-world/world.json
-  ├── chunks/training-jobs.json
-  ↓
-swe-builder plan-seams
-  ├── seams/seam-job.json
-  ├── seams/exposure-plan.json
-  ├── seams/seam-report.json
-  └── large-world/world.adjusted.json target
-       ↓
-future seam / exposure optimizer
-       ↓
-browser runtime loads adjusted large world
-```
+## Runtime/Builder 0.21 能力
 
-## Runtime/Builder 0.20 能力
-
-- `splat-world` 小世界继续兼容
-- `.splatworld` 世界包继续兼容
-- `splatworld-large` 大场景 Manifest 继续作为浏览器 Runtime 输入
-- 新增 `src/builder/SeamOptimizerTypes.ts`
-- 新增 `splat-seam-optimization-job` v1
-- 新增 `splat-exposure-plan` v1
-- 新增 `splat-seam-report` v1
-- 新增 `swe-builder plan-seams`
-- 根据 tile `neighbors` 生成 seam pair
-- 能计算相邻 tile 的 overlap bounds hint
-- 生成 neutral exposure placeholder：gain `[1,1,1]`，bias `[0,0,0]`
-- package version 更新为 `0.20.0`
-- Runtime label 更新为 `runtime 0.20`
+- `splatworld-large` 大场景 Manifest 新增可选 `exposurePlan`
+- 新增 `src/large/ExposurePlanTypes.ts`
+- Runtime 会校验 `splat-exposure-plan` v1
+- Runtime 会把 exposure plan 传给 `LargeSplatTileManager`
+- `GaussianWorld` 新增 `setAssetColorAdjustment(id, adjustment)`
+- Tile LOD 加载完成后会应用对应 tile 的 exposure / gain / bias
+- `public/worlds/large-demo/world.json` 已引用示例 exposure plan
+- package version 更新为 `0.21.0`
+- Runtime label 更新为 `runtime 0.21`
 
 ## 运行 Runtime
 
 ```bash
 npm install
 npm run dev
-```
-
-普通世界：
-
-```text
-http://localhost:5173
 ```
 
 大场景示例：
@@ -60,6 +34,38 @@ npm run typecheck
 npm run build
 npm run preview
 ```
+
+## exposurePlan 配置
+
+在 `splatworld-large` manifest 中添加：
+
+```json
+{
+  "format": "splatworld-large",
+  "version": 1,
+  "exposurePlan": "./exposure-plan.json"
+}
+```
+
+`exposure-plan.json` 使用：
+
+```json
+{
+  "format": "splat-exposure-plan",
+  "version": 1,
+  "session": "large-demo",
+  "adjustments": [
+    {
+      "tileId": "tile_0000",
+      "exposureStops": 0.12,
+      "gain": [1.02, 1, 0.98],
+      "bias": [0, 0, 0]
+    }
+  ]
+}
+```
+
+Runtime 会把 `exposureStops` 转成亮度倍数，叠加到 gain 上，并尽量作用到 Three material color；同时会把调整值写入 `userData.exposureAdjustment`，方便后续 renderer adapter 使用。
 
 ## Builder 链路
 
@@ -85,61 +91,11 @@ seams/exposure-plan.json
 seams/seam-report.json
 ```
 
-如果 `large-world/world.json` 还不存在，命令会先根据当前 chunk plan 生成一个大世界 manifest skeleton。
-
-## Seam job
-
-`seam-job.json` 包含：
-
-- session path
-- large-world manifest path
-- training job index path
-- tile inputs
-- neighbor seam pairs
-- overlap bounds hint
-- optimizer options
-- expected outputs
-
-示例：
-
-```json
-{
-  "format": "splat-seam-optimization-job",
-  "version": 1,
-  "inputs": {
-    "pairs": [
-      {
-        "id": "tile_0000__tile_0001",
-        "tileA": "tile_0000",
-        "tileB": "tile_0001",
-        "weight": 1
-      }
-    ]
-  }
-}
-```
-
-## Exposure plan
-
-`exposure-plan.json` 当前是占位输出，每个 tile 默认中性校正：
-
-```json
-{
-  "tileId": "tile_0000",
-  "exposureStops": 0,
-  "gain": [1, 1, 1],
-  "bias": [0, 0, 0]
-}
-```
-
-后续真实 optimizer 应该根据相邻 tile overlap 区域估计 exposure / color gain，并写回 `exposure-plan.json` 和 `large-world/world.adjusted.json`。
-
 ## 已知边界
 
-- 0.20 只生成 seam/exposure job，不执行真实优化。
-- 当前 exposure plan 还没有被 Runtime 自动应用。
-- 真实 seam optimizer 需要读取训练后的 splat/tile 统计或额外 overlap samples。
-- 多天气、多曝光、强动态物体仍需要更复杂的外观建模。
+- Runtime 只应用 exposure plan，不运行优化器。
+- 对 splat 的真实颜色校正效果取决于底层 renderer 是否暴露颜色调节 hook。
+- exposure plan 加载失败时不会阻塞大场景 streaming。
 
 ## 下一阶段
 
@@ -158,7 +114,7 @@ seams/seam-report.json
 - [x] COLMAP model-to-pose-result converter
 - [x] Large Tile LOD cross-fade
 - [x] Seam / exposure optimizer scaffold
-- [ ] Apply exposure plan in Runtime
+- [x] Apply exposure plan in Runtime
 - [ ] NavMesh 与大场景分块碰撞
 
 ## 依赖与许可证

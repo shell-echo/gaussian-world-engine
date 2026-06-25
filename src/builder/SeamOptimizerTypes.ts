@@ -1,3 +1,4 @@
+import type { ExposurePlan } from "../large/ExposurePlanTypes.js";
 import type { BoundsData, LargeSplatTile, LargeSplatTileLod } from "../large/LargeWorldTypes.js";
 
 export interface SeamTileInput {
@@ -38,20 +39,6 @@ export interface SeamOptimizationJob {
     seamReport: string;
     adjustedManifest: string;
   };
-}
-
-export interface TileExposureAdjustment {
-  tileId: string;
-  exposureStops: number;
-  gain: [number, number, number];
-  bias: [number, number, number];
-}
-
-export interface ExposurePlan {
-  format: "splat-exposure-plan";
-  version: 1;
-  session: string;
-  adjustments: TileExposureAdjustment[];
 }
 
 export interface SeamOptimizationReport {

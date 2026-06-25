@@ -1,4 +1,5 @@
 import { Engine } from "../core/Engine";
+import { assertExposurePlan, type ExposurePlan } from "./ExposurePlanTypes";
 import {
   assertLargeWorldManifest,
   largeWorldToBootstrapManifest,
@@ -20,6 +21,7 @@ const bundleKey = pageUrl.searchParams.get("bundle");
 const manifestUrl = new URL(pageUrl.searchParams.get("world") ?? "/worlds/demo/world.json", pageUrl).href;
 
 let largeManifest: LargeWorldManifest | null = null;
+let exposurePlan: ExposurePlan | null = null;
 let tileManager: LargeSplatTileManager | null = null;
 let loopHandle = 0;
 let lastTime = performance.now();
@@ -31,10 +33,17 @@ if (!bundleKey) {
     const value: unknown = await response.clone().json();
     if (isLargeWorldCandidate(value)) {
       assertLargeWorldManifest(value);
-      largeManifest = resolveLargeManifestUrls(value, manifestUrl);
+      const resolvedManifest = resolveLargeManifestUrls(value, manifestUrl);
+      largeManifest = resolvedManifest;
+      exposurePlan = await loadExposurePlan(resolvedManifest).catch((error) => {
+        console.warn("Large world exposure plan skipped.", error);
+        return null;
+      });
       window.fetch = interceptLargeManifest;
       installEngineHook();
-      statusElement && (statusElement.textContent = "大场景 Tile Streaming 已启用");
+      statusElement && (statusElement.textContent = exposurePlan
+        ? "Large Tile Streaming + Exposure Plan enabled"
+        : "Large Tile Streaming enabled");
     }
   } catch (error) {
     console.warn("Large world bootstrap skipped.", error);
@@ -61,15 +70,20 @@ function installEngineHook(): void {
         },
         onProgress: ({ id, loaded, total }) => {
           const value = total ? `${Math.round((loaded / total) * 100)}%` : formatLargeBytes(loaded);
-          statusElement && (statusElement.textContent = `加载 ${id} · ${value}`);
+          statusElement && (statusElement.textContent = `Load ${id} · ${value}`);
         },
         onStats: updateStats,
-      });
+      }, exposurePlan ?? undefined);
       instance.scene.add(tileManager.debugGroup);
       worldNameElement && (worldNameElement.textContent = manifest.name);
       startTileLoop(instance);
       window.setTimeout(() => {
-        showToast(`Large Tile Streaming 已就绪 · ${manifest.tiles.length} tiles`, 5200);
+        showToast(
+          exposurePlan
+            ? `Large Tile Streaming ready · ${manifest.tiles.length} tiles · exposure plan`
+            : `Large Tile Streaming ready · ${manifest.tiles.length} tiles`,
+          5200,
+        );
       }, 120);
       return instance;
     },
@@ -119,12 +133,22 @@ function resolveLargeManifestUrls(
 ): LargeWorldManifest {
   const base = new URL(sourceUrl);
   const copy = structuredClone(manifest);
+  if (copy.exposurePlan) copy.exposurePlan = new URL(copy.exposurePlan, base).href;
   for (const tile of copy.tiles) {
     for (const lod of tile.lods) {
       lod.url = new URL(lod.url, base).href;
     }
   }
   return copy;
+}
+
+async function loadExposurePlan(manifest: LargeWorldManifest): Promise<ExposurePlan | null> {
+  if (!manifest.exposurePlan) return null;
+  const response = await nativeFetch(manifest.exposurePlan, { cache: "no-cache" });
+  if (!response.ok) throw new Error(`Failed to load exposure plan: ${response.status}`);
+  const value: unknown = await response.json();
+  assertExposurePlan(value);
+  return value;
 }
 
 function resolveRequestUrl(input: RequestInfo | URL): string {

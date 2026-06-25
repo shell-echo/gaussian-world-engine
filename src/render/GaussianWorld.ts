@@ -1,5 +1,6 @@
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import * as THREE from "three";
+import type { ColorTriplet } from "../large/ExposurePlanTypes";
 import type { SplatAsset } from "../types/world";
 import { applyTransform } from "../utils/transform";
 
@@ -9,7 +10,14 @@ export interface LoadProgress {
   total?: number;
 }
 
+export interface AssetColorAdjustment {
+  exposureStops: number;
+  gain: ColorTriplet;
+  bias: ColorTriplet;
+}
+
 type MaterialLike = THREE.Material | THREE.Material[];
+type ColorMaterial = THREE.Material & { color?: THREE.Color; emissive?: THREE.Color };
 
 export class GaussianWorld {
   readonly root = new THREE.Group();
@@ -69,6 +77,13 @@ export class GaussianWorld {
     const mesh = this.splats.get(id);
     if (!mesh) return false;
     setObjectOpacity(mesh, opacity);
+    return true;
+  }
+
+  setAssetColorAdjustment(id: string, adjustment: AssetColorAdjustment): boolean {
+    const mesh = this.splats.get(id);
+    if (!mesh) return false;
+    setObjectColorAdjustment(mesh, adjustment);
     return true;
   }
 
@@ -149,6 +164,25 @@ function setObjectOpacity(object: THREE.Object3D, value: number): void {
   });
 }
 
+function setObjectColorAdjustment(object: THREE.Object3D, adjustment: AssetColorAdjustment): void {
+  const multiplier = Math.pow(2, adjustment.exposureStops);
+  const gain: ColorTriplet = [
+    Math.max(0, adjustment.gain[0] * multiplier),
+    Math.max(0, adjustment.gain[1] * multiplier),
+    Math.max(0, adjustment.gain[2] * multiplier),
+  ];
+  object.userData["exposureAdjustment"] = {
+    exposureStops: adjustment.exposureStops,
+    gain,
+    bias: adjustment.bias,
+  };
+  object.traverse((child) => {
+    child.userData["exposureAdjustment"] = object.userData["exposureAdjustment"];
+    const material = (child as { material?: MaterialLike }).material;
+    if (material) setMaterialColorAdjustment(material, gain, adjustment.bias);
+  });
+}
+
 function setMaterialOpacity(material: MaterialLike, opacity: number): void {
   const materials = Array.isArray(material) ? material : [material];
   for (const item of materials) {
@@ -157,6 +191,47 @@ function setMaterialOpacity(material: MaterialLike, opacity: number): void {
     item.depthWrite = opacity >= 1;
     item.needsUpdate = true;
   }
+}
+
+function setMaterialColorAdjustment(material: MaterialLike, gain: ColorTriplet, bias: ColorTriplet): void {
+  const materials = Array.isArray(material) ? material : [material];
+  for (const item of materials) {
+    const colorMaterial = item as ColorMaterial;
+    if (colorMaterial.color) {
+      const base = getBaseColor(item, colorMaterial.color);
+      colorMaterial.color.setRGB(
+        Math.max(0, base.r * gain[0] + bias[0]),
+        Math.max(0, base.g * gain[1] + bias[1]),
+        Math.max(0, base.b * gain[2] + bias[2]),
+      );
+      item.needsUpdate = true;
+    }
+    if (colorMaterial.emissive) {
+      const base = getBaseEmissive(item, colorMaterial.emissive);
+      colorMaterial.emissive.setRGB(
+        Math.max(0, base.r * gain[0] + bias[0]),
+        Math.max(0, base.g * gain[1] + bias[1]),
+        Math.max(0, base.b * gain[2] + bias[2]),
+      );
+      item.needsUpdate = true;
+    }
+  }
+}
+
+function getBaseColor(material: THREE.Material, color: THREE.Color): THREE.Color {
+  const cached = material.userData["baseColor"];
+  if (cached instanceof THREE.Color) return cached;
+  const base = color.clone();
+  material.userData["baseColor"] = base;
+  return base;
+}
+
+function getBaseEmissive(material: THREE.Material, color: THREE.Color): THREE.Color {
+  const cached = material.userData["baseEmissive"];
+  if (cached instanceof THREE.Color) return cached;
+  const base = color.clone();
+  material.userData["baseEmissive"] = base;
+  return base;
 }
 
 function setUnknownOpacity(object: object, opacity: number): void {
