@@ -1,0 +1,40 @@
+{
+  "format": "splat-collision-plan",
+  "version": 1,
+  "session": "large-demo",
+  "largeWorldManifest": "world.json",
+  "tiles": [
+    {
+      "tileId": "corridor-000",
+      "colliderId": "collision:corridor-000",
+      "bounds": { "min": [-20, -0.5, -18], "max": [20, 0.1, 18] },
+      "type": "box",
+      "output": "navigation/colliders/corridor-000.collider.json"
+    },
+    {
+      "tileId": "corridor-001",
+      "colliderId": "collision:corridor-001",
+      "bounds": { "min": [20, -0.5, -18], "max": [60, 0.1, 18] },
+      "type": "box",
+      "output": "navigation/colliders/corridor-001.collider.json"
+    },
+    {
+      "tileId": "corridor-002",
+      "colliderId": "collision:corridor-002",
+      "bounds": { "min": [60, -0.5, -18], "max": [100, 0.1, 18] },
+      "type": "box",
+      "output": "navigation/colliders/corridor-002.collider.json"
+    },
+    {
+      "tileId": "corridor-003",
+      "colliderId": "collision:corridor-003",
+      "bounds": { "min": [100, -0.5, -18], "max": [140, 0.1, 18] },
+      "type": "box",
+      "output": "navigation/colliders/corridor-003.collider.json"
+    }
+  ],
+  "output": {
+    "colliders": "navigation/colliders.json",
+    "report": "navigation/navigation-report.json"
+  }
+}
