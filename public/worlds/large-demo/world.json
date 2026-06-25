@@ -13,6 +13,7 @@
   },
   "exposurePlan": "./exposure-plan.json",
   "navigation": "./navmesh.json",
+  "collisionPlan": "./collision-plan.json",
   "streaming": {
     "loadRadius": 45,
     "unloadRadius": 75,
@@ -26,16 +27,7 @@
     "lodCrossFadeSeconds": 0.28,
     "lodRetainSeconds": 0.34
   },
-  "colliders": [
-    {
-      "id": "large-demo-floor",
-      "type": "box",
-      "position": [0, -0.25, 0],
-      "size": [160, 0.5, 36],
-      "behavior": { "mode": "solid" },
-      "body": { "mode": "fixed" }
-    }
-  ],
+  "colliders": [],
   "tiles": [
     {
       "id": "corridor-000",
