@@ -14,6 +14,11 @@ import {
 } from "../../src/builder/ColmapAdapterTypes.js";
 import { convertColmapTextModel } from "../../src/builder/ColmapTextModel.js";
 import {
+  createCollisionPlan,
+  createNavMeshPlan,
+  createPlaceholderNavigationReport,
+} from "../../src/builder/NavigationPlanTypes.js";
+import {
   createEmptyPoseResult,
   type PoseSolverJob,
 } from "../../src/builder/PoseSolverTypes.js";
@@ -98,11 +103,7 @@ interface TrainingJobIndex {
   format: "splat-training-job-index";
   version: 1;
   session: string;
-  jobs: Array<{
-    chunkId: string;
-    tileId: string;
-    job: string;
-  }>;
+  jobs: Array<{ chunkId: string; tileId: string; job: string }>;
 }
 
 interface SparsePointsFile {
@@ -125,6 +126,7 @@ const commands: Record<string, CommandHandler> = {
   "write-training-jobs": writeTrainingJobs,
   "export-large-world": exportLargeWorld,
   "plan-seams": planSeams,
+  "plan-navigation": planNavigation,
 };
 
 async function main(): Promise<void> {
@@ -149,6 +151,8 @@ async function initCapture(args: string[]): Promise<void> {
   await mkdir(path.join(root, "poses", "colmap"), { recursive: true });
   await mkdir(path.join(root, "chunks"), { recursive: true });
   await mkdir(path.join(root, "seams"), { recursive: true });
+  await mkdir(path.join(root, "navigation", "navmesh"), { recursive: true });
+  await mkdir(path.join(root, "navigation", "colliders"), { recursive: true });
   await mkdir(path.join(root, "large-world", "splats"), { recursive: true });
   await mkdir(path.join(root, "large-world", "proxy"), { recursive: true });
 
@@ -161,28 +165,24 @@ async function initCapture(args: string[]): Promise<void> {
     route: {
       kind: "loop",
       description: "Outdoor loop capture for large Gaussian tile reconstruction.",
-      checkpoints: [
-        { id: "start-finish", label: "Start and loop closure area", t: 0 },
-      ],
+      checkpoints: [{ id: "start-finish", label: "Start and loop closure area", t: 0 }],
     },
-    sources: [
-      {
-        id: "loop-main",
-        url: video,
-        durationSeconds: Number.isFinite(duration) && duration > 0 ? duration : 900,
-        camera: {
-          model: "Wide Camera",
-          lens: "wide",
-          width: 3840,
-          height: 2160,
-          fps: 30,
-          stabilization: "standard",
-          rollingShutter: true,
-        },
-        gpsTrack: "tracks/outdoor-loop.gpx",
-        imuTrack: "tracks/outdoor-loop-imu.csv",
+    sources: [{
+      id: "loop-main",
+      url: video,
+      durationSeconds: Number.isFinite(duration) && duration > 0 ? duration : 900,
+      camera: {
+        model: "Wide Camera",
+        lens: "wide",
+        width: 3840,
+        height: 2160,
+        fps: 30,
+        stabilization: "standard",
+        rollingShutter: true,
       },
-    ],
+      gpsTrack: "tracks/outdoor-loop.gpx",
+      imuTrack: "tracks/outdoor-loop-imu.csv",
+    }],
     policy: {
       frames: {
         targetFps: 2,
@@ -240,9 +240,8 @@ async function planFrames(args: string[]): Promise<void> {
   const sessionPath = path.resolve(requiredArg(args, 0, "session.json"));
   const session = await readSession(sessionPath);
   const root = path.dirname(sessionPath);
-  const plan = createFramePlan(session, root, sessionPath);
   const output = path.join(root, "frames", "frame-plan.json");
-  await writeJson(output, plan);
+  await writeJson(output, createFramePlan(session, root, sessionPath));
   console.log(`Wrote frame plan: ${output}`);
 }
 
@@ -286,8 +285,8 @@ async function writeColmapRunner(args: string[]): Promise<void> {
   const root = path.dirname(sessionPath);
   const framePlan = createFramePlan(session, root, sessionPath);
   const job = createPoseSolverJob(session, root, sessionPath, framePlan);
-  const jobPath = path.join(root, "poses", "pose-job.json");
   const plan = createColmapRunnerPlan("poses/pose-job.json", job);
+  const jobPath = path.join(root, "poses", "pose-job.json");
   const planPath = path.join(root, "poses", "colmap", "colmap-runner.json");
   const scriptPath = path.join(root, "poses", "colmap", "run-colmap.sh");
   const reportPath = path.join(root, "poses", "colmap", "colmap-report.placeholder.json");
@@ -362,11 +361,7 @@ async function writeTrainingJobs(args: string[]): Promise<void> {
     const job = createTrainingJob(session, root, sessionPath, chunk);
     const jobPath = path.join(root, "chunks", "jobs", chunk.id, "job.json");
     await writeJson(jobPath, job);
-    index.jobs.push({
-      chunkId: chunk.id,
-      tileId: chunk.expectedTileId,
-      job: relativePath(root, jobPath),
-    });
+    index.jobs.push({ chunkId: chunk.id, tileId: chunk.expectedTileId, job: relativePath(root, jobPath) });
   }
 
   const indexPath = path.join(root, "chunks", "training-jobs.json");
@@ -394,13 +389,8 @@ async function planSeams(args: string[]): Promise<void> {
   const sessionPath = path.resolve(requiredArg(args, 0, "session.json"));
   const session = await readSession(sessionPath);
   const root = path.dirname(sessionPath);
-  const chunks = await readChunkPlan(root).catch(() => createChunkPlan(session));
+  const manifest = await ensureLargeManifest(session, root);
   const manifestPath = path.resolve(root, session.expectedOutput.largeWorldManifest);
-  const manifest = await readLargeWorldManifest(manifestPath).catch(async () => {
-    const generated = createLargeWorldManifest(session, chunks);
-    await writeJson(manifestPath, generated);
-    return generated;
-  });
   const job = createSeamOptimizationJob(
     relativePath(root, sessionPath),
     relativePath(root, manifestPath),
@@ -408,21 +398,35 @@ async function planSeams(args: string[]): Promise<void> {
     manifest.tiles,
   );
   const jobPath = path.join(root, "seams", "seam-job.json");
-  const exposurePath = path.resolve(root, job.output.exposurePlan);
-  const reportPath = path.resolve(root, job.output.seamReport);
   await writeJson(jobPath, job);
-  await writeJson(exposurePath, createPlaceholderExposurePlan(job));
-  await writeJson(reportPath, createPlaceholderSeamReport(job));
+  await writeJson(path.resolve(root, job.output.exposurePlan), createPlaceholderExposurePlan(job));
+  await writeJson(path.resolve(root, job.output.seamReport), createPlaceholderSeamReport(job));
   console.log(`Wrote seam optimization job: ${jobPath}`);
-  console.log(`Wrote placeholder exposure plan: ${exposurePath}`);
-  console.log(`Wrote placeholder seam report: ${reportPath}`);
+  console.log(`Wrote placeholder exposure plan: ${path.resolve(root, job.output.exposurePlan)}`);
+  console.log(`Wrote placeholder seam report: ${path.resolve(root, job.output.seamReport)}`);
 }
 
-function createFramePlan(
-  session: CaptureSessionManifest,
-  root: string,
-  sessionPath: string,
-): FramePlan {
+async function planNavigation(args: string[]): Promise<void> {
+  const sessionPath = path.resolve(requiredArg(args, 0, "session.json"));
+  const session = await readSession(sessionPath);
+  const root = path.dirname(sessionPath);
+  const manifest = await ensureLargeManifest(session, root);
+  const manifestPath = path.resolve(root, session.expectedOutput.largeWorldManifest);
+  const sessionRef = relativePath(root, sessionPath);
+  const manifestRef = relativePath(root, manifestPath);
+  const navmesh = createNavMeshPlan(sessionRef, manifestRef, manifest.tiles);
+  const collision = createCollisionPlan(sessionRef, manifestRef, manifest.tiles);
+  const report = createPlaceholderNavigationReport(navmesh, collision);
+
+  await writeJson(path.join(root, "navigation", "navmesh-plan.json"), navmesh);
+  await writeJson(path.join(root, "navigation", "collision-plan.json"), collision);
+  await writeJson(path.join(root, "navigation", "navigation-report.json"), report);
+  console.log(`Wrote navmesh plan: ${path.join(root, "navigation", "navmesh-plan.json")}`);
+  console.log(`Wrote collision plan: ${path.join(root, "navigation", "collision-plan.json")}`);
+  console.log(`Wrote navigation report: ${path.join(root, "navigation", "navigation-report.json")}`);
+}
+
+function createFramePlan(session: CaptureSessionManifest, root: string, sessionPath: string): FramePlan {
   return {
     format: "splat-frame-plan",
     version: 1,
@@ -509,24 +513,13 @@ function createPoseSolverJob(
       imuPrior: session.policy.poses.imuPrior,
       rollingShutterCompensation: session.policy.poses.rollingShutterCompensation ?? false,
     },
-    output: {
-      poses: "poses/poses.json",
-      sparsePoints: "poses/sparse-points.json",
-      report: "poses/pose-report.json",
-    },
+    output: { poses: "poses/poses.json", sparsePoints: "poses/sparse-points.json", report: "poses/pose-report.json" },
   };
 }
 
 function createExtractionScript(plan: FrameExtractionPlan): string {
-  const lines = [
-    "#!/usr/bin/env bash",
-    "set -euo pipefail",
-    "",
-    "# Generated by swe-builder. Run from the capture project root.",
-  ];
-  for (const command of plan.commands) {
-    lines.push("", `mkdir -p ${shellQuote(command.outputDirectory)}`, command.command);
-  }
+  const lines = ["#!/usr/bin/env bash", "set -euo pipefail", "", "# Generated by swe-builder. Run from the capture project root."];
+  for (const command of plan.commands) lines.push("", `mkdir -p ${shellQuote(command.outputDirectory)}`, command.command);
   lines.push("");
   return lines.join("\n");
 }
@@ -541,19 +534,12 @@ function createColmapScript(plan: ColmapRunnerPlan): string {
     `mkdir -p ${shellQuote(plan.sparsePath)}`,
     `mkdir -p ${shellQuote(plan.textModelPath)}`,
   ];
-  for (const command of plan.commands) {
-    lines.push("", `echo ${shellQuote(command.description)}`, shellCommand(command.command));
-  }
+  for (const command of plan.commands) lines.push("", `echo ${shellQuote(command.description)}`, shellCommand(command.command));
   lines.push("");
   return lines.join("\n");
 }
 
-function createTrainingJob(
-  session: CaptureSessionManifest,
-  root: string,
-  sessionPath: string,
-  chunk: CaptureChunkPlan,
-): ChunkTrainingJob {
+function createTrainingJob(session: CaptureSessionManifest, root: string, sessionPath: string, chunk: CaptureChunkPlan): ChunkTrainingJob {
   return {
     format: "splat-training-job",
     version: 1,
@@ -562,14 +548,8 @@ function createTrainingJob(
     tileId: chunk.expectedTileId,
     trainer: session.policy.training.trainer,
     frameRange: chunk.frameRange,
-    input: {
-      frameGlob: "frames/*/frame_*.jpg",
-      poseFile: "poses/poses.json",
-    },
-    output: {
-      tileDirectory: `large-world/splats/${chunk.expectedTileId}`,
-      lods: createLods(session, chunk.expectedTileId),
-    },
+    input: { frameGlob: "frames/*/frame_*.jpg", poseFile: "poses/poses.json" },
+    output: { tileDirectory: `large-world/splats/${chunk.expectedTileId}`, lods: createLods(session, chunk.expectedTileId) },
     bounds: chunk.bounds ?? fallbackBounds(chunk),
     training: session.policy.training,
   };
@@ -596,19 +576,13 @@ function createChunkPlan(session: CaptureSessionManifest): CaptureChunkPlan[] {
       id,
       frameRange: [start, Math.max(start, end)] as [number, number],
       expectedTileId: tile,
-      bounds: {
-        min: [minX, -4, -18],
-        max: [maxX, 12, 18],
-      },
+      bounds: { min: [minX, -4, -18], max: [maxX, 12, 18] },
       overlapWith: [index > 0 ? `chunk_${(index - 1).toString().padStart(4, "0")}` : ""].filter(Boolean),
     };
   });
 }
 
-function createLargeWorldManifest(
-  session: CaptureSessionManifest,
-  chunks: readonly CaptureChunkPlan[],
-): LargeWorldManifest {
+function createLargeWorldManifest(session: CaptureSessionManifest, chunks: readonly CaptureChunkPlan[]): LargeWorldManifest {
   const tiles: LargeSplatTile[] = chunks.map((chunk) => ({
     id: chunk.expectedTileId,
     bounds: chunk.bounds ?? fallbackBounds(chunk),
@@ -622,10 +596,7 @@ function createLargeWorldManifest(
     format: "splatworld-large",
     version: 1,
     name: session.name,
-    spawn: {
-      position: [0, 0.05, 6],
-      yawDeg: 0,
-    },
+    spawn: { position: [0, 0.05, 6], yawDeg: 0 },
     streaming: {
       loadRadius: session.policy.export.highMaxDistance + 10,
       unloadRadius: session.policy.export.mediumMaxDistance + 30,
@@ -643,10 +614,7 @@ function createLargeWorldManifest(
   };
 }
 
-function createLods(
-  session: CaptureSessionManifest,
-  tileId: string,
-): LargeSplatTileLod[] {
+function createLods(session: CaptureSessionManifest, tileId: string): LargeSplatTileLod[] {
   const extension = session.policy.export.outputFormat;
   const levels = Math.max(1, Math.round(session.policy.export.lodLevels));
   const distances = [
@@ -662,12 +630,20 @@ function createLods(
   }));
 }
 
+async function ensureLargeManifest(session: CaptureSessionManifest, root: string): Promise<LargeWorldManifest> {
+  const chunks = await readChunkPlan(root).catch(() => createChunkPlan(session));
+  const manifestPath = path.resolve(root, session.expectedOutput.largeWorldManifest);
+  return readLargeWorldManifest(manifestPath).catch(async () => {
+    const generated = createLargeWorldManifest(session, chunks);
+    await writeJson(manifestPath, generated);
+    return generated;
+  });
+}
+
 async function readChunkPlan(root: string): Promise<CaptureChunkPlan[]> {
   const file = await readJson(path.join(root, "chunks", "chunk-plan.json"));
   const plan = file as Partial<ChunkPlanFile>;
-  if (plan.format !== "splat-chunk-plan" || !Array.isArray(plan.chunks)) {
-    throw new Error("Invalid chunk plan.");
-  }
+  if (plan.format !== "splat-chunk-plan" || !Array.isArray(plan.chunks)) throw new Error("Invalid chunk plan.");
   return plan.chunks;
 }
 
@@ -694,10 +670,7 @@ async function writeJson(filePath: string, value: unknown): Promise<void> {
 
 function fallbackBounds(chunk: CaptureChunkPlan): { min: Vec3Tuple; max: Vec3Tuple } {
   const index = Number.parseInt(chunk.expectedTileId.replace(/\D+/g, ""), 10) || 0;
-  return {
-    min: [index * 25, -4, -18],
-    max: [(index + 1) * 25, 12, 18],
-  };
+  return { min: [index * 25, -4, -18], max: [(index + 1) * 25, 12, 18] };
 }
 
 function requiredArg(args: readonly string[], index: number, label: string): string {
@@ -740,8 +713,9 @@ Usage:
   swe-builder write-training-jobs <session.json>
   swe-builder export-large-world <session.json>
   swe-builder plan-seams <session.json>
+  swe-builder plan-navigation <session.json>
 
-This scaffold prepares files and manifests for an offline Gaussian builder. It writes ffmpeg extraction scripts, pose solver jobs, COLMAP runner scripts, COLMAP pose conversion outputs, per-chunk training job manifests and seam/exposure planning files, but it does not run external tools automatically yet.`);
+This scaffold prepares files and manifests for an offline Gaussian builder. It writes frame, pose, training, seam/exposure and navigation/collision planning files, but it does not run external tools automatically yet.`);
 }
 
 main().catch((error: unknown) => {

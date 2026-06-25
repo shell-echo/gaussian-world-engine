@@ -2,7 +2,7 @@
 
 `swe-builder` is the offline CLI scaffold for turning an outdoor capture session into a browser-loadable large Gaussian world.
 
-It does not train Gaussian splats yet. Runtime/Builder 0.20 adds a seam/exposure optimizer scaffold: `plan-seams` writes tile adjacency pairs, placeholder exposure adjustments and a seam report contract for future appearance normalization.
+It does not train Gaussian splats yet. Runtime/Builder 0.22 adds navigation and collision planning: `plan-navigation` writes NavMesh tile plans, cross-tile links, conservative collision plans and a navigation report contract.
 
 ## Build
 
@@ -24,13 +24,7 @@ swe-builder plan-chunks ./capture/outdoor-loop/session.json
 swe-builder write-training-jobs ./capture/outdoor-loop/session.json
 swe-builder export-large-world ./capture/outdoor-loop/session.json
 swe-builder plan-seams ./capture/outdoor-loop/session.json
-```
-
-When using npm scripts locally:
-
-```bash
-npm run build
-npm run builder -- validate ./capture/outdoor-loop/session.json
+swe-builder plan-navigation ./capture/outdoor-loop/session.json
 ```
 
 ## Outputs
@@ -44,151 +38,67 @@ capture/outdoor-loop/
     frame-plan.json
     extract-commands.json
     extract-frames.sh
-    loop-main/
   poses/
     pose-job.json
     poses.json
     sparse-points.json
     pose-report.json
-    colmap/
-      colmap-runner.json
-      run-colmap.sh
-      colmap-report.placeholder.json
-      sparse/
-      model-text/
-        images.txt
-        points3D.txt
   chunks/
     chunk-plan.json
     training-jobs.json
     jobs/
-      chunk_0000/
-        job.json
+      chunk_0000/job.json
   seams/
     seam-job.json
     exposure-plan.json
     seam-report.json
+  navigation/
+    navmesh-plan.json
+    collision-plan.json
+    navigation-report.json
+    navmesh/
+    colliders/
   large-world/
     world.json
-    world.adjusted.json
     splats/
     proxy/
 ```
 
-## Frame extraction adapter
+## Navigation planning
 
-`extract-frames` writes:
-
-```text
-frames/extract-commands.json
-frames/extract-frames.sh
-```
-
-The shell script is meant to be run from the capture project root. It contains deterministic ffmpeg commands such as:
-
-```bash
-ffmpeg -y -i 'video/outdoor-loop.mp4' -vf 'fps=2' -q:v 2 'frames/loop-main/frame_%06d.jpg'
-```
-
-## Pose solver adapter
-
-`plan-poses` writes:
+`plan-navigation` writes:
 
 ```text
-poses/pose-job.json
-poses/poses.placeholder.json
+navigation/navmesh-plan.json
+navigation/collision-plan.json
+navigation/navigation-report.json
 ```
 
-`pose-job.json` describes selected frame globs, camera metadata, GPS/IMU sidecars, pose method and expected outputs.
-
-## COLMAP runner scaffold
-
-`write-colmap-runner` writes:
-
-```text
-poses/colmap/colmap-runner.json
-poses/colmap/run-colmap.sh
-poses/colmap/colmap-report.placeholder.json
-```
-
-The generated script includes:
-
-```text
-colmap feature_extractor
-colmap exhaustive_matcher
-colmap mapper
-colmap model_converter
-```
-
-For long outdoor videos, replace exhaustive matching with sequential or vocabulary-tree matching before running at scale.
-
-## COLMAP pose converter
-
-After running the COLMAP script, export a text model into:
-
-```text
-poses/colmap/model-text/images.txt
-poses/colmap/model-text/points3D.txt
-```
-
-Then run:
-
-```bash
-swe-builder convert-colmap-poses ./capture/outdoor-loop/session.json
-```
-
-This writes:
-
-```text
-poses/poses.json
-poses/sparse-points.json
-poses/pose-report.json
-```
-
-The converter maps COLMAP world-to-camera quaternions and translations into camera-center poses in the shared `splat-pose-result` format.
-
-## Training job manifests
-
-`write-training-jobs` writes one job per planned chunk:
-
-```text
-chunks/jobs/chunk_0000/job.json
-```
-
-Each training job references the shared pose output:
-
-```text
-poses/poses.json
-```
-
-External training tools can consume these job files and write `.spz` outputs into `large-world/splats/`.
-
-## Seam / exposure planning
-
-`plan-seams` writes:
-
-```text
-seams/seam-job.json
-seams/exposure-plan.json
-seams/seam-report.json
-```
-
-The seam job contains tile inputs, neighbor pairs and overlap bounds when available. The placeholder exposure plan starts every tile at neutral gain/bias:
+The NavMesh plan contains one tile plan per large world tile:
 
 ```json
 {
-  "exposureStops": 0,
-  "gain": [1, 1, 1],
-  "bias": [0, 0, 0]
+  "tileId": "tile_0000",
+  "source": "tile-bounds",
+  "agent": {
+    "radius": 0.35,
+    "height": 1.7,
+    "maxSlopeDeg": 42,
+    "stepHeight": 0.35
+  },
+  "output": "navigation/navmesh/tile_0000.navtile.json"
 }
 ```
 
-A future optimizer should consume `seam-job.json`, analyze overlapping tile regions, then write corrected `exposure-plan.json` and `large-world/world.adjusted.json`.
+The collision plan starts with conservative box colliders derived from tile bounds. Future builders can replace those with heightfields, meshes or compound colliders.
 
 ## Future work
 
+- Runtime NavMesh loader
+- Runtime collision tile streaming
+- Real NavMesh generation
+- Heightfield / mesh collider generation
 - Sequential matching preset for long videos
 - SLAM adapter runner
 - Per-tile trainer integration
 - LOD pruning and compression
-- Real seam normalization and exposure matching runner
