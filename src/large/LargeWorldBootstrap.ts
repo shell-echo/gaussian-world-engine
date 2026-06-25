@@ -1,11 +1,17 @@
 import * as THREE from "three";
 import { Engine } from "../core/Engine";
+import { assertRuntimeCollisionPlan, type RuntimeCollisionPlan } from "./CollisionPlanTypes";
 import { assertExposurePlan, type ExposurePlan } from "./ExposurePlanTypes";
 import {
   assertLargeWorldManifest,
   largeWorldToBootstrapManifest,
+  resolveLargeWorldConfig,
   type LargeWorldManifest,
 } from "./LargeWorldTypes";
+import {
+  LargeCollisionTileManager,
+  type CollisionTileStreamingStats,
+} from "./LargeCollisionTileManager";
 import {
   formatLargeBytes,
   LargeSplatTileManager,
@@ -29,8 +35,11 @@ const manifestUrl = new URL(pageUrl.searchParams.get("world") ?? "/worlds/demo/w
 let largeManifest: LargeWorldManifest | null = null;
 let exposurePlan: ExposurePlan | null = null;
 let navMesh: RuntimeNavMeshManifest | null = null;
+let collisionPlan: RuntimeCollisionPlan | null = null;
 let navMeshDebugGroup: THREE.Group | null = null;
 let tileManager: LargeSplatTileManager | null = null;
+let collisionManager: LargeCollisionTileManager | null = null;
+let collisionStats: CollisionTileStreamingStats | null = null;
 let loopHandle = 0;
 let lastTime = performance.now();
 let toastTimer = 0;
@@ -51,6 +60,10 @@ if (!bundleKey) {
         console.warn("Large world navigation skipped.", error);
         return null;
       });
+      collisionPlan = await loadCollisionPlan(resolvedManifest).catch((error) => {
+        console.warn("Large world collision plan skipped.", error);
+        return null;
+      });
       window.fetch = interceptLargeManifest;
       installEngineHook();
       statusElement && (statusElement.textContent = runtimeStatusLabel());
@@ -63,6 +76,7 @@ if (!bundleKey) {
 window.addEventListener("beforeunload", () => {
   if (loopHandle) cancelAnimationFrame(loopHandle);
   tileManager?.dispose();
+  collisionManager?.dispose();
   disposeGroup(navMeshDebugGroup);
 });
 
@@ -75,6 +89,7 @@ function installEngineHook(): void {
     value: async (...args: Parameters<typeof Engine.create>): Promise<Engine> => {
       const instance = await originalCreate(...args);
       tileManager?.dispose();
+      collisionManager?.dispose();
       disposeGroup(navMeshDebugGroup);
       tileManager = new LargeSplatTileManager(instance.gaussianWorld, manifest, {
         onStatus: (message) => {
@@ -87,6 +102,19 @@ function installEngineHook(): void {
         onStats: updateStats,
       }, exposurePlan ?? undefined);
       instance.scene.add(tileManager.debugGroup);
+      if (collisionPlan) {
+        collisionManager = new LargeCollisionTileManager(instance.physics, collisionPlan, resolveLargeWorldConfig(manifest), {
+          onStatus: (message) => {
+            statusElement && (statusElement.textContent = message);
+          },
+          onStats: (stats) => {
+            collisionStats = stats;
+          },
+        });
+      } else {
+        collisionManager = null;
+        collisionStats = null;
+      }
       if (navMesh) {
         navMeshDebugGroup = createNavMeshDebugGroup(navMesh);
         instance.scene.add(navMeshDebugGroup);
@@ -108,6 +136,7 @@ function startTileLoop(engine: Engine): void {
     const delta = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
     tileManager?.update(engine.camera, delta);
+    collisionManager?.update(engine.camera, delta);
     loopHandle = requestAnimationFrame(frame);
   };
   loopHandle = requestAnimationFrame(frame);
@@ -116,12 +145,14 @@ function startTileLoop(engine: Engine): void {
 function updateStats(stats: LargeTileStreamingStats): void {
   if (!statusElement) return;
   const nav = navMesh ? ` · nav ${navMesh.tiles.length}/${navMesh.links?.length ?? 0}` : "";
+  const collision = collisionStats ? ` · col ${collisionStats.activeColliders}/${collisionStats.totalColliders}` : "";
   statusElement.textContent =
     `Tiles ${stats.loadedTiles}/${stats.visibleTiles}` +
     ` · cand ${stats.indexCandidates}` +
     ` · loading ${stats.loadingTiles}` +
     ` · ${formatLargeBytes(stats.residentBytes)} / ${formatLargeBytes(stats.budgetBytes)}` +
-    nav;
+    nav +
+    collision;
 }
 
 function interceptLargeManifest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -145,6 +176,7 @@ function resolveLargeManifestUrls(manifest: LargeWorldManifest, sourceUrl: strin
   const copy = structuredClone(manifest);
   if (copy.exposurePlan) copy.exposurePlan = new URL(copy.exposurePlan, base).href;
   if (copy.navigation) copy.navigation = new URL(copy.navigation, base).href;
+  if (copy.collisionPlan) copy.collisionPlan = new URL(copy.collisionPlan, base).href;
   for (const tile of copy.tiles) {
     for (const lod of tile.lods) {
       lod.url = new URL(lod.url, base).href;
@@ -171,10 +203,20 @@ async function loadNavMesh(manifest: LargeWorldManifest): Promise<RuntimeNavMesh
   return value;
 }
 
+async function loadCollisionPlan(manifest: LargeWorldManifest): Promise<RuntimeCollisionPlan | null> {
+  if (!manifest.collisionPlan) return null;
+  const response = await nativeFetch(manifest.collisionPlan, { cache: "no-cache" });
+  if (!response.ok) throw new Error(`Failed to load collision plan: ${response.status}`);
+  const value: unknown = await response.json();
+  assertRuntimeCollisionPlan(value);
+  return value;
+}
+
 function runtimeStatusLabel(): string {
   const features = ["Large Tile Streaming"];
   if (exposurePlan) features.push("Exposure Plan");
   if (navMesh) features.push("NavMesh Debug");
+  if (collisionPlan) features.push("Collision Streaming");
   return `${features.join(" + ")} enabled`;
 }
 
@@ -182,6 +224,7 @@ function runtimeReadyLabel(manifest: LargeWorldManifest): string {
   const suffix = [
     exposurePlan ? "exposure" : "",
     navMesh ? `${navMesh.tiles.length} nav tiles` : "",
+    collisionPlan ? `${collisionPlan.tiles.length} collision tiles` : "",
   ].filter(Boolean).join(" · ");
   return suffix
     ? `Large Tile Streaming ready · ${manifest.tiles.length} tiles · ${suffix}`

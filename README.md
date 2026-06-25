@@ -1,35 +1,35 @@
-# Splat World Engine — Runtime NavMesh Loader
+# Splat World Engine — Runtime Collision Tile Streaming
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.23 把 0.22 生成的导航规划往 Runtime 推进一步：`splatworld-large` 可以声明 `navigation`，Runtime 会加载 `splat-navmesh`，校验 tile / link，并以调试线框展示 nav tiles、portal links 和 portal bounds。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.24 把 0.22 的 `collision-plan.json` 接到浏览器 Runtime：`splatworld-large` 可以声明 `collisionPlan`，Runtime 会按 camera 距离动态启用/移除 tile collider。
 
 ```text
 splatworld-large world.json
   ├── exposurePlan
   ├── navigation
+  ├── collisionPlan
   ↓
 Runtime bootstrap
   ├── load exposure plan
   ├── load navmesh manifest
+  ├── load collision plan
   ├── stream gaussian tiles
-  └── draw navmesh debug group
+  └── stream collision tiles
 ```
 
-## Runtime/Builder 0.23 能力
+## Runtime/Builder 0.24 能力
 
-- 新增 `src/large/NavMeshTypes.ts`
-- 新增运行时 `splat-navmesh` v1 格式
-- `splatworld-large` 新增可选 `navigation`
-- `LargeWorldBootstrap` 会按 world manifest 相对路径加载 navigation manifest
-- navigation 加载失败只 warning，不阻塞大场景 tile streaming
-- Runtime 会创建 NavMesh debug group
-- nav tile 用绿色/红色 bounds 显示 walkable 状态
-- nav link 用蓝色连线显示
-- portal bounds 用黄色线框显示
-- HUD 显示 nav tile/link 数量
-- `public/worlds/large-demo/world.json` 引用 `./navmesh.json`
-- 新增 `public/worlds/large-demo/navmesh.json`
-- package version 更新为 `0.23.0`
-- Runtime label 更新为 `runtime 0.23`
+- 新增 `src/large/CollisionPlanTypes.ts`
+- 新增 `src/large/LargeCollisionTileManager.ts`
+- `splatworld-large` 新增可选 `collisionPlan`
+- Runtime 会加载并校验 `splat-collision-plan` v1
+- collision plan 加载失败只 warning，不阻塞 Gaussian tile streaming
+- Runtime 会根据 camera 与 tile bounds 的距离启用/移除 collider
+- 目前以 conservative box collider 作为 Runtime scaffold
+- HUD 显示 active/total collision tile 数量
+- demo world 引用 `./collision-plan.json`
+- 新增 `public/worlds/large-demo/collision-plan.json`
+- package version 更新为 `0.24.0`
+- Runtime label 更新为 `runtime 0.24`
 
 ## 运行 Runtime
 
@@ -52,7 +52,7 @@ npm run build
 npm run preview
 ```
 
-## navigation 配置
+## collisionPlan 配置
 
 在 `splatworld-large` manifest 中添加：
 
@@ -60,33 +60,35 @@ npm run preview
 {
   "format": "splatworld-large",
   "version": 1,
-  "navigation": "./navmesh.json"
+  "collisionPlan": "./collision-plan.json"
 }
 ```
 
-`navmesh.json` 使用运行时格式：
+`collision-plan.json` 使用 Builder 生成的格式：
 
 ```json
 {
-  "format": "splat-navmesh",
+  "format": "splat-collision-plan",
   "version": 1,
   "tiles": [
     {
       "tileId": "corridor-000",
-      "bounds": { "min": [-18, -0.05, -6], "max": [18, 0.1, 6] },
-      "walkable": true,
-      "layer": "ground"
-    }
-  ],
-  "links": [
-    {
-      "fromTileId": "corridor-000",
-      "toTileId": "corridor-001",
-      "bidirectional": true
+      "colliderId": "collision:corridor-000",
+      "bounds": { "min": [-20, -0.5, -18], "max": [20, 0.1, 18] },
+      "type": "box",
+      "output": "navigation/colliders/corridor-000.collider.json"
     }
   ]
 }
 ```
+
+## Streaming 行为
+
+Collision tile streaming 复用大场景 streaming 半径：
+
+- `loadRadius` 内启用 tile collider
+- 超过 `unloadRadius` 后移除 tile collider
+- 当前支持 box scaffold；heightfield / mesh / compound collider 后续接入
 
 ## Builder 链路
 
@@ -107,9 +109,9 @@ npm run builder -- plan-navigation ./capture/outdoor-loop/session.json
 
 ## 已知边界
 
-- 0.23 只加载并调试显示 navmesh，不做真正寻路。
-- Runtime 尚未加载 collision tile plan。
-- `splat-navmesh` 目前是轻量 bounds/links 表达，不是 Recast/Detour 多边形网格。
+- 0.24 只把 collision plan 转成 conservative box colliders。
+- 还没有加载每 tile 的真实 collider artifact。
+- heightfield / mesh / compound collider streaming 仍是后续工作。
 
 ## 下一阶段
 
@@ -131,7 +133,8 @@ npm run builder -- plan-navigation ./capture/outdoor-loop/session.json
 - [x] Apply exposure plan in Runtime
 - [x] NavMesh / 大场景碰撞规划 scaffold
 - [x] Runtime NavMesh loader
-- [ ] Runtime collision tile streaming
+- [x] Runtime collision tile streaming
+- [ ] Heightfield / mesh collision artifacts
 
 ## 依赖与许可证
 

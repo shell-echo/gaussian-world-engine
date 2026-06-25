@@ -34,6 +34,7 @@ export interface LargeWorldManifest {
   tiles: LargeSplatTile[];
   exposurePlan?: string;
   navigation?: string;
+  collisionPlan?: string;
   colliders?: WorldManifest["colliders"];
   environment?: WorldManifest["environment"];
   streaming?: {
@@ -100,6 +101,9 @@ export function assertLargeWorldManifest(value: unknown): asserts value is Large
   }
   if (manifest.navigation !== undefined && (typeof manifest.navigation !== "string" || !manifest.navigation.trim())) {
     throw new Error("Large world manifest has an invalid navigation path.");
+  }
+  if (manifest.collisionPlan !== undefined && (typeof manifest.collisionPlan !== "string" || !manifest.collisionPlan.trim())) {
+    throw new Error("Large world manifest has an invalid collisionPlan path.");
   }
 
   const ids = new Set<string>();
