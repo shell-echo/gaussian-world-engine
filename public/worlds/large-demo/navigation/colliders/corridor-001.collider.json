@@ -1,0 +1,18 @@
+{
+  "format": "splat-collider-tile",
+  "version": 1,
+  "tileId": "corridor-001",
+  "kind": "heightfield",
+  "bounds": { "min": [20, -0.5, -18], "max": [60, 0.1, 18] },
+  "heightfield": {
+    "width": 4,
+    "depth": 3,
+    "min": [20, -0.05, -18],
+    "max": [60, 0.05, 18],
+    "heights": [
+      0.00, 0.02, 0.01, 0.00,
+      0.01, 0.04, 0.03, 0.01,
+      0.00, 0.02, 0.01, 0.00
+    ]
+  }
+}
