@@ -49,6 +49,7 @@ export interface LargeWorldManifest {
     minLodDwellSeconds?: number;
     lodCrossFadeSeconds?: number;
     lodRetainSeconds?: number;
+    colliderReuseEntries?: number;
   };
 }
 
@@ -64,6 +65,7 @@ export interface LargeWorldRuntimeConfig {
   minLodDwellSeconds: number;
   lodCrossFadeSeconds: number;
   lodRetainSeconds: number;
+  colliderReuseEntries: number;
 }
 
 const DEFAULT_CONFIG: LargeWorldRuntimeConfig = {
@@ -77,6 +79,7 @@ const DEFAULT_CONFIG: LargeWorldRuntimeConfig = {
   minLodDwellSeconds: 1,
   lodCrossFadeSeconds: 0.28,
   lodRetainSeconds: 0.34,
+  colliderReuseEntries: 24,
 };
 
 export function assertLargeWorldManifest(value: unknown): asserts value is LargeWorldManifest {
@@ -156,6 +159,10 @@ export function resolveLargeWorldConfig(manifest: LargeWorldManifest): LargeWorl
     lodRetainSeconds: Math.min(
       Math.max(nonNegativeOr(streaming?.lodRetainSeconds, DEFAULT_CONFIG.lodRetainSeconds), 0),
       10,
+    ),
+    colliderReuseEntries: Math.min(
+      Math.max(Math.round(nonNegativeOr(streaming?.colliderReuseEntries, DEFAULT_CONFIG.colliderReuseEntries)), 0),
+      256,
     ),
   };
 }
