@@ -25,7 +25,8 @@
     "lodHysteresisRatio": 0.14,
     "minLodDwellSeconds": 1.2,
     "lodCrossFadeSeconds": 0.28,
-    "lodRetainSeconds": 0.34
+    "lodRetainSeconds": 0.34,
+    "colliderReuseEntries": 8
   },
   "colliders": [],
   "tiles": [
