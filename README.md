@@ -1,32 +1,33 @@
-# Splat World Engine — Collider Tile Files
+# Splat World Engine — Collider File Reuse
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.25 在 collision tile streaming 上继续推进：`collision-plan.json` 可以指向每个 tile 的 `splat-collider-tile` JSON 文件，Runtime 会按需加载并转成 Rapier collider。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.26 为 collision tile streaming 增加 collider file 复用层：摄像机在 tile 边界来回移动时，Runtime 会复用已经加载并校验过的 `splat-collider-tile` JSON，减少重复 fetch / parse。
 
 ```text
 splatworld-large world.json
+  ├── streaming.colliderReuseEntries
   ├── collisionPlan
   ↓
 collision-plan.json
-  ├── tile bounds fallback
   └── navigation/colliders/*.collider.json
-       ├── box
-       ├── mesh
-       ├── heightfield
-       └── compound
+       ↓
+LargeCollisionTileManager
+  ├── pending request de-dup
+  ├── parsed file reuse
+  └── oldest entry eviction
 ```
 
-## Runtime/Builder 0.25 能力
+## Runtime/Builder 0.26 能力
 
-- 新增 `src/large/CollisionTileArtifactTypes.ts`
-- 新增运行时 `splat-collider-tile` v1 格式
-- 支持 box / mesh / heightfield / compound collider tile file schema
-- `LargeCollisionTileManager` 会在激活非 box tile 时加载 `plan.output`
-- `plan.output` 会按 `collision-plan.json` 所在路径解析，支持相对路径
-- heightfield 会被转换成 mesh collider scaffold
-- collider file 加载失败时安全回退到 tile bounds box
-- demo 的 `corridor-001` 使用 heightfield collider file
-- package version 更新为 `0.25.0`
-- Runtime label 更新为 `runtime 0.25`
+- `splatworld-large.streaming` 新增 `colliderReuseEntries`
+- `LargeCollisionTileManager` 会复用已加载的 collider tile file
+- 相同 URL 的并发加载会复用同一个 pending request
+- 命中后会刷新最近使用顺序
+- 超过 `colliderReuseEntries` 后淘汰最旧 collider file
+- `colliderReuseEntries: 0` 可关闭复用
+- HUD 显示 collider file 复用统计：`cf <cached> h<hits>/m<misses>`
+- demo world 配置 `colliderReuseEntries: 8`
+- package version 更新为 `0.26.0`
+- Runtime label 更新为 `runtime 0.26`
 
 ## 运行 Runtime
 
@@ -49,54 +50,40 @@ npm run build
 npm run preview
 ```
 
-## collider tile file
+## colliderReuseEntries 配置
 
-`collision-plan.json` 中非 box tile 可以指向 per-tile collider file：
-
-```json
-{
-  "tileId": "corridor-001",
-  "colliderId": "collision:corridor-001",
-  "bounds": { "min": [20, -0.5, -18], "max": [60, 0.1, 18] },
-  "type": "heightfield",
-  "output": "navigation/colliders/corridor-001.collider.json"
-}
-```
-
-对应 `splat-collider-tile`：
+在 `splatworld-large` manifest 中：
 
 ```json
 {
-  "format": "splat-collider-tile",
-  "version": 1,
-  "tileId": "corridor-001",
-  "kind": "heightfield",
-  "bounds": { "min": [20, -0.5, -18], "max": [60, 0.1, 18] },
-  "heightfield": {
-    "width": 4,
-    "depth": 3,
-    "min": [20, -0.05, -18],
-    "max": [60, 0.05, 18],
-    "heights": [0, 0.02, 0.01, 0]
+  "streaming": {
+    "colliderReuseEntries": 24
   }
 }
 ```
+
+含义：
+
+- `24`：最多保留最近 24 个已解析 collider tile file。
+- `0`：关闭复用，每次激活非 box tile 都重新加载 `plan.output`。
+- 最大值会被限制到 `256`，避免浏览器内存失控。
 
 ## Streaming 行为
 
 Collision tile streaming 继续复用大场景 streaming 半径：
 
 - `loadRadius` 内启用 tile collider
-- 非 box tile 先加载 `output` collider file
-- 加载成功后添加 file 中的 collider
-- 加载失败时回退为 bounds box
-- 超过 `unloadRadius` 后移除该 tile 的所有 collider
+- 非 box tile 先查找已加载 file
+- miss 时 fetch + validate + store
+- hit 时直接把 file 转成当前 tile 的 collider id
+- 超过 `unloadRadius` 后移除该 tile 的 active collider
+- collider file 可继续留在复用池中，供下一次进入半径时使用
 
 ## 已知边界
 
-- heightfield 当前转换为 mesh collider scaffold，而不是 Rapier 原生 heightfield。
-- mesh / compound 需要 Builder 后续输出更精确的 geometry。
-- Runtime 还没有 collider file cache / LRU。
+- 复用池只存在于当前浏览器 session，不持久化到 IndexedDB。
+- 当前按文件条目数限制，不按估算字节数限制。
+- heightfield 当前仍转换为 mesh collider scaffold。
 
 ## 下一阶段
 
@@ -120,7 +107,7 @@ Collision tile streaming 继续复用大场景 streaming 半径：
 - [x] Runtime NavMesh loader
 - [x] Runtime collision tile streaming
 - [x] Heightfield / mesh collision artifacts scaffold
-- [ ] Collider file cache / LRU
+- [x] Collider file cache / LRU
 - [ ] Recast/Detour-style runtime path query
 
 ## 依赖与许可证
