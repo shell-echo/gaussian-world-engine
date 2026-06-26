@@ -1,35 +1,32 @@
-# Splat World Engine — Runtime Collision Tile Streaming
+# Splat World Engine — Collider Tile Files
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.24 把 0.22 的 `collision-plan.json` 接到浏览器 Runtime：`splatworld-large` 可以声明 `collisionPlan`，Runtime 会按 camera 距离动态启用/移除 tile collider。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.25 在 collision tile streaming 上继续推进：`collision-plan.json` 可以指向每个 tile 的 `splat-collider-tile` JSON 文件，Runtime 会按需加载并转成 Rapier collider。
 
 ```text
 splatworld-large world.json
-  ├── exposurePlan
-  ├── navigation
   ├── collisionPlan
   ↓
-Runtime bootstrap
-  ├── load exposure plan
-  ├── load navmesh manifest
-  ├── load collision plan
-  ├── stream gaussian tiles
-  └── stream collision tiles
+collision-plan.json
+  ├── tile bounds fallback
+  └── navigation/colliders/*.collider.json
+       ├── box
+       ├── mesh
+       ├── heightfield
+       └── compound
 ```
 
-## Runtime/Builder 0.24 能力
+## Runtime/Builder 0.25 能力
 
-- 新增 `src/large/CollisionPlanTypes.ts`
-- 新增 `src/large/LargeCollisionTileManager.ts`
-- `splatworld-large` 新增可选 `collisionPlan`
-- Runtime 会加载并校验 `splat-collision-plan` v1
-- collision plan 加载失败只 warning，不阻塞 Gaussian tile streaming
-- Runtime 会根据 camera 与 tile bounds 的距离启用/移除 collider
-- 目前以 conservative box collider 作为 Runtime scaffold
-- HUD 显示 active/total collision tile 数量
-- demo world 引用 `./collision-plan.json`
-- 新增 `public/worlds/large-demo/collision-plan.json`
-- package version 更新为 `0.24.0`
-- Runtime label 更新为 `runtime 0.24`
+- 新增 `src/large/CollisionTileArtifactTypes.ts`
+- 新增运行时 `splat-collider-tile` v1 格式
+- 支持 box / mesh / heightfield / compound collider tile file schema
+- `LargeCollisionTileManager` 会在激活非 box tile 时加载 `plan.output`
+- `plan.output` 会按 `collision-plan.json` 所在路径解析，支持相对路径
+- heightfield 会被转换成 mesh collider scaffold
+- collider file 加载失败时安全回退到 tile bounds box
+- demo 的 `corridor-001` 使用 heightfield collider file
+- package version 更新为 `0.25.0`
+- Runtime label 更新为 `runtime 0.25`
 
 ## 运行 Runtime
 
@@ -52,66 +49,54 @@ npm run build
 npm run preview
 ```
 
-## collisionPlan 配置
+## collider tile file
 
-在 `splatworld-large` manifest 中添加：
+`collision-plan.json` 中非 box tile 可以指向 per-tile collider file：
 
 ```json
 {
-  "format": "splatworld-large",
-  "version": 1,
-  "collisionPlan": "./collision-plan.json"
+  "tileId": "corridor-001",
+  "colliderId": "collision:corridor-001",
+  "bounds": { "min": [20, -0.5, -18], "max": [60, 0.1, 18] },
+  "type": "heightfield",
+  "output": "navigation/colliders/corridor-001.collider.json"
 }
 ```
 
-`collision-plan.json` 使用 Builder 生成的格式：
+对应 `splat-collider-tile`：
 
 ```json
 {
-  "format": "splat-collision-plan",
+  "format": "splat-collider-tile",
   "version": 1,
-  "tiles": [
-    {
-      "tileId": "corridor-000",
-      "colliderId": "collision:corridor-000",
-      "bounds": { "min": [-20, -0.5, -18], "max": [20, 0.1, 18] },
-      "type": "box",
-      "output": "navigation/colliders/corridor-000.collider.json"
-    }
-  ]
+  "tileId": "corridor-001",
+  "kind": "heightfield",
+  "bounds": { "min": [20, -0.5, -18], "max": [60, 0.1, 18] },
+  "heightfield": {
+    "width": 4,
+    "depth": 3,
+    "min": [20, -0.05, -18],
+    "max": [60, 0.05, 18],
+    "heights": [0, 0.02, 0.01, 0]
+  }
 }
 ```
 
 ## Streaming 行为
 
-Collision tile streaming 复用大场景 streaming 半径：
+Collision tile streaming 继续复用大场景 streaming 半径：
 
 - `loadRadius` 内启用 tile collider
-- 超过 `unloadRadius` 后移除 tile collider
-- 当前支持 box scaffold；heightfield / mesh / compound collider 后续接入
-
-## Builder 链路
-
-完整离线 Builder 骨架仍然保留：
-
-```bash
-npm run builder -- init-capture ./capture/outdoor-loop --name "Outdoor Loop" --video video/outdoor-loop.mp4 --duration 900
-npm run builder -- extract-frames ./capture/outdoor-loop/session.json
-npm run builder -- plan-poses ./capture/outdoor-loop/session.json
-npm run builder -- write-colmap-runner ./capture/outdoor-loop/session.json
-npm run builder -- convert-colmap-poses ./capture/outdoor-loop/session.json
-npm run builder -- plan-chunks ./capture/outdoor-loop/session.json
-npm run builder -- write-training-jobs ./capture/outdoor-loop/session.json
-npm run builder -- export-large-world ./capture/outdoor-loop/session.json
-npm run builder -- plan-seams ./capture/outdoor-loop/session.json
-npm run builder -- plan-navigation ./capture/outdoor-loop/session.json
-```
+- 非 box tile 先加载 `output` collider file
+- 加载成功后添加 file 中的 collider
+- 加载失败时回退为 bounds box
+- 超过 `unloadRadius` 后移除该 tile 的所有 collider
 
 ## 已知边界
 
-- 0.24 只把 collision plan 转成 conservative box colliders。
-- 还没有加载每 tile 的真实 collider artifact。
-- heightfield / mesh / compound collider streaming 仍是后续工作。
+- heightfield 当前转换为 mesh collider scaffold，而不是 Rapier 原生 heightfield。
+- mesh / compound 需要 Builder 后续输出更精确的 geometry。
+- Runtime 还没有 collider file cache / LRU。
 
 ## 下一阶段
 
@@ -134,7 +119,9 @@ npm run builder -- plan-navigation ./capture/outdoor-loop/session.json
 - [x] NavMesh / 大场景碰撞规划 scaffold
 - [x] Runtime NavMesh loader
 - [x] Runtime collision tile streaming
-- [ ] Heightfield / mesh collision artifacts
+- [x] Heightfield / mesh collision artifacts scaffold
+- [ ] Collider file cache / LRU
+- [ ] Recast/Detour-style runtime path query
 
 ## 依赖与许可证
 
