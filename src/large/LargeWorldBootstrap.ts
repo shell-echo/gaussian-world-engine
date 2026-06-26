@@ -145,7 +145,10 @@ function startTileLoop(engine: Engine): void {
 function updateStats(stats: LargeTileStreamingStats): void {
   if (!statusElement) return;
   const nav = navMesh ? ` · nav ${navMesh.tiles.length}/${navMesh.links?.length ?? 0}` : "";
-  const collision = collisionStats ? ` · col ${collisionStats.activeColliders}/${collisionStats.totalColliders}` : "";
+  const collision = collisionStats
+    ? ` · col ${collisionStats.activeColliders}/${collisionStats.totalColliders}` +
+      ` · cf ${collisionStats.reusedColliderFiles} h${collisionStats.colliderFileHits}/m${collisionStats.colliderFileMisses}`
+    : "";
   statusElement.textContent =
     `Tiles ${stats.loadedTiles}/${stats.visibleTiles}` +
     ` · cand ${stats.indexCandidates}` +
