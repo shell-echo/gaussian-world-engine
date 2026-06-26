@@ -5,6 +5,7 @@ import {
   assertCollisionTileFile,
   collisionFileToColliders,
   fallbackBox,
+  type CollisionTileFile,
 } from "./CollisionTileArtifactTypes";
 import type { LargeWorldRuntimeConfig } from "./LargeWorldTypes";
 import {
@@ -17,6 +18,9 @@ export interface CollisionTileStreamingStats {
   activeColliders: number;
   loadingColliders: number;
   totalColliders: number;
+  reusedColliderFiles: number;
+  colliderFileHits: number;
+  colliderFileMisses: number;
 }
 
 export interface LargeCollisionTileManagerEvents {
@@ -33,9 +37,13 @@ interface CollisionRuntime {
 
 export class LargeCollisionTileManager {
   private readonly tiles = new Map<string, CollisionRuntime>();
+  private readonly colliderFiles = new Map<string, CollisionTileFile>();
+  private readonly pendingColliderFiles = new Map<string, Promise<CollisionTileFile>>();
   private readonly cameraPosition = new THREE.Vector3();
   private statsElapsed = 0;
   private disposed = false;
+  private colliderFileHits = 0;
+  private colliderFileMisses = 0;
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -84,6 +92,9 @@ export class LargeCollisionTileManager {
       activeColliders,
       loadingColliders,
       totalColliders: this.tiles.size,
+      reusedColliderFiles: this.colliderFiles.size,
+      colliderFileHits: this.colliderFileHits,
+      colliderFileMisses: this.colliderFileMisses,
     };
   }
 
@@ -93,6 +104,8 @@ export class LargeCollisionTileManager {
       if (runtime.state === "active" || runtime.state === "failed") this.deactivate(runtime);
     }
     this.tiles.clear();
+    this.colliderFiles.clear();
+    this.pendingColliderFiles.clear();
   }
 
   private async activate(runtime: CollisionRuntime): Promise<void> {
@@ -123,6 +136,37 @@ export class LargeCollisionTileManager {
 
   private async loadColliders(plan: RuntimeCollisionTilePlan): Promise<ColliderData[]> {
     if (plan.type === "box") return [fallbackBox(plan)];
+    const file = await this.loadColliderFile(plan);
+    return collisionFileToColliders(file, plan);
+  }
+
+  private async loadColliderFile(plan: RuntimeCollisionTilePlan): Promise<CollisionTileFile> {
+    const cached = this.colliderFiles.get(plan.output);
+    if (cached) {
+      this.colliderFileHits += 1;
+      this.touchColliderFile(plan.output, cached);
+      return cached;
+    }
+
+    const pending = this.pendingColliderFiles.get(plan.output);
+    if (pending) {
+      this.colliderFileHits += 1;
+      return pending;
+    }
+
+    this.colliderFileMisses += 1;
+    const request = this.fetchColliderFile(plan);
+    this.pendingColliderFiles.set(plan.output, request);
+    try {
+      const file = await request;
+      this.storeColliderFile(plan.output, file);
+      return file;
+    } finally {
+      this.pendingColliderFiles.delete(plan.output);
+    }
+  }
+
+  private async fetchColliderFile(plan: RuntimeCollisionTilePlan): Promise<CollisionTileFile> {
     const response = await fetch(plan.output, { cache: "no-cache" });
     if (!response.ok) throw new Error(`Failed to load collider file ${plan.output}: ${response.status}`);
     const value: unknown = await response.json();
@@ -130,7 +174,24 @@ export class LargeCollisionTileManager {
     if (value.tileId !== plan.tileId) {
       throw new Error(`Collider file tileId mismatch: expected ${plan.tileId}, got ${value.tileId}.`);
     }
-    return collisionFileToColliders(value, plan);
+    return value;
+  }
+
+  private storeColliderFile(key: string, file: CollisionTileFile): void {
+    if (this.config.colliderReuseEntries <= 0) return;
+    this.colliderFiles.delete(key);
+    this.colliderFiles.set(key, file);
+    while (this.colliderFiles.size > this.config.colliderReuseEntries) {
+      const oldest = this.colliderFiles.keys().next().value;
+      if (typeof oldest !== "string") return;
+      this.colliderFiles.delete(oldest);
+    }
+  }
+
+  private touchColliderFile(key: string, file: CollisionTileFile): void {
+    if (this.config.colliderReuseEntries <= 0) return;
+    this.colliderFiles.delete(key);
+    this.colliderFiles.set(key, file);
   }
 
   private addColliders(runtime: CollisionRuntime, colliders: readonly ColliderData[]): void {
