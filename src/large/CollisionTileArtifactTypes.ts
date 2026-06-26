@@ -180,11 +180,14 @@ function withPlanId(collider: ColliderData, id: string): ColliderData {
 function assertHeightfield(tileId: string, value: unknown): asserts value is HeightfieldCollisionTileFile["heightfield"] {
   if (!value || typeof value !== "object") throw new Error(`Collision tile ${tileId} has invalid heightfield.`);
   const field = value as Partial<HeightfieldCollisionTileFile["heightfield"]>;
-  if (!Number.isInteger(field.width) || field.width < 2 || !Number.isInteger(field.depth) || field.depth < 2) {
+  const width = field.width;
+  const depth = field.depth;
+  const heights = field.heights;
+  if (!Number.isInteger(width) || typeof width !== "number" || width < 2 || !Number.isInteger(depth) || typeof depth !== "number" || depth < 2) {
     throw new Error(`Collision tile ${tileId} has invalid heightfield dimensions.`);
   }
   if (!isVec3(field.min) || !isVec3(field.max)) throw new Error(`Collision tile ${tileId} has invalid heightfield bounds.`);
-  if (!Array.isArray(field.heights) || field.heights.length !== field.width * field.depth || !field.heights.every(isFiniteNumber)) {
+  if (!Array.isArray(heights) || heights.length !== width * depth || !heights.every(isFiniteNumber)) {
     throw new Error(`Collision tile ${tileId} has invalid height samples.`);
   }
 }
