@@ -1,10 +1,13 @@
 import * as THREE from "three";
 import type { PhysicsWorld } from "../physics/PhysicsWorld";
-import type { BoxColliderData } from "../types/world";
+import type { ColliderData } from "../types/world";
+import {
+  assertCollisionTileFile,
+  collisionFileToColliders,
+  fallbackBox,
+} from "./CollisionTileArtifactTypes";
 import type { LargeWorldRuntimeConfig } from "./LargeWorldTypes";
 import {
-  boundsCenter,
-  boundsSize,
   distanceToBounds,
   type RuntimeCollisionPlan,
   type RuntimeCollisionTilePlan,
@@ -12,6 +15,7 @@ import {
 
 export interface CollisionTileStreamingStats {
   activeColliders: number;
+  loadingColliders: number;
   totalColliders: number;
 }
 
@@ -22,14 +26,14 @@ export interface LargeCollisionTileManagerEvents {
 
 interface CollisionRuntime {
   plan: RuntimeCollisionTilePlan;
-  active: boolean;
+  state: "inactive" | "loading" | "active" | "failed";
   distance: number;
+  colliderIds: string[];
 }
 
 export class LargeCollisionTileManager {
   private readonly tiles = new Map<string, CollisionRuntime>();
   private readonly cameraPosition = new THREE.Vector3();
-  private elapsed = 0;
   private statsElapsed = 0;
   private disposed = false;
 
@@ -42,23 +46,23 @@ export class LargeCollisionTileManager {
     for (const tile of plan.tiles) {
       this.tiles.set(tile.tileId, {
         plan: tile,
-        active: false,
+        state: "inactive",
         distance: Number.POSITIVE_INFINITY,
+        colliderIds: [],
       });
     }
   }
 
   update(camera: THREE.Camera, deltaSeconds: number): void {
     if (this.disposed) return;
-    this.elapsed += deltaSeconds;
     this.statsElapsed += deltaSeconds;
     this.cameraPosition.copy(camera.position);
 
     for (const runtime of this.tiles.values()) {
       runtime.distance = distanceToBounds(runtime.plan.bounds, this.cameraPosition);
-      if (!runtime.active && runtime.distance <= this.config.loadRadius) {
-        this.activate(runtime);
-      } else if (runtime.active && runtime.distance > this.config.unloadRadius) {
+      if (runtime.state === "inactive" && runtime.distance <= this.config.loadRadius) {
+        void this.activate(runtime);
+      } else if ((runtime.state === "active" || runtime.state === "failed") && runtime.distance > this.config.unloadRadius) {
         this.deactivate(runtime);
       }
     }
@@ -71,11 +75,14 @@ export class LargeCollisionTileManager {
 
   getStats(): CollisionTileStreamingStats {
     let activeColliders = 0;
+    let loadingColliders = 0;
     for (const runtime of this.tiles.values()) {
-      if (runtime.active) activeColliders += 1;
+      if (runtime.state === "active" || runtime.state === "failed") activeColliders += runtime.colliderIds.length;
+      if (runtime.state === "loading") loadingColliders += 1;
     }
     return {
       activeColliders,
+      loadingColliders,
       totalColliders: this.tiles.size,
     };
   }
@@ -83,33 +90,53 @@ export class LargeCollisionTileManager {
   dispose(): void {
     this.disposed = true;
     for (const runtime of this.tiles.values()) {
-      if (runtime.active) this.deactivate(runtime);
+      if (runtime.state === "active" || runtime.state === "failed") this.deactivate(runtime);
     }
     this.tiles.clear();
   }
 
-  private activate(runtime: CollisionRuntime): void {
-    const collider = collisionTileToBox(runtime.plan);
-    this.physics.addCollider(collider);
-    runtime.active = true;
-    this.events.onStatus?.(`Collision ${runtime.plan.tileId} enabled`);
+  private async activate(runtime: CollisionRuntime): Promise<void> {
+    runtime.state = "loading";
+    try {
+      const colliders = await this.loadColliders(runtime.plan);
+      if (this.disposed || runtime.distance > this.config.unloadRadius) {
+        runtime.state = "inactive";
+        return;
+      }
+      this.addColliders(runtime, colliders);
+      runtime.state = "active";
+      this.events.onStatus?.(`Collision ${runtime.plan.tileId} enabled`);
+    } catch (error) {
+      console.warn(`Failed to load collision tile ${runtime.plan.tileId}; using bounds box.`, error);
+      this.addColliders(runtime, [fallbackBox(runtime.plan)]);
+      runtime.state = "failed";
+      this.events.onStatus?.(`Collision ${runtime.plan.tileId} fallback enabled`);
+    }
   }
 
   private deactivate(runtime: CollisionRuntime): void {
-    this.physics.removeCollider(runtime.plan.colliderId);
-    runtime.active = false;
+    for (const id of runtime.colliderIds) this.physics.removeCollider(id);
+    runtime.colliderIds = [];
+    runtime.state = "inactive";
     this.events.onStatus?.(`Collision ${runtime.plan.tileId} disabled`);
   }
-}
 
-function collisionTileToBox(plan: RuntimeCollisionTilePlan): BoxColliderData {
-  const center = boundsCenter(plan.bounds);
-  return {
-    id: plan.colliderId,
-    type: "box",
-    position: [center.x, center.y, center.z],
-    size: boundsSize(plan.bounds),
-    behavior: { mode: "solid" },
-    body: { mode: "fixed" },
-  };
+  private async loadColliders(plan: RuntimeCollisionTilePlan): Promise<ColliderData[]> {
+    if (plan.type === "box") return [fallbackBox(plan)];
+    const response = await fetch(plan.output, { cache: "no-cache" });
+    if (!response.ok) throw new Error(`Failed to load collider file ${plan.output}: ${response.status}`);
+    const value: unknown = await response.json();
+    assertCollisionTileFile(value);
+    if (value.tileId !== plan.tileId) {
+      throw new Error(`Collider file tileId mismatch: expected ${plan.tileId}, got ${value.tileId}.`);
+    }
+    return collisionFileToColliders(value, plan);
+  }
+
+  private addColliders(runtime: CollisionRuntime, colliders: readonly ColliderData[]): void {
+    for (const collider of colliders) {
+      this.physics.addCollider(collider);
+      runtime.colliderIds.push(collider.id);
+    }
+  }
 }

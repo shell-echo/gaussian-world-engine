@@ -209,7 +209,18 @@ async function loadCollisionPlan(manifest: LargeWorldManifest): Promise<RuntimeC
   if (!response.ok) throw new Error(`Failed to load collision plan: ${response.status}`);
   const value: unknown = await response.json();
   assertRuntimeCollisionPlan(value);
-  return value;
+  return resolveCollisionPlanUrls(value, manifest.collisionPlan);
+}
+
+function resolveCollisionPlanUrls(plan: RuntimeCollisionPlan, sourceUrl: string): RuntimeCollisionPlan {
+  const base = new URL(sourceUrl);
+  return {
+    ...plan,
+    tiles: plan.tiles.map((tile) => ({
+      ...tile,
+      output: new URL(tile.output, base).href,
+    })),
+  };
 }
 
 function runtimeStatusLabel(): string {
