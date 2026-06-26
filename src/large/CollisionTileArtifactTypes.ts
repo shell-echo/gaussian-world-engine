@@ -1,6 +1,13 @@
-import type { BoxColliderData, ColliderData, MeshColliderData, Vec3Tuple } from "../types/world.js";
-import type { BoundsData } from "./LargeWorldTypes.js";
+import type {
+  BoxColliderData,
+  ColliderData,
+  CompoundColliderData,
+  ConvexColliderData,
+  MeshColliderData,
+  Vec3Tuple,
+} from "../types/world.js";
 import { boundsCenter, boundsSize, type RuntimeCollisionTilePlan } from "./CollisionPlanTypes.js";
+import type { BoundsData } from "./LargeWorldTypes.js";
 
 export interface BoxCollisionTileFile {
   format: "splat-collider-tile";
@@ -50,9 +57,19 @@ export type CollisionTileFile =
   | HeightfieldCollisionTileFile
   | CompoundCollisionTileFile;
 
+interface UnknownCollisionTileFile {
+  format?: unknown;
+  version?: unknown;
+  tileId?: unknown;
+  kind?: unknown;
+  bounds?: unknown;
+  colliders?: unknown;
+  heightfield?: unknown;
+}
+
 export function assertCollisionTileFile(value: unknown): asserts value is CollisionTileFile {
   if (!value || typeof value !== "object") throw new Error("Collision tile file must be an object.");
-  const file = value as Partial<CollisionTileFile>;
+  const file = value as UnknownCollisionTileFile;
   if (file.format !== "splat-collider-tile" || file.version !== 1) {
     throw new Error("Unsupported collision tile file format/version.");
   }
@@ -75,10 +92,12 @@ export function assertCollisionTileFile(value: unknown): asserts value is Collis
     return;
   }
   if (file.kind === "compound") {
-    if (!Array.isArray(file.colliders)) throw new Error(`Collision tile ${file.tileId} has invalid compound colliders.`);
+    if (!Array.isArray(file.colliders) || !file.colliders.every(isColliderData)) {
+      throw new Error(`Collision tile ${file.tileId} has invalid compound colliders.`);
+    }
     return;
   }
-  throw new Error(`Unsupported collision tile kind: ${(file as { kind?: unknown }).kind}`);
+  throw new Error(`Unsupported collision tile kind: ${String(file.kind)}`);
 }
 
 export function collisionFileToColliders(file: CollisionTileFile, plan: RuntimeCollisionTilePlan): ColliderData[] {
@@ -139,12 +158,23 @@ function heightfieldToFallbackMesh(file: HeightfieldCollisionTileFile, plan: Run
 }
 
 function withPlanIds(colliders: readonly ColliderData[], plan: RuntimeCollisionTilePlan): ColliderData[] {
-  return colliders.map((collider, index) => ({
-    ...collider,
-    id: index === 0 ? plan.colliderId : `${plan.colliderId}:${index}`,
-    behavior: collider.behavior ?? { mode: "solid" },
-    body: collider.body ?? { mode: "fixed" },
-  }));
+  return colliders.map((collider, index) => withPlanId(collider, index === 0 ? plan.colliderId : `${plan.colliderId}:${index}`));
+}
+
+function withPlanId(collider: ColliderData, id: string): ColliderData {
+  if (collider.type === "box") {
+    return { ...collider, id, behavior: collider.behavior ?? { mode: "solid" }, body: collider.body ?? { mode: "fixed" } };
+  }
+  if (collider.type === "capsule") {
+    return { ...collider, id, behavior: collider.behavior ?? { mode: "solid" }, body: collider.body ?? { mode: "fixed" } };
+  }
+  if (collider.type === "mesh") {
+    return { ...collider, id, behavior: { mode: "solid" }, body: { mode: "fixed" } };
+  }
+  if (collider.type === "convex") {
+    return { ...collider, id, behavior: collider.behavior ?? { mode: "solid" }, body: collider.body ?? { mode: "fixed" } };
+  }
+  return { ...collider, id, behavior: collider.behavior ?? { mode: "solid" }, body: collider.body ?? { mode: "fixed" } };
 }
 
 function assertHeightfield(tileId: string, value: unknown): asserts value is HeightfieldCollisionTileFile["heightfield"] {
@@ -168,12 +198,20 @@ function assertBounds(label: string, bounds: unknown): asserts bounds is BoundsD
   }
 }
 
+function isColliderData(value: unknown): value is ColliderData {
+  return isBoxCollider(value) || isCapsuleCollider(value) || isMeshCollider(value) || isConvexCollider(value) || isCompoundCollider(value);
+}
+
 function isBoxCollider(value: unknown): value is BoxColliderData {
   return Boolean(value && typeof value === "object" && (value as { type?: unknown }).type === "box");
 }
 
+function isCapsuleCollider(value: unknown): value is ColliderData {
+  return Boolean(value && typeof value === "object" && (value as { type?: unknown }).type === "capsule");
+}
+
 function isMeshCollider(value: unknown): value is MeshColliderData {
-  const collider = value as Partial<MeshColliderData>;
+  const collider = value as Partial<MeshColliderData> | null;
   return Boolean(
     collider &&
     typeof collider === "object" &&
@@ -181,6 +219,14 @@ function isMeshCollider(value: unknown): value is MeshColliderData {
     Array.isArray(collider.vertices) &&
     Array.isArray(collider.indices),
   );
+}
+
+function isConvexCollider(value: unknown): value is ConvexColliderData {
+  return Boolean(value && typeof value === "object" && (value as { type?: unknown }).type === "convex");
+}
+
+function isCompoundCollider(value: unknown): value is CompoundColliderData {
+  return Boolean(value && typeof value === "object" && (value as { type?: unknown }).type === "compound");
 }
 
 function isVec3(value: unknown): value is Vec3Tuple {
