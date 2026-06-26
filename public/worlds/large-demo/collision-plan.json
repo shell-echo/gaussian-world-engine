@@ -15,7 +15,7 @@
       "tileId": "corridor-001",
       "colliderId": "collision:corridor-001",
       "bounds": { "min": [20, -0.5, -18], "max": [60, 0.1, 18] },
-      "type": "box",
+      "type": "heightfield",
       "output": "navigation/colliders/corridor-001.collider.json"
     },
     {
