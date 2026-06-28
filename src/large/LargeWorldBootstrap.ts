@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { Engine } from "../core/Engine";
+import type { Vec3Tuple } from "../types/world";
 import { assertRuntimeCollisionPlan, type RuntimeCollisionPlan } from "./CollisionPlanTypes";
 import { assertExposurePlan, type ExposurePlan } from "./ExposurePlanTypes";
 import {
@@ -18,10 +19,25 @@ import {
   type LargeTileStreamingStats,
 } from "./LargeSplatTileManager";
 import {
+  createNavMeshPathDebugGroup,
+  RuntimeNavMeshQuery,
+  type RuntimeNavMeshPathOptions,
+  type RuntimeNavMeshPathResult,
+} from "./NavMeshQuery";
+import {
   assertRuntimeNavMeshManifest,
   createNavMeshDebugGroup,
   type RuntimeNavMeshManifest,
 } from "./NavMeshTypes";
+
+interface RuntimeNavMeshWindowApi {
+  queryPath: (
+    start: Vec3Tuple,
+    goal: Vec3Tuple,
+    options?: RuntimeNavMeshPathOptions,
+  ) => RuntimeNavMeshPathResult;
+  clearPathDebug: () => void;
+}
 
 const statusElement = optionalElement<HTMLElement>("status");
 const toastElement = optionalElement<HTMLElement>("toast");
@@ -37,6 +53,8 @@ let exposurePlan: ExposurePlan | null = null;
 let navMesh: RuntimeNavMeshManifest | null = null;
 let collisionPlan: RuntimeCollisionPlan | null = null;
 let navMeshDebugGroup: THREE.Group | null = null;
+let navMeshPathDebugGroup: THREE.Group | null = null;
+let navMeshQuery: RuntimeNavMeshQuery | null = null;
 let tileManager: LargeSplatTileManager | null = null;
 let collisionManager: LargeCollisionTileManager | null = null;
 let collisionStats: CollisionTileStreamingStats | null = null;
@@ -78,6 +96,7 @@ window.addEventListener("beforeunload", () => {
   tileManager?.dispose();
   collisionManager?.dispose();
   disposeGroup(navMeshDebugGroup);
+  disposeGroup(navMeshPathDebugGroup);
 });
 
 function installEngineHook(): void {
@@ -91,6 +110,8 @@ function installEngineHook(): void {
       tileManager?.dispose();
       collisionManager?.dispose();
       disposeGroup(navMeshDebugGroup);
+      disposeGroup(navMeshPathDebugGroup);
+      navMeshPathDebugGroup = null;
       tileManager = new LargeSplatTileManager(instance.gaussianWorld, manifest, {
         onStatus: (message) => {
           statusElement && (statusElement.textContent = message);
@@ -116,8 +137,13 @@ function installEngineHook(): void {
         collisionStats = null;
       }
       if (navMesh) {
+        navMeshQuery = new RuntimeNavMeshQuery(navMesh);
         navMeshDebugGroup = createNavMeshDebugGroup(navMesh);
         instance.scene.add(navMeshDebugGroup);
+        installNavMeshQueryApi(instance.scene, navMeshQuery);
+      } else {
+        navMeshQuery = null;
+        clearNavMeshQueryApi();
       }
       worldNameElement && (worldNameElement.textContent = manifest.name);
       startTileLoop(instance);
@@ -144,7 +170,9 @@ function startTileLoop(engine: Engine): void {
 
 function updateStats(stats: LargeTileStreamingStats): void {
   if (!statusElement) return;
-  const nav = navMesh ? ` · nav ${navMesh.tiles.length}/${navMesh.links?.length ?? 0}` : "";
+  const nav = navMesh
+    ? ` · nav ${navMesh.tiles.length}/${navMesh.links?.length ?? 0}` + (navMeshQuery ? ` · q ${navMeshQuery.walkableTileCount}` : "")
+    : "";
   const collision = collisionStats
     ? ` · col ${collisionStats.activeColliders}/${collisionStats.totalColliders}` +
       ` · cf ${collisionStats.reusedColliderFiles} h${collisionStats.colliderFileHits}/m${collisionStats.colliderFileMisses}`
@@ -156,6 +184,31 @@ function updateStats(stats: LargeTileStreamingStats): void {
     ` · ${formatLargeBytes(stats.residentBytes)} / ${formatLargeBytes(stats.budgetBytes)}` +
     nav +
     collision;
+}
+
+function installNavMeshQueryApi(scene: THREE.Scene, query: RuntimeNavMeshQuery): void {
+  setRuntimeNavMeshApi({
+    queryPath: (start, goal, options) => {
+      const result = query.findPath(start, goal, options);
+      disposeGroup(navMeshPathDebugGroup);
+      navMeshPathDebugGroup = createNavMeshPathDebugGroup(result);
+      scene.add(navMeshPathDebugGroup);
+      showToast(`Nav path ${result.status} · ${result.tileIds.length} tiles`, 2600);
+      return result;
+    },
+    clearPathDebug: () => {
+      disposeGroup(navMeshPathDebugGroup);
+      navMeshPathDebugGroup = null;
+    },
+  });
+}
+
+function clearNavMeshQueryApi(): void {
+  setRuntimeNavMeshApi(undefined);
+}
+
+function setRuntimeNavMeshApi(value: RuntimeNavMeshWindowApi | undefined): void {
+  (window as unknown as { splatNavMesh?: RuntimeNavMeshWindowApi }).splatNavMesh = value;
 }
 
 function interceptLargeManifest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -230,6 +283,7 @@ function runtimeStatusLabel(): string {
   const features = ["Large Tile Streaming"];
   if (exposurePlan) features.push("Exposure Plan");
   if (navMesh) features.push("NavMesh Debug");
+  if (navMesh) features.push("Path Query");
   if (collisionPlan) features.push("Collision Streaming");
   return `${features.join(" + ")} enabled`;
 }
@@ -238,6 +292,7 @@ function runtimeReadyLabel(manifest: LargeWorldManifest): string {
   const suffix = [
     exposurePlan ? "exposure" : "",
     navMesh ? `${navMesh.tiles.length} nav tiles` : "",
+    navMesh ? "path query" : "",
     collisionPlan ? `${collisionPlan.tiles.length} collision tiles` : "",
   ].filter(Boolean).join(" · ");
   return suffix
