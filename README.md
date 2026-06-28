@@ -1,33 +1,38 @@
-# Splat World Engine — Collider File Reuse
+# Splat World Engine — Runtime NavMesh Path Query
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.26 为 collision tile streaming 增加 collider file 复用层：摄像机在 tile 边界来回移动时，Runtime 会复用已经加载并校验过的 `splat-collider-tile` JSON，减少重复 fetch / parse。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.27 在 `splat-navmesh` loader 之上新增轻量 path query scaffold：Runtime 会把 walkable nav tiles 和 portal links 转成 tile graph，并提供 `window.splatNavMesh.queryPath(start, goal)` 查询 tile path 与 portal waypoints。
 
 ```text
-splatworld-large world.json
-  ├── streaming.colliderReuseEntries
-  ├── collisionPlan
+splat-navmesh
+  ├── walkable tiles
+  ├── portal links
   ↓
-collision-plan.json
-  └── navigation/colliders/*.collider.json
-       ↓
-LargeCollisionTileManager
-  ├── pending request de-dup
-  ├── parsed file reuse
-  └── oldest entry eviction
+RuntimeNavMeshQuery
+  ├── point → containing / nearest tile
+  ├── Dijkstra tile graph query
+  ├── portal waypoint extraction
+  └── debug path line
 ```
 
-## Runtime/Builder 0.26 能力
+## Runtime/Builder 0.27 能力
 
-- `splatworld-large.streaming` 新增 `colliderReuseEntries`
-- `LargeCollisionTileManager` 会复用已加载的 collider tile file
-- 相同 URL 的并发加载会复用同一个 pending request
-- 命中后会刷新最近使用顺序
-- 超过 `colliderReuseEntries` 后淘汰最旧 collider file
-- `colliderReuseEntries: 0` 可关闭复用
-- HUD 显示 collider file 复用统计：`cf <cached> h<hits>/m<misses>`
-- demo world 配置 `colliderReuseEntries: 8`
-- package version 更新为 `0.26.0`
-- Runtime label 更新为 `runtime 0.26`
+- 新增 `src/large/NavMeshQuery.ts`
+- 新增 `RuntimeNavMeshQuery`
+- 基于 walkable tile + links 构建 query graph
+- 支持单向 / 双向 link
+- 支持点不在 tile 内时 snap 到最近 walkable tile
+- 查询结果包含：
+  - `status`
+  - `startTileId`
+  - `goalTileId`
+  - `tileIds`
+  - `waypoints`
+  - `distance`
+- `LargeWorldBootstrap` 暴露 `window.splatNavMesh.queryPath(...)`
+- 最近一次查询结果会用白色 debug line 显示
+- HUD 显示 walkable query tile 数：`q <count>`
+- package version 更新为 `0.27.0`
+- Runtime label 更新为 `runtime 0.27`
 
 ## 运行 Runtime
 
@@ -50,40 +55,39 @@ npm run build
 npm run preview
 ```
 
-## colliderReuseEntries 配置
+## 查询路径
 
-在 `splatworld-large` manifest 中：
+打开大场景后，可以在浏览器控制台执行：
+
+```js
+window.splatNavMesh.queryPath([0, 0, 0], [130, 0, 0])
+```
+
+返回示例：
 
 ```json
 {
-  "streaming": {
-    "colliderReuseEntries": 24
-  }
+  "status": "ok",
+  "startTileId": "corridor-000",
+  "goalTileId": "corridor-003",
+  "tileIds": ["corridor-000", "corridor-001", "corridor-002", "corridor-003"],
+  "waypoints": [[0, 0, 0], [20, 0.025, 0], [60, 0.025, 0], [100, 0.025, 0], [130, 0, 0]],
+  "distance": 130
 }
 ```
 
-含义：
+清除 debug path：
 
-- `24`：最多保留最近 24 个已解析 collider tile file。
-- `0`：关闭复用，每次激活非 box tile 都重新加载 `plan.output`。
-- 最大值会被限制到 `256`，避免浏览器内存失控。
-
-## Streaming 行为
-
-Collision tile streaming 继续复用大场景 streaming 半径：
-
-- `loadRadius` 内启用 tile collider
-- 非 box tile 先查找已加载 file
-- miss 时 fetch + validate + store
-- hit 时直接把 file 转成当前 tile 的 collider id
-- 超过 `unloadRadius` 后移除该 tile 的 active collider
-- collider file 可继续留在复用池中，供下一次进入半径时使用
+```js
+window.splatNavMesh.clearPathDebug()
+```
 
 ## 已知边界
 
-- 复用池只存在于当前浏览器 session，不持久化到 IndexedDB。
-- 当前按文件条目数限制，不按估算字节数限制。
-- heightfield 当前仍转换为 mesh collider scaffold。
+- 0.27 是 tile graph / portal waypoint scaffold，不是完整 Recast/Detour polygon pathfinding。
+- 当前没有 funnel algorithm / path smoothing。
+- 当前不会避开 tile 内部动态障碍。
+- 后续可把 `RuntimeNavMeshQuery` 替换为真正的 poly navmesh query，同时保持 `queryPath` API 不变。
 
 ## 下一阶段
 
@@ -108,7 +112,8 @@ Collision tile streaming 继续复用大场景 streaming 半径：
 - [x] Runtime collision tile streaming
 - [x] Heightfield / mesh collision artifacts scaffold
 - [x] Collider file cache / LRU
-- [ ] Recast/Detour-style runtime path query
+- [x] Recast/Detour-style runtime path query scaffold
+- [ ] Funnel smoothing / off-mesh links
 
 ## 依赖与许可证
 
