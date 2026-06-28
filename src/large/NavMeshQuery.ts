@@ -9,8 +9,8 @@ export interface RuntimeNavMeshPathOptions {
 
 export interface RuntimeNavMeshPathResult {
   status: "ok" | "missing-start" | "missing-goal" | "unreachable";
-  startTileId?: string;
-  goalTileId?: string;
+  startTileId: string | null;
+  goalTileId: string | null;
   tileIds: string[];
   waypoints: Vec3Tuple[];
   distance: number;
@@ -52,8 +52,8 @@ export class RuntimeNavMeshQuery {
     const startTile = this.findTileForPoint(startPoint, snap);
     const goalTile = this.findTileForPoint(goalPoint, snap);
 
-    if (!startTile) return emptyResult("missing-start");
-    if (!goalTile) return emptyResult("missing-goal", startTile.tileId);
+    if (!startTile) return emptyResult("missing-start", null, null);
+    if (!goalTile) return emptyResult("missing-goal", startTile.tileId, null);
     if (startTile.tileId === goalTile.tileId) {
       return {
         status: "ok",
@@ -66,9 +66,7 @@ export class RuntimeNavMeshQuery {
     }
 
     const tileIds = this.findTilePath(startTile.tileId, goalTile.tileId);
-    if (!tileIds.length) {
-      return emptyResult("unreachable", startTile.tileId, goalTile.tileId);
-    }
+    if (!tileIds.length) return emptyResult("unreachable", startTile.tileId, goalTile.tileId);
 
     const waypoints = [fromVec3(startPoint)];
     for (let index = 0; index < tileIds.length - 1; index += 1) {
@@ -163,11 +161,7 @@ export function createNavMeshPathDebugGroup(result: RuntimeNavMeshPathResult): T
   return group;
 }
 
-function emptyResult(
-  status: RuntimeNavMeshPathResult["status"],
-  startTileId?: string,
-  goalTileId?: string,
-): RuntimeNavMeshPathResult {
+function emptyResult(status: RuntimeNavMeshPathResult["status"], startTileId: string | null, goalTileId: string | null): RuntimeNavMeshPathResult {
   return {
     status,
     startTileId,
