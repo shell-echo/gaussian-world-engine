@@ -34,7 +34,7 @@ export class RuntimeNavMeshQuery {
   private readonly tiles = new Map<string, RuntimeNavMeshTile>();
   private readonly edges = new Map<string, NavEdge[]>();
 
-  constructor(private readonly manifest: RuntimeNavMeshManifest) {
+  constructor(manifest: RuntimeNavMeshManifest) {
     for (const tile of manifest.tiles) {
       this.tiles.set(tile.tileId, tile);
       this.edges.set(tile.tileId, []);
@@ -163,12 +163,18 @@ export function createNavRouteDebugLine(result: NavRouteResult): THREE.Line | nu
 export function parseNavRoutePoint(value: string | null): THREE.Vector3 | null {
   if (!value) return null;
   const parts = value.split(",").map((item) => Number(item.trim()));
-  if (parts.length !== 3 || parts.some((item) => !Number.isFinite(item))) return null;
-  return new THREE.Vector3(parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0);
+  const x = parts[0];
+  const y = parts[1];
+  const z = parts[2];
+  if (parts.length !== 3 || !isFiniteNumber(x) || !isFiniteNumber(y) || !isFiniteNumber(z)) return null;
+  return new THREE.Vector3(x, y, z);
 }
 
 function emptyRoute(status: NavRouteStatus, startTileId?: string, goalTileId?: string): NavRouteResult {
-  return { status, startTileId, goalTileId, tileIds: [], points: [], distance: 0 };
+  const result: NavRouteResult = { status, tileIds: [], points: [], distance: 0 };
+  if (startTileId !== undefined) result.startTileId = startTileId;
+  if (goalTileId !== undefined) result.goalTileId = goalTileId;
+  return result;
 }
 
 function popLowestCost(open: Map<string, SearchNode>): SearchNode | null {
@@ -230,7 +236,7 @@ function polylineDistance(points: readonly Vec3Tuple[]): number {
     const previous = points[index - 1];
     const current = points[index];
     if (!previous || !current) continue;
-    distance += new THREE.Vector3(...previous).distanceTo(new THREE.Vector3(...current));
+    distance += vec3FromTuple(previous).distanceTo(vec3FromTuple(current));
   }
   return distance;
 }
@@ -238,10 +244,18 @@ function polylineDistance(points: readonly Vec3Tuple[]): number {
 function collapseDuplicatePoints(points: readonly Vec3Tuple[]): Vec3Tuple[] {
   const collapsed: Vec3Tuple[] = [];
   for (const point of points) {
-    const previous = collapsed.at(-1);
+    const previous = collapsed[collapsed.length - 1];
     if (!previous || previous[0] !== point[0] || previous[1] !== point[1] || previous[2] !== point[2]) {
       collapsed.push(point);
     }
   }
   return collapsed;
+}
+
+function vec3FromTuple(tuple: Vec3Tuple): THREE.Vector3 {
+  return new THREE.Vector3(tuple[0], tuple[1], tuple[2]);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
