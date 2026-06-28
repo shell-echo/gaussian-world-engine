@@ -208,7 +208,12 @@ function clearNavMeshQueryApi(): void {
 }
 
 function setRuntimeNavMeshApi(value: RuntimeNavMeshWindowApi | undefined): void {
-  (window as unknown as { splatNavMesh?: RuntimeNavMeshWindowApi }).splatNavMesh = value;
+  const target = window as unknown as { splatNavMesh?: RuntimeNavMeshWindowApi };
+  if (value) {
+    target.splatNavMesh = value;
+  } else {
+    delete target.splatNavMesh;
+  }
 }
 
 function interceptLargeManifest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
