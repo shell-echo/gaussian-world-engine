@@ -26,7 +26,7 @@ export class RuntimeNavMeshQuery {
   private readonly tiles = new Map<string, RuntimeNavMeshTile>();
   private readonly graph = new Map<string, GraphEdge[]>();
 
-  constructor(private readonly manifest: RuntimeNavMeshManifest) {
+  constructor(manifest: RuntimeNavMeshManifest) {
     for (const tile of manifest.tiles) {
       if (!tile.walkable) continue;
       this.tiles.set(tile.tileId, tile);
