@@ -18,6 +18,11 @@ import {
   type LargeTileStreamingStats,
 } from "./LargeSplatTileManager";
 import {
+  RuntimeNavAgentDebugDemo,
+  type RuntimeNavAgentDebugDemoOptions,
+} from "./NavAgentDebugDemo";
+import type { RuntimeNavAgentSnapshot } from "./NavAgentController";
+import {
   createRuntimeNavGameplayApi,
   type RuntimeNavGameplayApi,
 } from "./NavGameplayApi";
@@ -50,6 +55,8 @@ let largeManifest: LargeWorldManifest | null = null;
 let exposurePlan: ExposurePlan | null = null;
 let navMesh: RuntimeNavMeshManifest | null = null;
 let navGameplayApi: RuntimeNavGameplayApi | null = null;
+let navAgentDemo: RuntimeNavAgentDebugDemo | null = null;
+let navAgentSnapshot: RuntimeNavAgentSnapshot | null = null;
 let navRouteResult: NavRouteResult | null = null;
 let collisionPlan: RuntimeCollisionPlan | null = null;
 let navMeshDebugGroup: THREE.Group | null = null;
@@ -94,6 +101,7 @@ window.addEventListener("beforeunload", () => {
   if (loopHandle) cancelAnimationFrame(loopHandle);
   tileManager?.dispose();
   collisionManager?.dispose();
+  navAgentDemo?.dispose();
   disposeGroup(navMeshDebugGroup);
   disposeLine(navRouteDebugLine);
   installRuntimeWorldApi(null);
@@ -109,9 +117,12 @@ function installEngineHook(): void {
       const instance = await originalCreate(...args);
       tileManager?.dispose();
       collisionManager?.dispose();
+      navAgentDemo?.dispose();
       disposeGroup(navMeshDebugGroup);
       disposeLine(navRouteDebugLine);
       navGameplayApi = null;
+      navAgentDemo = null;
+      navAgentSnapshot = null;
       navRouteResult = null;
       installRuntimeWorldApi(null);
       tileManager = new LargeSplatTileManager(instance.gaussianWorld, manifest, {
@@ -144,6 +155,7 @@ function installEngineHook(): void {
         navGameplayApi = createRuntimeNavGameplayApi(navMesh);
         installRuntimeWorldApi(navGameplayApi);
         installNavRouteDebug(instance.scene, navMesh);
+        installNavAgentDemo(instance, navGameplayApi, manifest);
       }
       worldNameElement && (worldNameElement.textContent = manifest.name);
       startTileLoop(instance);
@@ -163,6 +175,7 @@ function startTileLoop(engine: Engine): void {
     lastTime = now;
     tileManager?.update(engine.camera, delta);
     collisionManager?.update(engine.camera, delta);
+    navAgentSnapshot = navAgentDemo?.update(delta) ?? null;
     loopHandle = requestAnimationFrame(frame);
   };
   loopHandle = requestAnimationFrame(frame);
@@ -177,6 +190,11 @@ function updateStats(stats: LargeTileStreamingStats): void {
     : navRouteResult
       ? ` · route ${navRouteResult.status}`
       : "";
+  const agent = navAgentSnapshot
+    ? ` · agent ${navAgentSnapshot.status}${navAgentSnapshot.status === "moving" ? ` ${navAgentSnapshot.remainingDistance.toFixed(1)}m` : ""}`
+    : navAgentDemo
+      ? " · agent ready"
+      : "";
   const collision = collisionStats
     ? ` · col ${collisionStats.activeColliders}/${collisionStats.totalColliders}` +
       ` · cf ${collisionStats.reusedColliderFiles} h${collisionStats.colliderFileHits}/m${collisionStats.colliderFileMisses}`
@@ -189,6 +207,7 @@ function updateStats(stats: LargeTileStreamingStats): void {
     nav +
     navApi +
     route +
+    agent +
     collision;
 }
 
@@ -208,8 +227,31 @@ function installNavRouteDebug(scene: THREE.Scene, manifest: RuntimeNavMeshManife
   );
 }
 
+function installNavAgentDemo(engine: Engine, navApi: RuntimeNavGameplayApi, manifest: LargeWorldManifest): void {
+  if (!shouldShowNavAgentDemo()) return;
+  const destination = parseNavRoutePoint(pageUrl.searchParams.get("agentTo"));
+  const options: RuntimeNavAgentDebugDemoOptions = {
+    scene: engine.scene,
+    camera: engine.camera,
+    domElement: engine.renderer.domElement,
+    nav: navApi,
+    initialPosition: parseNavRoutePoint(pageUrl.searchParams.get("agentFrom")) ?? manifest.spawn.position,
+    onStatus: (message) => {
+      statusElement && (statusElement.textContent = message);
+      showToast(message, 2800);
+    },
+  };
+  if (destination) options.initialDestination = destination;
+  navAgentDemo = new RuntimeNavAgentDebugDemo(options);
+  navAgentSnapshot = navAgentDemo.snapshot();
+}
+
 function shouldShowNavRoute(): boolean {
   return pageUrl.searchParams.has("navRoute") || pageUrl.searchParams.has("navFrom") || pageUrl.searchParams.has("navTo");
+}
+
+function shouldShowNavAgentDemo(): boolean {
+  return pageUrl.searchParams.has("clickToMove") || pageUrl.searchParams.has("navAgentDemo") || pageUrl.searchParams.has("agentFrom") || pageUrl.searchParams.has("agentTo");
 }
 
 function installRuntimeWorldApi(navApi: RuntimeNavGameplayApi | null): void {
@@ -296,6 +338,7 @@ function runtimeStatusLabel(): string {
   if (exposurePlan) features.push("Exposure Plan");
   if (navMesh) features.push("NavMesh Debug");
   if (navGameplayApi) features.push("Nav Gameplay API");
+  if (navAgentDemo) features.push("Click-to-Move Agent");
   if (collisionPlan) features.push("Collision Streaming");
   return `${features.join(" + ")} enabled`;
 }
@@ -305,6 +348,7 @@ function runtimeReadyLabel(manifest: LargeWorldManifest): string {
     exposurePlan ? "exposure" : "",
     navMesh ? `${navMesh.tiles.length} nav tiles` : "",
     navGameplayApi ? "nav gameplay api" : "",
+    navAgentDemo ? "click-to-move" : "",
     navRouteResult?.status === "success" ? `${navRouteResult.tileIds.length} route tiles` : "",
     collisionPlan ? `${collisionPlan.tiles.length} collision tiles` : "",
   ].filter(Boolean).join(" · ");
