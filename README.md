@@ -1,38 +1,38 @@
-# Splat World Engine — Runtime Nav Agent Controller
+# Splat World Engine — Click-to-Move Agent Demo
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.29 在 0.28 的 `window.splatWorld.navMesh` gameplay API 上新增轻量 NPC agent movement controller：agent 可以设置目的地、沿 route points 逐帧移动，并输出状态快照。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.30 在 0.29 的 `RuntimeNavAgent` 上新增可交互 debug demo：启用 `clickToMove` 后，Runtime 会创建 agent marker、目标 marker、route line，并允许在 canvas 上左键点击设置 agent 目的地。
 
 ```text
 RuntimeNavGameplayApi
-  ├── findTileContaining(point)
-  ├── findNearestTile(point)
-  ├── findRoute(start, goal)
   └── createAgent(options)
-        ├── setDestination(goal)
-        ├── update(deltaSeconds)
-        ├── stop()
-        └── snapshot()
+        ↓
+RuntimeNavAgentDebugDemo
+  ├── agent marker
+  ├── target marker
+  ├── route debug line
+  ├── click → ground plane hit
+  └── per-frame agent.update(deltaSeconds)
 ```
 
-## Runtime/Builder 0.29 能力
+## Runtime/Builder 0.30 能力
 
-- 新增 `src/large/NavAgentController.ts`
-- 新增 `RuntimeNavAgent`
-- `RuntimeNavGameplayApi` 新增 `createAgent(options)`
-- agent 支持：
-  - `setDestination(goal)`
-  - `update(deltaSeconds)`
-  - `stop()`
-  - `snapshot()`
-  - `setPosition(point)`
-  - `setSpeed(speed)`
-  - `setArriveDistance(distance)`
-- agent 可以绑定 `THREE.Object3D`，update 时自动同步 object position
-- agent 状态包含：`idle` / `moving` / `arrived` / `blocked`
-- route 失败时进入 `blocked`
-- route 成功时沿 `NavRouteResult.points` 移动
-- package version 更新为 `0.29.0`
-- Runtime label 更新为 `runtime 0.29`
+- 新增 `src/large/NavAgentDebugDemo.ts`
+- 新增 `RuntimeNavAgentDebugDemo`
+- 通过 URL 参数启用 click-to-move：
+  - `clickToMove=1`
+  - `navAgentDemo=1`
+  - `agentFrom=x,y,z`
+  - `agentTo=x,y,z`
+- demo 会创建：
+  - agent marker
+  - target marker
+  - route debug line
+- 左键点击 canvas 会把鼠标射线投到 `y=0` 地面平面，并调用 agent `setDestination()`
+- Runtime 主循环会自动调用 `agent.update(deltaSeconds)`
+- HUD 显示 agent 状态和 moving 时的剩余距离
+- dispose 时会清理事件监听、marker、route line 和材质/geometry
+- package version 更新为 `0.30.0`
+- Runtime label 更新为 `runtime 0.30`
 
 ## 运行 Runtime
 
@@ -41,10 +41,16 @@ npm install
 npm run dev
 ```
 
-大场景示例：
+大场景 click-to-move 示例：
 
 ```text
-http://localhost:5173?world=/worlds/large-demo/world.json
+http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1
+```
+
+带初始点和目标：
+
+```text
+http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1&agentFrom=0,0,0&agentTo=130,0,0
 ```
 
 验证：
@@ -55,71 +61,49 @@ npm run build
 npm run preview
 ```
 
-## 创建 agent
+## Click-to-move 行为
 
-大场景和 navmesh 加载完成后：
+启用 `clickToMove` 后：
+
+1. Runtime 创建一个绿色 agent marker。
+2. 左键点击 canvas 时，Runtime 将鼠标射线投到 `y=0` 平面。
+3. 点击点会成为黄色 target marker。
+4. agent 使用 `window.splatWorld.navMesh.createAgent(...)` 创建的 controller 寻路。
+5. 如果 route 成功，agent 沿 `NavRouteResult.points` 移动。
+6. HUD 显示：
+
+```text
+agent moving 42.8m
+```
+
+route 失败时：
+
+```text
+agent blocked
+```
+
+## 仍然保留手动 API
+
+0.29 的手动 API 仍可用：
 
 ```js
 const agent = window.splatWorld.navMesh.createAgent({
   id: "npc-001",
   position: [0, 0, 0],
-  speed: 3,
-  arriveDistance: 0.25
+  speed: 3
 })
 
 agent.setDestination([130, 0, 0])
-```
-
-每帧更新：
-
-```js
 agent.update(deltaSeconds)
-```
-
-读取状态：
-
-```js
 agent.snapshot()
-```
-
-返回示例：
-
-```json
-{
-  "id": "npc-001",
-  "status": "moving",
-  "position": [12.5, 0, 0],
-  "velocity": [3, 0, 0],
-  "destination": [130, 0, 0],
-  "routeStatus": "success",
-  "routeTileIds": ["corridor-000", "corridor-001", "corridor-002", "corridor-003"],
-  "currentPointIndex": 1,
-  "remainingDistance": 117.5
-}
-```
-
-## 绑定 THREE.Object3D
-
-```js
-const npcObject = new THREE.Object3D()
-scene.add(npcObject)
-
-const agent = window.splatWorld.navMesh.createAgent({
-  id: "npc-visual",
-  object: npcObject,
-  speed: 2.2
-})
-
-agent.setDestination([130, 0, 0])
-agent.update(deltaSeconds)
 ```
 
 ## 已知边界
 
-- 0.29 是 movement controller scaffold，不包含动画状态机。
-- 当前 agent 沿 route point 直线移动，没有 funnel smoothing。
-- 当前没有局部避障、队列、动态障碍或 agent-agent avoidance。
-- 暂未内置到主循环；调用方需要自己在每帧执行 `agent.update(deltaSeconds)`。
+- 0.30 的点击目标目前投影到固定 `y=0` 平面，不是 mesh / depth / collider picking。
+- 当前 demo 不处理 pointer-lock 状态下的点击。
+- 当前 agent 仍沿 route points 直线移动，没有 funnel smoothing。
+- 当前没有局部避障、动态障碍、动画状态机或多 agent registry。
 
 ## 下一阶段
 
@@ -147,7 +131,8 @@ agent.update(deltaSeconds)
 - [x] Recast/Detour-style runtime path query scaffold
 - [x] Route query API for gameplay systems
 - [x] NPC agent movement controller scaffold
-- [ ] Agent debug visualizer / click-to-move demo
+- [x] Agent debug visualizer / click-to-move demo
+- [ ] Agent registry / automatic engine-loop integration
 
 ## 依赖与许可证
 
