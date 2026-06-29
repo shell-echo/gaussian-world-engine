@@ -47,9 +47,8 @@ export class RuntimeNavAgentDebugDemo {
     options.onStatus?.("Click-to-move agent demo ready");
   }
 
-  update(deltaSeconds: number): RuntimeNavAgentSnapshot {
-    this.lastSnapshot = this.agent.update(deltaSeconds);
-    return this.lastSnapshot;
+  update(): RuntimeNavAgentSnapshot {
+    return this.snapshot();
   }
 
   snapshot(): RuntimeNavAgentSnapshot {
@@ -61,6 +60,7 @@ export class RuntimeNavAgentDebugDemo {
     if (this.disposed) return;
     this.disposed = true;
     this.options.domElement.removeEventListener("pointerdown", this.handlePointerDown);
+    this.options.nav.removeAgent(this.agent.id);
     disposeLine(this.routeLine);
     this.routeLine = null;
     this.options.scene.remove(this.group);

@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import type { Vec3Tuple } from "../types/world.js";
 import type { BoundsData } from "./LargeWorldTypes.js";
-import { RuntimeNavAgent, type RuntimeNavAgentOptions } from "./NavAgentController.js";
+import type { RuntimeNavAgent, RuntimeNavAgentOptions } from "./NavAgentController.js";
+import { RuntimeNavAgentRegistry, type RuntimeNavAgentRegistrySnapshot } from "./NavAgentRegistry.js";
 import { RuntimeNavMeshQuery, type NavRouteResult } from "./NavMeshQuery.js";
 import type { RuntimeNavMeshManifest, RuntimeNavMeshTile } from "./NavMeshTypes.js";
 
@@ -17,22 +18,35 @@ export interface RuntimeNavTileHit {
 export interface RuntimeNavGameplayApi {
   readonly ready: true;
   readonly walkableTileCount: number;
+  readonly agents: RuntimeNavAgentRegistry;
   findTileContaining: (point: RuntimeNavPoint) => RuntimeNavTileHit | null;
   findNearestTile: (point: RuntimeNavPoint) => RuntimeNavTileHit | null;
   findRoute: (start: RuntimeNavPoint, goal: RuntimeNavPoint) => NavRouteResult;
   createAgent: (options?: RuntimeNavAgentOptions) => RuntimeNavAgent;
+  getAgent: (id: string) => RuntimeNavAgent | null;
+  removeAgent: (id: string) => boolean;
+  updateAgents: (deltaSeconds: number) => RuntimeNavAgentRegistrySnapshot;
+  snapshotAgents: () => RuntimeNavAgentRegistrySnapshot;
 }
 
 export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): RuntimeNavGameplayApi {
   const query = new RuntimeNavMeshQuery(manifest);
   const walkableTileCount = manifest.tiles.filter((tile) => tile.walkable).length;
+  const registry = new RuntimeNavAgentRegistry({
+    findRoute: (start, goal) => query.findRoute(toVector3(start), toVector3(goal)),
+  });
   const api: RuntimeNavGameplayApi = {
     ready: true,
     walkableTileCount,
+    agents: registry,
     findTileContaining: (point) => summarizeTile(query.findTileContaining(toVector3(point))),
     findNearestTile: (point) => summarizeTile(query.findNearestTile(toVector3(point))),
     findRoute: (start, goal) => query.findRoute(toVector3(start), toVector3(goal)),
-    createAgent: (options) => new RuntimeNavAgent(api, options),
+    createAgent: (options) => registry.createAgent(options),
+    getAgent: (id) => registry.getAgent(id),
+    removeAgent: (id) => registry.removeAgent(id),
+    updateAgents: (deltaSeconds) => registry.update(deltaSeconds),
+    snapshotAgents: () => registry.snapshot(),
   };
   return api;
 }
