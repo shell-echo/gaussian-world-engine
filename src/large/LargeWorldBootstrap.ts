@@ -18,6 +18,12 @@ import {
   type LargeTileStreamingStats,
 } from "./LargeSplatTileManager";
 import {
+  createNavRouteDebugLine,
+  parseNavRoutePoint,
+  RuntimeNavMeshQuery,
+  type NavRouteResult,
+} from "./NavMeshQuery";
+import {
   assertRuntimeNavMeshManifest,
   createNavMeshDebugGroup,
   type RuntimeNavMeshManifest,
@@ -35,8 +41,10 @@ const manifestUrl = new URL(pageUrl.searchParams.get("world") ?? "/worlds/demo/w
 let largeManifest: LargeWorldManifest | null = null;
 let exposurePlan: ExposurePlan | null = null;
 let navMesh: RuntimeNavMeshManifest | null = null;
+let navRouteResult: NavRouteResult | null = null;
 let collisionPlan: RuntimeCollisionPlan | null = null;
 let navMeshDebugGroup: THREE.Group | null = null;
+let navRouteDebugLine: THREE.Line | null = null;
 let tileManager: LargeSplatTileManager | null = null;
 let collisionManager: LargeCollisionTileManager | null = null;
 let collisionStats: CollisionTileStreamingStats | null = null;
@@ -78,6 +86,7 @@ window.addEventListener("beforeunload", () => {
   tileManager?.dispose();
   collisionManager?.dispose();
   disposeGroup(navMeshDebugGroup);
+  disposeLine(navRouteDebugLine);
 });
 
 function installEngineHook(): void {
@@ -91,6 +100,8 @@ function installEngineHook(): void {
       tileManager?.dispose();
       collisionManager?.dispose();
       disposeGroup(navMeshDebugGroup);
+      disposeLine(navRouteDebugLine);
+      navRouteResult = null;
       tileManager = new LargeSplatTileManager(instance.gaussianWorld, manifest, {
         onStatus: (message) => {
           statusElement && (statusElement.textContent = message);
@@ -118,6 +129,7 @@ function installEngineHook(): void {
       if (navMesh) {
         navMeshDebugGroup = createNavMeshDebugGroup(navMesh);
         instance.scene.add(navMeshDebugGroup);
+        installNavRouteDebug(instance.scene, navMesh);
       }
       worldNameElement && (worldNameElement.textContent = manifest.name);
       startTileLoop(instance);
@@ -145,6 +157,11 @@ function startTileLoop(engine: Engine): void {
 function updateStats(stats: LargeTileStreamingStats): void {
   if (!statusElement) return;
   const nav = navMesh ? ` · nav ${navMesh.tiles.length}/${navMesh.links?.length ?? 0}` : "";
+  const route = navRouteResult?.status === "success"
+    ? ` · route ${navRouteResult.tileIds.length}t/${navRouteResult.distance.toFixed(1)}m`
+    : navRouteResult
+      ? ` · route ${navRouteResult.status}`
+      : "";
   const collision = collisionStats
     ? ` · col ${collisionStats.activeColliders}/${collisionStats.totalColliders}` +
       ` · cf ${collisionStats.reusedColliderFiles} h${collisionStats.colliderFileHits}/m${collisionStats.colliderFileMisses}`
@@ -155,7 +172,28 @@ function updateStats(stats: LargeTileStreamingStats): void {
     ` · loading ${stats.loadingTiles}` +
     ` · ${formatLargeBytes(stats.residentBytes)} / ${formatLargeBytes(stats.budgetBytes)}` +
     nav +
+    route +
     collision;
+}
+
+function installNavRouteDebug(scene: THREE.Scene, manifest: RuntimeNavMeshManifest): void {
+  if (!shouldShowNavRoute()) return;
+  const from = parseNavRoutePoint(pageUrl.searchParams.get("navFrom")) ?? new THREE.Vector3(-10, 0, 0);
+  const to = parseNavRoutePoint(pageUrl.searchParams.get("navTo")) ?? new THREE.Vector3(130, 0, 0);
+  const query = new RuntimeNavMeshQuery(manifest);
+  navRouteResult = query.findRoute(from, to);
+  navRouteDebugLine = createNavRouteDebugLine(navRouteResult);
+  if (navRouteDebugLine) scene.add(navRouteDebugLine);
+  showToast(
+    navRouteResult.status === "success"
+      ? `Nav route ready · ${navRouteResult.tileIds.join(" → ")}`
+      : `Nav route failed · ${navRouteResult.status}`,
+    5200,
+  );
+}
+
+function shouldShowNavRoute(): boolean {
+  return pageUrl.searchParams.has("navRoute") || pageUrl.searchParams.has("navFrom") || pageUrl.searchParams.has("navTo");
 }
 
 function interceptLargeManifest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -238,6 +276,7 @@ function runtimeReadyLabel(manifest: LargeWorldManifest): string {
   const suffix = [
     exposurePlan ? "exposure" : "",
     navMesh ? `${navMesh.tiles.length} nav tiles` : "",
+    navRouteResult?.status === "success" ? `${navRouteResult.tileIds.length} route tiles` : "",
     collisionPlan ? `${collisionPlan.tiles.length} collision tiles` : "",
   ].filter(Boolean).join(" · ");
   return suffix
@@ -259,6 +298,17 @@ function disposeGroup(group: THREE.Group | null): void {
     }
   }
   group.clear();
+}
+
+function disposeLine(line: THREE.Line | null): void {
+  if (!line) return;
+  line.parent?.remove(line);
+  line.geometry.dispose();
+  if (Array.isArray(line.material)) {
+    line.material.forEach((material) => material.dispose());
+  } else {
+    line.material.dispose();
+  }
 }
 
 function resolveRequestUrl(input: RequestInfo | URL): string {
