@@ -22,6 +22,7 @@ import {
   type RuntimeNavAgentDebugDemoOptions,
 } from "./NavAgentDebugDemo";
 import type { RuntimeNavAgentSnapshot } from "./NavAgentController";
+import type { RuntimeNavAgentRegistrySnapshot } from "./NavAgentRegistry";
 import {
   createRuntimeNavGameplayApi,
   type RuntimeNavGameplayApi,
@@ -57,6 +58,7 @@ let navMesh: RuntimeNavMeshManifest | null = null;
 let navGameplayApi: RuntimeNavGameplayApi | null = null;
 let navAgentDemo: RuntimeNavAgentDebugDemo | null = null;
 let navAgentSnapshot: RuntimeNavAgentSnapshot | null = null;
+let navAgentRegistrySnapshot: RuntimeNavAgentRegistrySnapshot | null = null;
 let navRouteResult: NavRouteResult | null = null;
 let collisionPlan: RuntimeCollisionPlan | null = null;
 let navMeshDebugGroup: THREE.Group | null = null;
@@ -102,6 +104,7 @@ window.addEventListener("beforeunload", () => {
   tileManager?.dispose();
   collisionManager?.dispose();
   navAgentDemo?.dispose();
+  navGameplayApi?.agents.clear();
   disposeGroup(navMeshDebugGroup);
   disposeLine(navRouteDebugLine);
   installRuntimeWorldApi(null);
@@ -118,11 +121,13 @@ function installEngineHook(): void {
       tileManager?.dispose();
       collisionManager?.dispose();
       navAgentDemo?.dispose();
+      navGameplayApi?.agents.clear();
       disposeGroup(navMeshDebugGroup);
       disposeLine(navRouteDebugLine);
       navGameplayApi = null;
       navAgentDemo = null;
       navAgentSnapshot = null;
+      navAgentRegistrySnapshot = null;
       navRouteResult = null;
       installRuntimeWorldApi(null);
       tileManager = new LargeSplatTileManager(instance.gaussianWorld, manifest, {
@@ -153,6 +158,7 @@ function installEngineHook(): void {
         navMeshDebugGroup = createNavMeshDebugGroup(navMesh);
         instance.scene.add(navMeshDebugGroup);
         navGameplayApi = createRuntimeNavGameplayApi(navMesh);
+        navAgentRegistrySnapshot = navGameplayApi.snapshotAgents();
         installRuntimeWorldApi(navGameplayApi);
         installNavRouteDebug(instance.scene, navMesh);
         installNavAgentDemo(instance, navGameplayApi, manifest);
@@ -175,7 +181,8 @@ function startTileLoop(engine: Engine): void {
     lastTime = now;
     tileManager?.update(engine.camera, delta);
     collisionManager?.update(engine.camera, delta);
-    navAgentSnapshot = navAgentDemo?.update(delta) ?? null;
+    navAgentRegistrySnapshot = navGameplayApi?.updateAgents(delta) ?? null;
+    navAgentSnapshot = navAgentDemo?.update() ?? null;
     loopHandle = requestAnimationFrame(frame);
   };
   loopHandle = requestAnimationFrame(frame);
@@ -190,7 +197,12 @@ function updateStats(stats: LargeTileStreamingStats): void {
     : navRouteResult
       ? ` · route ${navRouteResult.status}`
       : "";
-  const agent = navAgentSnapshot
+  const registry = navAgentRegistrySnapshot
+    ? ` · agents ${navAgentRegistrySnapshot.count} m${navAgentRegistrySnapshot.moving}/b${navAgentRegistrySnapshot.blocked}`
+    : navGameplayApi
+      ? " · agents 0"
+      : "";
+  const demoAgent = navAgentSnapshot
     ? ` · agent ${navAgentSnapshot.status}${navAgentSnapshot.status === "moving" ? ` ${navAgentSnapshot.remainingDistance.toFixed(1)}m` : ""}`
     : navAgentDemo
       ? " · agent ready"
@@ -207,7 +219,8 @@ function updateStats(stats: LargeTileStreamingStats): void {
     nav +
     navApi +
     route +
-    agent +
+    registry +
+    demoAgent +
     collision;
 }
 
@@ -243,6 +256,7 @@ function installNavAgentDemo(engine: Engine, navApi: RuntimeNavGameplayApi, mani
   };
   if (destination) options.initialDestination = destination;
   navAgentDemo = new RuntimeNavAgentDebugDemo(options);
+  navAgentRegistrySnapshot = navApi.snapshotAgents();
   navAgentSnapshot = navAgentDemo.snapshot();
 }
 
@@ -338,6 +352,7 @@ function runtimeStatusLabel(): string {
   if (exposurePlan) features.push("Exposure Plan");
   if (navMesh) features.push("NavMesh Debug");
   if (navGameplayApi) features.push("Nav Gameplay API");
+  if (navGameplayApi) features.push("Agent Registry");
   if (navAgentDemo) features.push("Click-to-Move Agent");
   if (collisionPlan) features.push("Collision Streaming");
   return `${features.join(" + ")} enabled`;
@@ -348,6 +363,7 @@ function runtimeReadyLabel(manifest: LargeWorldManifest): string {
     exposurePlan ? "exposure" : "",
     navMesh ? `${navMesh.tiles.length} nav tiles` : "",
     navGameplayApi ? "nav gameplay api" : "",
+    navAgentRegistrySnapshot ? `${navAgentRegistrySnapshot.count} agents` : "",
     navAgentDemo ? "click-to-move" : "",
     navRouteResult?.status === "success" ? `${navRouteResult.tileIds.length} route tiles` : "",
     collisionPlan ? `${collisionPlan.tiles.length} collision tiles` : "",
