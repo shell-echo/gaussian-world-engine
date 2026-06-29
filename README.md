@@ -1,38 +1,41 @@
-# Splat World Engine — Click-to-Move Agent Demo
+# Splat World Engine — Runtime Nav Agent Registry
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.30 在 0.29 的 `RuntimeNavAgent` 上新增可交互 debug demo：启用 `clickToMove` 后，Runtime 会创建 agent marker、目标 marker、route line，并允许在 canvas 上左键点击设置 agent 目的地。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.31 在 0.30 的 click-to-move demo 之下新增 agent registry：`window.splatWorld.navMesh.createAgent(...)` 创建的 agent 会被 registry 管理，Runtime 主循环会统一自动更新所有 agent。
 
 ```text
 RuntimeNavGameplayApi
-  └── createAgent(options)
-        ↓
-RuntimeNavAgentDebugDemo
-  ├── agent marker
-  ├── target marker
-  ├── route debug line
-  ├── click → ground plane hit
-  └── per-frame agent.update(deltaSeconds)
+  ├── findRoute(start, goal)
+  ├── createAgent(options)
+  ├── getAgent(id)
+  ├── removeAgent(id)
+  ├── updateAgents(deltaSeconds)
+  ├── snapshotAgents()
+  └── agents: RuntimeNavAgentRegistry
+        ├── createAgent(options)
+        ├── getAgent(id)
+        ├── removeAgent(id)
+        ├── update(deltaSeconds)
+        ├── snapshot()
+        └── clear()
 ```
 
-## Runtime/Builder 0.30 能力
+## Runtime/Builder 0.31 能力
 
-- 新增 `src/large/NavAgentDebugDemo.ts`
-- 新增 `RuntimeNavAgentDebugDemo`
-- 通过 URL 参数启用 click-to-move：
-  - `clickToMove=1`
-  - `navAgentDemo=1`
-  - `agentFrom=x,y,z`
-  - `agentTo=x,y,z`
-- demo 会创建：
-  - agent marker
-  - target marker
-  - route debug line
-- 左键点击 canvas 会把鼠标射线投到 `y=0` 地面平面，并调用 agent `setDestination()`
-- Runtime 主循环会自动调用 `agent.update(deltaSeconds)`
-- HUD 显示 agent 状态和 moving 时的剩余距离
-- dispose 时会清理事件监听、marker、route line 和材质/geometry
-- package version 更新为 `0.30.0`
-- Runtime label 更新为 `runtime 0.30`
+- 新增 `src/large/NavAgentRegistry.ts`
+- 新增 `RuntimeNavAgentRegistry`
+- `RuntimeNavGameplayApi` 新增：
+  - `agents`
+  - `getAgent(id)`
+  - `removeAgent(id)`
+  - `updateAgents(deltaSeconds)`
+  - `snapshotAgents()`
+- `createAgent(options)` 现在会创建 registry-managed agent
+- Runtime 主循环统一调用 `navGameplayApi.updateAgents(deltaSeconds)`
+- click-to-move demo 不再自己推进 agent，只读取 registry 更新后的 snapshot
+- dispose 时会从 registry 移除 debug agent，并在 runtime cleanup 时清空 registry
+- HUD 显示 registry 汇总：`agents <count> m<moving>/b<blocked>`
+- package version 更新为 `0.31.0`
+- Runtime label 更新为 `runtime 0.31`
 
 ## 运行 Runtime
 
@@ -47,12 +50,6 @@ npm run dev
 http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1
 ```
 
-带初始点和目标：
-
-```text
-http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1&agentFrom=0,0,0&agentTo=130,0,0
-```
-
 验证：
 
 ```bash
@@ -61,30 +58,9 @@ npm run build
 npm run preview
 ```
 
-## Click-to-move 行为
+## Agent registry API
 
-启用 `clickToMove` 后：
-
-1. Runtime 创建一个绿色 agent marker。
-2. 左键点击 canvas 时，Runtime 将鼠标射线投到 `y=0` 平面。
-3. 点击点会成为黄色 target marker。
-4. agent 使用 `window.splatWorld.navMesh.createAgent(...)` 创建的 controller 寻路。
-5. 如果 route 成功，agent 沿 `NavRouteResult.points` 移动。
-6. HUD 显示：
-
-```text
-agent moving 42.8m
-```
-
-route 失败时：
-
-```text
-agent blocked
-```
-
-## 仍然保留手动 API
-
-0.29 的手动 API 仍可用：
+大场景和 navmesh 加载完成后：
 
 ```js
 const agent = window.splatWorld.navMesh.createAgent({
@@ -94,16 +70,60 @@ const agent = window.splatWorld.navMesh.createAgent({
 })
 
 agent.setDestination([130, 0, 0])
-agent.update(deltaSeconds)
-agent.snapshot()
 ```
+
+不需要手动 `agent.update(deltaSeconds)`；Runtime loop 会自动更新 registry 中的 agent。
+
+查询：
+
+```js
+window.splatWorld.navMesh.getAgent("npc-001")
+window.splatWorld.navMesh.snapshotAgents()
+```
+
+删除：
+
+```js
+window.splatWorld.navMesh.removeAgent("npc-001")
+```
+
+返回示例：
+
+```json
+{
+  "count": 2,
+  "moving": 1,
+  "blocked": 0,
+  "arrived": 1,
+  "idle": 0,
+  "agents": [
+    {
+      "id": "npc-001",
+      "status": "moving",
+      "position": [12.5, 0, 0],
+      "destination": [130, 0, 0],
+      "remainingDistance": 117.5
+    }
+  ]
+}
+```
+
+## Click-to-move 行为变化
+
+0.31 之后，click-to-move demo 的 debug agent 也会注册到 `RuntimeNavAgentRegistry`：
+
+1. `RuntimeNavAgentDebugDemo` 创建 `debug-click-agent`。
+2. agent 被加入 `window.splatWorld.navMesh.agents`。
+3. Runtime loop 每帧统一调用 registry update。
+4. demo 只负责 marker / target / route line / snapshot 展示。
+5. demo dispose 时自动 `removeAgent("debug-click-agent")`。
 
 ## 已知边界
 
-- 0.30 的点击目标目前投影到固定 `y=0` 平面，不是 mesh / depth / collider picking。
-- 当前 demo 不处理 pointer-lock 状态下的点击。
-- 当前 agent 仍沿 route points 直线移动，没有 funnel smoothing。
-- 当前没有局部避障、动态障碍、动画状态机或多 agent registry。
+- 0.31 仍然没有局部避障、动态障碍或 agent-agent avoidance。
+- registry 只负责生命周期和 update，不做调度优先级或分帧 budget。
+- agent 仍沿 route points 直线移动，没有 funnel smoothing。
+- 目前没有事件总线，调用方需要轮询 `snapshotAgents()`。
 
 ## 下一阶段
 
@@ -132,7 +152,8 @@ agent.snapshot()
 - [x] Route query API for gameplay systems
 - [x] NPC agent movement controller scaffold
 - [x] Agent debug visualizer / click-to-move demo
-- [ ] Agent registry / automatic engine-loop integration
+- [x] Agent registry / automatic engine-loop integration
+- [ ] Agent events / arrival callbacks
 
 ## 依赖与许可证
 
