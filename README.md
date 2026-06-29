@@ -1,35 +1,38 @@
-# Splat World Engine — Runtime Nav Gameplay API
+# Splat World Engine — Runtime Nav Agent Controller
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.28 在 0.27 的 `RuntimeNavMeshQuery` 上增加稳定的 gameplay API：大场景加载完成后，游戏逻辑可以通过 `window.splatWorld.navMesh` 查询当前位置所在 tile、最近 walkable tile 和 route。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.29 在 0.28 的 `window.splatWorld.navMesh` gameplay API 上新增轻量 NPC agent movement controller：agent 可以设置目的地、沿 route points 逐帧移动，并输出状态快照。
 
 ```text
-splat-navmesh
-  ├── tiles
-  ├── links
-  ↓
-RuntimeNavMeshQuery
-  ↓
 RuntimeNavGameplayApi
   ├── findTileContaining(point)
   ├── findNearestTile(point)
-  └── findRoute(start, goal)
+  ├── findRoute(start, goal)
+  └── createAgent(options)
+        ├── setDestination(goal)
+        ├── update(deltaSeconds)
+        ├── stop()
+        └── snapshot()
 ```
 
-## Runtime/Builder 0.28 能力
+## Runtime/Builder 0.29 能力
 
-- 新增 `src/large/NavGameplayApi.ts`
-- 新增 `RuntimeNavGameplayApi`
-- `LargeWorldBootstrap` 在 navmesh 加载成功后暴露：
-  - `window.splatWorld.navMesh.findTileContaining(point)`
-  - `window.splatWorld.navMesh.findNearestTile(point)`
-  - `window.splatWorld.navMesh.findRoute(start, goal)`
-- gameplay API 接受 `THREE.Vector3` 或 `[x, y, z]`
-- tile 查询返回稳定 summary，不直接暴露内部 tile 引用
-- route 查询复用 0.27 的 `RuntimeNavMeshQuery.findRoute`
-- URL route debug 仍然保留：`navRoute` / `navFrom` / `navTo`
-- HUD 显示 nav gameplay API 可用 tile 数：`nav-api <count>`
-- package version 更新为 `0.28.0`
-- Runtime label 更新为 `runtime 0.28`
+- 新增 `src/large/NavAgentController.ts`
+- 新增 `RuntimeNavAgent`
+- `RuntimeNavGameplayApi` 新增 `createAgent(options)`
+- agent 支持：
+  - `setDestination(goal)`
+  - `update(deltaSeconds)`
+  - `stop()`
+  - `snapshot()`
+  - `setPosition(point)`
+  - `setSpeed(speed)`
+  - `setArriveDistance(distance)`
+- agent 可以绑定 `THREE.Object3D`，update 时自动同步 object position
+- agent 状态包含：`idle` / `moving` / `arrived` / `blocked`
+- route 失败时进入 `blocked`
+- route 成功时沿 `NavRouteResult.points` 移动
+- package version 更新为 `0.29.0`
+- Runtime label 更新为 `runtime 0.29`
 
 ## 运行 Runtime
 
@@ -52,55 +55,71 @@ npm run build
 npm run preview
 ```
 
-## Gameplay API
+## 创建 agent
 
 大场景和 navmesh 加载完成后：
 
 ```js
-window.splatWorld.navMesh.findTileContaining([0, 0, 0])
-window.splatWorld.navMesh.findNearestTile([130, 0, 0])
-window.splatWorld.navMesh.findRoute([0, 0, 0], [130, 0, 0])
+const agent = window.splatWorld.navMesh.createAgent({
+  id: "npc-001",
+  position: [0, 0, 0],
+  speed: 3,
+  arriveDistance: 0.25
+})
+
+agent.setDestination([130, 0, 0])
 ```
 
-`findTileContaining` / `findNearestTile` 返回：
+每帧更新：
+
+```js
+agent.update(deltaSeconds)
+```
+
+读取状态：
+
+```js
+agent.snapshot()
+```
+
+返回示例：
 
 ```json
 {
-  "tileId": "corridor-000",
-  "walkable": true,
-  "layer": "ground",
-  "bounds": { "min": [-18, -0.05, -6], "max": [18, 0.1, 6] }
+  "id": "npc-001",
+  "status": "moving",
+  "position": [12.5, 0, 0],
+  "velocity": [3, 0, 0],
+  "destination": [130, 0, 0],
+  "routeStatus": "success",
+  "routeTileIds": ["corridor-000", "corridor-001", "corridor-002", "corridor-003"],
+  "currentPointIndex": 1,
+  "remainingDistance": 117.5
 }
 ```
 
-`findRoute` 返回 0.27 的 `NavRouteResult`：
+## 绑定 THREE.Object3D
 
-```json
-{
-  "status": "success",
-  "startTileId": "corridor-000",
-  "goalTileId": "corridor-003",
-  "tileIds": ["corridor-000", "corridor-001", "corridor-002", "corridor-003"],
-  "points": [[0, 0, 0], [20, 0.025, 0], [60, 0.025, 0], [100, 0.025, 0], [130, 0, 0]],
-  "distance": 130
-}
-```
+```js
+const npcObject = new THREE.Object3D()
+scene.add(npcObject)
 
-## URL route debug
+const agent = window.splatWorld.navMesh.createAgent({
+  id: "npc-visual",
+  object: npcObject,
+  speed: 2.2
+})
 
-0.27 的 URL debug 仍然可用：
-
-```text
-http://localhost:5173?world=/worlds/large-demo/world.json&navRoute=1
-http://localhost:5173?world=/worlds/large-demo/world.json&navFrom=-10,0,0&navTo=130,0,0
+agent.setDestination([130, 0, 0])
+agent.update(deltaSeconds)
 ```
 
 ## 已知边界
 
-- 0.28 只提供 gameplay 调用入口，不做 NPC movement controller。
-- 当前 API 仍基于 tile/link route，不是完整 Recast/Detour polygon corridor。
-- 暂未提供事件总线或 ECS system 注入点。
-- 后续可以在这个 API 之上接 NPC agent、任务导航、交互提示和点击寻路。
+- 0.29 是 movement controller scaffold，不包含动画状态机。
+- 当前 agent 沿 route point 直线移动，没有 funnel smoothing。
+- 当前没有局部避障、队列、动态障碍或 agent-agent avoidance。
+- 暂未内置到主循环；调用方需要自己在每帧执行 `agent.update(deltaSeconds)`。
 
 ## 下一阶段
 
@@ -127,7 +146,8 @@ http://localhost:5173?world=/worlds/large-demo/world.json&navFrom=-10,0,0&navTo=
 - [x] Collider file cache / LRU
 - [x] Recast/Detour-style runtime path query scaffold
 - [x] Route query API for gameplay systems
-- [ ] NPC agent movement controller scaffold
+- [x] NPC agent movement controller scaffold
+- [ ] Agent debug visualizer / click-to-move demo
 
 ## 依赖与许可证
 
