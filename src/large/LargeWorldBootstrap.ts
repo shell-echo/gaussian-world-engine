@@ -18,6 +18,10 @@ import {
   type LargeTileStreamingStats,
 } from "./LargeSplatTileManager";
 import {
+  createRuntimeNavGameplayApi,
+  type RuntimeNavGameplayApi,
+} from "./NavGameplayApi";
+import {
   createNavRouteDebugLine,
   parseNavRoutePoint,
   RuntimeNavMeshQuery,
@@ -28,6 +32,10 @@ import {
   createNavMeshDebugGroup,
   type RuntimeNavMeshManifest,
 } from "./NavMeshTypes";
+
+interface RuntimeWorldWindowApi {
+  navMesh?: RuntimeNavGameplayApi;
+}
 
 const statusElement = optionalElement<HTMLElement>("status");
 const toastElement = optionalElement<HTMLElement>("toast");
@@ -41,6 +49,7 @@ const manifestUrl = new URL(pageUrl.searchParams.get("world") ?? "/worlds/demo/w
 let largeManifest: LargeWorldManifest | null = null;
 let exposurePlan: ExposurePlan | null = null;
 let navMesh: RuntimeNavMeshManifest | null = null;
+let navGameplayApi: RuntimeNavGameplayApi | null = null;
 let navRouteResult: NavRouteResult | null = null;
 let collisionPlan: RuntimeCollisionPlan | null = null;
 let navMeshDebugGroup: THREE.Group | null = null;
@@ -87,6 +96,7 @@ window.addEventListener("beforeunload", () => {
   collisionManager?.dispose();
   disposeGroup(navMeshDebugGroup);
   disposeLine(navRouteDebugLine);
+  installRuntimeWorldApi(null);
 });
 
 function installEngineHook(): void {
@@ -101,7 +111,9 @@ function installEngineHook(): void {
       collisionManager?.dispose();
       disposeGroup(navMeshDebugGroup);
       disposeLine(navRouteDebugLine);
+      navGameplayApi = null;
       navRouteResult = null;
+      installRuntimeWorldApi(null);
       tileManager = new LargeSplatTileManager(instance.gaussianWorld, manifest, {
         onStatus: (message) => {
           statusElement && (statusElement.textContent = message);
@@ -129,6 +141,8 @@ function installEngineHook(): void {
       if (navMesh) {
         navMeshDebugGroup = createNavMeshDebugGroup(navMesh);
         instance.scene.add(navMeshDebugGroup);
+        navGameplayApi = createRuntimeNavGameplayApi(navMesh);
+        installRuntimeWorldApi(navGameplayApi);
         installNavRouteDebug(instance.scene, navMesh);
       }
       worldNameElement && (worldNameElement.textContent = manifest.name);
@@ -157,6 +171,7 @@ function startTileLoop(engine: Engine): void {
 function updateStats(stats: LargeTileStreamingStats): void {
   if (!statusElement) return;
   const nav = navMesh ? ` · nav ${navMesh.tiles.length}/${navMesh.links?.length ?? 0}` : "";
+  const navApi = navGameplayApi ? ` · nav-api ${navGameplayApi.walkableTileCount}` : "";
   const route = navRouteResult?.status === "success"
     ? ` · route ${navRouteResult.tileIds.length}t/${navRouteResult.distance.toFixed(1)}m`
     : navRouteResult
@@ -172,6 +187,7 @@ function updateStats(stats: LargeTileStreamingStats): void {
     ` · loading ${stats.loadingTiles}` +
     ` · ${formatLargeBytes(stats.residentBytes)} / ${formatLargeBytes(stats.budgetBytes)}` +
     nav +
+    navApi +
     route +
     collision;
 }
@@ -194,6 +210,17 @@ function installNavRouteDebug(scene: THREE.Scene, manifest: RuntimeNavMeshManife
 
 function shouldShowNavRoute(): boolean {
   return pageUrl.searchParams.has("navRoute") || pageUrl.searchParams.has("navFrom") || pageUrl.searchParams.has("navTo");
+}
+
+function installRuntimeWorldApi(navApi: RuntimeNavGameplayApi | null): void {
+  const target = window as unknown as { splatWorld?: RuntimeWorldWindowApi };
+  if (navApi) {
+    target.splatWorld = { ...(target.splatWorld ?? {}), navMesh: navApi };
+    return;
+  }
+  if (!target.splatWorld) return;
+  delete target.splatWorld.navMesh;
+  if (!target.splatWorld.navMesh) delete target.splatWorld;
 }
 
 function interceptLargeManifest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -268,6 +295,7 @@ function runtimeStatusLabel(): string {
   const features = ["Large Tile Streaming"];
   if (exposurePlan) features.push("Exposure Plan");
   if (navMesh) features.push("NavMesh Debug");
+  if (navGameplayApi) features.push("Nav Gameplay API");
   if (collisionPlan) features.push("Collision Streaming");
   return `${features.join(" + ")} enabled`;
 }
@@ -276,6 +304,7 @@ function runtimeReadyLabel(manifest: LargeWorldManifest): string {
   const suffix = [
     exposurePlan ? "exposure" : "",
     navMesh ? `${navMesh.tiles.length} nav tiles` : "",
+    navGameplayApi ? "nav gameplay api" : "",
     navRouteResult?.status === "success" ? `${navRouteResult.tileIds.length} route tiles` : "",
     collisionPlan ? `${collisionPlan.tiles.length} collision tiles` : "",
   ].filter(Boolean).join(" · ");
