@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { Vec3Tuple } from "../types/world.js";
 import type { BoundsData } from "./LargeWorldTypes.js";
+import { RuntimeNavAgent, type RuntimeNavAgentOptions } from "./NavAgentController.js";
 import { RuntimeNavMeshQuery, type NavRouteResult } from "./NavMeshQuery.js";
 import type { RuntimeNavMeshManifest, RuntimeNavMeshTile } from "./NavMeshTypes.js";
 
@@ -19,19 +20,21 @@ export interface RuntimeNavGameplayApi {
   findTileContaining: (point: RuntimeNavPoint) => RuntimeNavTileHit | null;
   findNearestTile: (point: RuntimeNavPoint) => RuntimeNavTileHit | null;
   findRoute: (start: RuntimeNavPoint, goal: RuntimeNavPoint) => NavRouteResult;
+  createAgent: (options?: RuntimeNavAgentOptions) => RuntimeNavAgent;
 }
 
 export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): RuntimeNavGameplayApi {
   const query = new RuntimeNavMeshQuery(manifest);
   const walkableTileCount = manifest.tiles.filter((tile) => tile.walkable).length;
-
-  return {
+  const api: RuntimeNavGameplayApi = {
     ready: true,
     walkableTileCount,
     findTileContaining: (point) => summarizeTile(query.findTileContaining(toVector3(point))),
     findNearestTile: (point) => summarizeTile(query.findNearestTile(toVector3(point))),
     findRoute: (start, goal) => query.findRoute(toVector3(start), toVector3(goal)),
+    createAgent: (options) => new RuntimeNavAgent(api, options),
   };
+  return api;
 }
 
 function summarizeTile(tile: RuntimeNavMeshTile | null): RuntimeNavTileHit | null {
