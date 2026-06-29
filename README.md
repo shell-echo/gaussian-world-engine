@@ -1,6 +1,6 @@
-# Splat World Engine — Runtime NavMesh Route Query
+# Splat World Engine — Runtime Nav Gameplay API
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.27 在 `splat-navmesh` 的 tile/link 数据上增加轻量 route query scaffold：Runtime 可以从起点/终点找到最近 walkable tile，沿 tile links 搜索路线，并绘制调试路线线段。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.28 在 0.27 的 `RuntimeNavMeshQuery` 上增加稳定的 gameplay API：大场景加载完成后，游戏逻辑可以通过 `window.splatWorld.navMesh` 查询当前位置所在 tile、最近 walkable tile 和 route。
 
 ```text
 splat-navmesh
@@ -8,27 +8,28 @@ splat-navmesh
   ├── links
   ↓
 RuntimeNavMeshQuery
-  ├── nearest walkable tile
-  ├── tile graph search
-  ├── portal / tile-center route points
-  └── debug route line
+  ↓
+RuntimeNavGameplayApi
+  ├── findTileContaining(point)
+  ├── findNearestTile(point)
+  └── findRoute(start, goal)
 ```
 
-## Runtime/Builder 0.27 能力
+## Runtime/Builder 0.28 能力
 
-- 新增 `src/large/NavMeshQuery.ts`
-- 新增 `RuntimeNavMeshQuery`
-- 支持 `findTileContaining(point)`
-- 支持 `findNearestTile(point)`
-- 支持 `findRoute(start, goal)`
-- route 会使用 walkable tiles 和 `links`
-- same-tile route 会直接连接起点/终点
-- 跨 tile route 会经过 portal bounds center 或 tile center
-- 新增 `createNavRouteDebugLine(result)`
-- `LargeWorldBootstrap` 支持 URL 参数触发 route debug
-- HUD 显示 route tile 数和距离
-- package version 更新为 `0.27.0`
-- Runtime label 更新为 `runtime 0.27`
+- 新增 `src/large/NavGameplayApi.ts`
+- 新增 `RuntimeNavGameplayApi`
+- `LargeWorldBootstrap` 在 navmesh 加载成功后暴露：
+  - `window.splatWorld.navMesh.findTileContaining(point)`
+  - `window.splatWorld.navMesh.findNearestTile(point)`
+  - `window.splatWorld.navMesh.findRoute(start, goal)`
+- gameplay API 接受 `THREE.Vector3` 或 `[x, y, z]`
+- tile 查询返回稳定 summary，不直接暴露内部 tile 引用
+- route 查询复用 0.27 的 `RuntimeNavMeshQuery.findRoute`
+- URL route debug 仍然保留：`navRoute` / `navFrom` / `navTo`
+- HUD 显示 nav gameplay API 可用 tile 数：`nav-api <count>`
+- package version 更新为 `0.28.0`
+- Runtime label 更新为 `runtime 0.28`
 
 ## 运行 Runtime
 
@@ -43,18 +44,6 @@ npm run dev
 http://localhost:5173?world=/worlds/large-demo/world.json
 ```
 
-显示默认 nav route：
-
-```text
-http://localhost:5173?world=/worlds/large-demo/world.json&navRoute=1
-```
-
-指定起点和终点：
-
-```text
-http://localhost:5173?world=/worlds/large-demo/world.json&navFrom=-10,0,0&navTo=130,0,0
-```
-
 验证：
 
 ```bash
@@ -63,23 +52,55 @@ npm run build
 npm run preview
 ```
 
-## Route query 行为
+## Gameplay API
 
-`RuntimeNavMeshQuery` 当前是 tile/link 级别的 scaffold：
+大场景和 navmesh 加载完成后：
 
-- 优先找包含 point 的 walkable tile
-- 如果 point 不在任何 tile 内，使用最近 walkable tile
-- 根据 `RuntimeNavMeshLink` 构建图
-- `bidirectional` 缺省为 `true`
-- route point 会使用 portal center；没有 portal 时使用目标 tile center
-- 输出 `NavRouteResult.status / tileIds / points / distance`
+```js
+window.splatWorld.navMesh.findTileContaining([0, 0, 0])
+window.splatWorld.navMesh.findNearestTile([130, 0, 0])
+window.splatWorld.navMesh.findRoute([0, 0, 0], [130, 0, 0])
+```
+
+`findTileContaining` / `findNearestTile` 返回：
+
+```json
+{
+  "tileId": "corridor-000",
+  "walkable": true,
+  "layer": "ground",
+  "bounds": { "min": [-18, -0.05, -6], "max": [18, 0.1, 6] }
+}
+```
+
+`findRoute` 返回 0.27 的 `NavRouteResult`：
+
+```json
+{
+  "status": "success",
+  "startTileId": "corridor-000",
+  "goalTileId": "corridor-003",
+  "tileIds": ["corridor-000", "corridor-001", "corridor-002", "corridor-003"],
+  "points": [[0, 0, 0], [20, 0.025, 0], [60, 0.025, 0], [100, 0.025, 0], [130, 0, 0]],
+  "distance": 130
+}
+```
+
+## URL route debug
+
+0.27 的 URL debug 仍然可用：
+
+```text
+http://localhost:5173?world=/worlds/large-demo/world.json&navRoute=1
+http://localhost:5173?world=/worlds/large-demo/world.json&navFrom=-10,0,0&navTo=130,0,0
+```
 
 ## 已知边界
 
-- 0.27 不是完整 Recast/Detour 多边形寻路。
-- 当前路线粒度是 tile/link，不是 polygon corridor。
-- 没有做 funnel smoothing / off-mesh link / dynamic obstacle。
-- 后续可以把 `RuntimeNavMeshQuery` 的接口保留，底层替换成 Detour-style query。
+- 0.28 只提供 gameplay 调用入口，不做 NPC movement controller。
+- 当前 API 仍基于 tile/link route，不是完整 Recast/Detour polygon corridor。
+- 暂未提供事件总线或 ECS system 注入点。
+- 后续可以在这个 API 之上接 NPC agent、任务导航、交互提示和点击寻路。
 
 ## 下一阶段
 
@@ -105,7 +126,8 @@ npm run preview
 - [x] Heightfield / mesh collision artifacts scaffold
 - [x] Collider file cache / LRU
 - [x] Recast/Detour-style runtime path query scaffold
-- [ ] Route query API for gameplay systems
+- [x] Route query API for gameplay systems
+- [ ] NPC agent movement controller scaffold
 
 ## 依赖与许可证
 
