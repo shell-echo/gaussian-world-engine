@@ -20,6 +20,10 @@ export interface RuntimeNavAgentRegistryEvent {
 
 export type RuntimeNavAgentRegistryListener = (event: RuntimeNavAgentRegistryEvent) => void;
 
+export interface RuntimeNavAgentRegistryOptions {
+  maxEvents?: number;
+}
+
 export interface RuntimeNavAgentRegistrySnapshot {
   count: number;
   moving: number;
@@ -27,15 +31,26 @@ export interface RuntimeNavAgentRegistrySnapshot {
   arrived: number;
   idle: number;
   pendingEvents: number;
+  maxEvents: number;
+  droppedEvents: number;
   agents: RuntimeNavAgentSnapshot[];
 }
+
+const DEFAULT_MAX_EVENTS = 128;
 
 export class RuntimeNavAgentRegistry {
   private readonly agents = new Map<string, RuntimeNavAgent>();
   private readonly events: RuntimeNavAgentRegistryEvent[] = [];
   private readonly listeners = new Set<RuntimeNavAgentRegistryListener>();
+  private maxEventsValue: number;
+  private droppedEventsValue = 0;
 
-  constructor(private readonly nav: RuntimeNavRouteProvider) {}
+  constructor(
+    private readonly nav: RuntimeNavRouteProvider,
+    options: RuntimeNavAgentRegistryOptions = {},
+  ) {
+    this.maxEventsValue = normalizeMaxEvents(options.maxEvents);
+  }
 
   createAgent(options: RuntimeNavAgentOptions = {}): RuntimeNavAgent {
     const agent = new Agent(this.nav, {
@@ -85,6 +100,19 @@ export class RuntimeNavAgentRegistry {
     return () => this.listeners.delete(listener);
   }
 
+  get maxEvents(): number {
+    return this.maxEventsValue;
+  }
+
+  get droppedEvents(): number {
+    return this.droppedEventsValue;
+  }
+
+  setMaxEvents(maxEvents: number): void {
+    this.maxEventsValue = normalizeMaxEvents(maxEvents);
+    this.trimEvents();
+  }
+
   peekEvents(): RuntimeNavAgentRegistryEvent[] {
     return this.events.map(cloneEvent);
   }
@@ -109,12 +137,15 @@ export class RuntimeNavAgentRegistry {
       arrived: agents.filter((agent) => agent.status === "arrived").length,
       idle: agents.filter((agent) => agent.status === "idle").length,
       pendingEvents: this.events.length,
+      maxEvents: this.maxEventsValue,
+      droppedEvents: this.droppedEventsValue,
       agents,
     };
   }
 
   clearEvents(): void {
     this.events.length = 0;
+    this.droppedEventsValue = 0;
   }
 
   clear(): void {
@@ -136,8 +167,22 @@ export class RuntimeNavAgentRegistry {
   private emit(event: RuntimeNavAgentRegistryEvent): void {
     const cloned = cloneEvent(event);
     this.events.push(cloned);
+    this.trimEvents();
     for (const listener of this.listeners) listener(cloneEvent(cloned));
   }
+
+  private trimEvents(): void {
+    if (this.events.length <= this.maxEventsValue) return;
+    const dropCount = this.events.length - this.maxEventsValue;
+    this.events.splice(0, dropCount);
+    this.droppedEventsValue += dropCount;
+  }
+}
+
+function normalizeMaxEvents(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : DEFAULT_MAX_EVENTS;
 }
 
 function cloneEvent(event: RuntimeNavAgentRegistryEvent): RuntimeNavAgentRegistryEvent {

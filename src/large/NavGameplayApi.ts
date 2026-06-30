@@ -8,6 +8,11 @@ import {
   type RuntimeNavAgentRegistryListener,
   type RuntimeNavAgentRegistrySnapshot,
 } from "./NavAgentRegistry.js";
+import {
+  RuntimeNavMissionHooks,
+  type RuntimeNavMissionHook,
+  type RuntimeNavMissionHookSnapshot,
+} from "./NavMissionHooks.js";
 import { RuntimeNavMeshQuery, type NavRouteResult } from "./NavMeshQuery.js";
 import type { RuntimeNavMeshManifest, RuntimeNavMeshTile } from "./NavMeshTypes.js";
 
@@ -24,6 +29,7 @@ export interface RuntimeNavGameplayApi {
   readonly ready: true;
   readonly walkableTileCount: number;
   readonly agents: RuntimeNavAgentRegistry;
+  readonly missions: RuntimeNavMissionHooks;
   findTileContaining: (point: RuntimeNavPoint) => RuntimeNavTileHit | null;
   findNearestTile: (point: RuntimeNavPoint) => RuntimeNavTileHit | null;
   findRoute: (start: RuntimeNavPoint, goal: RuntimeNavPoint) => NavRouteResult;
@@ -36,6 +42,11 @@ export interface RuntimeNavGameplayApi {
   peekAgentEvents: () => RuntimeNavAgentRegistryEvent[];
   drainAgentEvents: () => RuntimeNavAgentRegistryEvent[];
   clearAgentEvents: () => void;
+  setAgentEventLimit: (maxEvents: number) => void;
+  addMissionHook: (hook: RuntimeNavMissionHook) => () => boolean;
+  removeMissionHook: (id: string) => boolean;
+  clearMissionHooks: () => void;
+  snapshotMissionHooks: () => RuntimeNavMissionHookSnapshot;
 }
 
 export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): RuntimeNavGameplayApi {
@@ -44,10 +55,13 @@ export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): R
   const registry = new RuntimeNavAgentRegistry({
     findRoute: (start, goal) => query.findRoute(toVector3(start), toVector3(goal)),
   });
+  const missions = new RuntimeNavMissionHooks();
+  registry.subscribe((event) => missions.handleEvent(event));
   const api: RuntimeNavGameplayApi = {
     ready: true,
     walkableTileCount,
     agents: registry,
+    missions,
     findTileContaining: (point) => summarizeTile(query.findTileContaining(toVector3(point))),
     findNearestTile: (point) => summarizeTile(query.findNearestTile(toVector3(point))),
     findRoute: (start, goal) => query.findRoute(toVector3(start), toVector3(goal)),
@@ -60,6 +74,11 @@ export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): R
     peekAgentEvents: () => registry.peekEvents(),
     drainAgentEvents: () => registry.drainEvents(),
     clearAgentEvents: () => registry.clearEvents(),
+    setAgentEventLimit: (maxEvents) => registry.setMaxEvents(maxEvents),
+    addMissionHook: (hook) => missions.addHook(hook),
+    removeMissionHook: (id) => missions.removeHook(id),
+    clearMissionHooks: () => missions.clearHooks(),
+    snapshotMissionHooks: () => missions.snapshot(),
   };
   return api;
 }

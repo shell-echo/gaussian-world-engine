@@ -1,47 +1,49 @@
-# Splat World Engine — Runtime Nav Agent Events
+# Splat World Engine — Nav Mission Hooks
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.32 在 0.31 的 agent registry 上新增事件与回调：agent 到达、阻塞、状态变化、创建和移除都会产生 registry event，也可以在创建 agent 时绑定回调。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.33 在 0.32 的 agent events 上补齐 event buffer 上限和 mission hook scaffold：事件队列默认只保留最近 128 条，任务系统可以用 hook 监听指定 agent 的 arrived / blocked / status-change 等事件。
 
 ```text
-RuntimeNavAgent
-  ├── onStatusChange(change)
-  ├── onArrive(snapshot)
-  └── onBlocked(snapshot)
-
 RuntimeNavAgentRegistry
-  ├── subscribe(listener)
+  ├── maxEvents / droppedEvents
+  ├── setMaxEvents(maxEvents)
   ├── peekEvents()
-  ├── drainEvents()
-  └── clearEvents()
+  └── drainEvents()
+
+RuntimeNavMissionHooks
+  ├── addHook(hook)
+  ├── removeHook(id)
+  ├── clearHooks()
+  └── snapshot()
 ```
 
-## Runtime/Builder 0.32 能力
+## Runtime/Builder 0.33 能力
 
-- `RuntimeNavAgentOptions` 新增：
-  - `onStatusChange(change)`
-  - `onArrive(snapshot)`
-  - `onBlocked(snapshot)`
-- `RuntimeNavAgent` 在状态变化时触发回调
-- `RuntimeNavAgentRegistry` 新增事件类型：
-  - `created`
-  - `removed`
-  - `status-change`
-  - `arrived`
-  - `blocked`
+- `RuntimeNavAgentRegistry` 新增 event buffer limit
+- 默认最多保留最近 128 条 agent events
+- 超过上限时丢弃最旧事件，并累计 `droppedEvents`
+- `RuntimeNavAgentRegistrySnapshot` 新增：
+  - `maxEvents`
+  - `droppedEvents`
 - registry 新增：
-  - `subscribe(listener)`
-  - `peekEvents()`
-  - `drainEvents()`
-  - `clearEvents()`
-- `RuntimeNavGameplayApi` 暴露：
-  - `subscribeAgentEvents(listener)`
-  - `peekAgentEvents()`
-  - `drainAgentEvents()`
-  - `clearAgentEvents()`
-- agent registry snapshot 新增 `pendingEvents`
-- HUD 显示 pending event 数：`agents <count> m<moving>/b<blocked>/e<events>`
-- package version 更新为 `0.32.0`
-- Runtime label 更新为 `runtime 0.32`
+  - `setMaxEvents(maxEvents)`
+  - `maxEvents`
+  - `droppedEvents`
+- 新增 `src/large/NavMissionHooks.ts`
+- 新增 `RuntimeNavMissionHooks`
+- mission hook 支持按：
+  - `agentId`
+  - `type`
+  - `once`
+  过滤 registry event
+- `RuntimeNavGameplayApi` 新增：
+  - `missions`
+  - `setAgentEventLimit(maxEvents)`
+  - `addMissionHook(hook)`
+  - `removeMissionHook(id)`
+  - `clearMissionHooks()`
+  - `snapshotMissionHooks()`
+- package version 更新为 `0.33.0`
+- Runtime label 更新为 `runtime 0.33`
 
 ## 运行 Runtime
 
@@ -64,78 +66,83 @@ npm run build
 npm run preview
 ```
 
-## Agent 回调
+## Event buffer limit
 
-创建 agent 时可以直接传入回调：
+默认最多保留最近 128 条 event。可以在运行时调整：
 
 ```js
-const agent = window.splatWorld.navMesh.createAgent({
-  id: "npc-001",
-  position: [0, 0, 0],
-  onArrive: (snapshot) => {
-    console.log("arrived", snapshot.id)
-  },
-  onBlocked: (snapshot) => {
-    console.warn("blocked", snapshot.id)
-  },
-  onStatusChange: (change) => {
-    console.log(change.agentId, change.previousStatus, "→", change.status)
-  }
-})
-
-agent.setDestination([130, 0, 0])
+window.splatWorld.navMesh.setAgentEventLimit(32)
 ```
 
-## Registry 事件
-
-订阅所有 agent 事件：
+查看状态：
 
 ```js
-const unsubscribe = window.splatWorld.navMesh.subscribeAgentEvents((event) => {
-  console.log(event.type, event.agentId, event.status)
-})
+window.splatWorld.navMesh.snapshotAgents()
 ```
 
-读取但不清空 pending events：
+返回中会包含：
 
-```js
-window.splatWorld.navMesh.peekAgentEvents()
+```json
+{
+  "pendingEvents": 12,
+  "maxEvents": 32,
+  "droppedEvents": 4
+}
 ```
 
 读取并清空 pending events：
 
 ```js
-window.splatWorld.navMesh.drainAgentEvents()
+const events = window.splatWorld.navMesh.drainAgentEvents()
 ```
 
-手动清空：
+## Mission hook scaffold
+
+监听某个 agent 到达：
 
 ```js
-window.splatWorld.navMesh.clearAgentEvents()
+const removeHook = window.splatWorld.navMesh.addMissionHook({
+  id: "quest-arrive-home",
+  agentId: "npc-001",
+  type: "arrived",
+  once: true,
+  onEvent: (event) => {
+    console.log("mission progressed", event.agentId)
+  }
+})
 ```
 
-事件对象示例：
+监听所有 blocked 事件：
 
-```json
-{
-  "type": "arrived",
-  "agentId": "npc-001",
-  "status": "arrived",
-  "snapshot": {
-    "id": "npc-001",
-    "status": "arrived",
-    "position": [130, 0, 0],
-    "destination": [130, 0, 0],
-    "routeStatus": "success",
-    "remainingDistance": 0
+```js
+window.splatWorld.navMesh.addMissionHook({
+  id: "debug-blocked",
+  type: "blocked",
+  onEvent: (event) => {
+    console.warn("blocked", event.agentId)
   }
-}
+})
+```
+
+查看 hooks：
+
+```js
+window.splatWorld.navMesh.snapshotMissionHooks()
+```
+
+移除 hook：
+
+```js
+removeHook()
+// or
+window.splatWorld.navMesh.removeMissionHook("quest-arrive-home")
 ```
 
 ## 已知边界
 
-- 0.32 只提供事件、回调和 pending event queue，不做任务系统。
-- 事件队列没有大小限制；后续可增加 ring buffer 或 max event count。
+- 0.33 只是 mission hook scaffold，不包含完整任务图、任务状态存储或保存/恢复。
+- hook 在当前 Runtime 生命周期内有效，刷新页面后不会持久化。
+- event buffer 只按条数限制，不按内存大小限制。
 - 仍然没有局部避障、动态障碍或 agent-agent avoidance。
 - agent 仍沿 route points 直线移动，没有 funnel smoothing。
 
@@ -168,7 +175,8 @@ window.splatWorld.navMesh.clearAgentEvents()
 - [x] Agent debug visualizer / click-to-move demo
 - [x] Agent registry / automatic engine-loop integration
 - [x] Agent events / arrival callbacks
-- [ ] Agent event buffer limits / mission hook scaffold
+- [x] Agent event buffer limits / mission hook scaffold
+- [ ] Mission state persistence scaffold
 
 ## 依赖与许可证
 
