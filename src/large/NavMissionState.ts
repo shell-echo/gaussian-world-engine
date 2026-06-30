@@ -70,7 +70,7 @@ export class RuntimeNavMissionState {
   }
 
   getMission(id: string): RuntimeNavMissionRecord | null {
-    const mission = this.missions.get(id);
+    const mission = this.missions.get(normalizeMissionId(id));
     return mission ? cloneMission(mission) : null;
   }
 
@@ -138,7 +138,7 @@ export class RuntimeNavMissionState {
   }
 
   removeMission(id: string): boolean {
-    return this.missions.delete(id);
+    return this.missions.delete(normalizeMissionId(id));
   }
 
   clearMissions(): void {
