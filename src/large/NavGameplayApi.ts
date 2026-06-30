@@ -13,6 +13,17 @@ import {
   type RuntimeNavMissionHook,
   type RuntimeNavMissionHookSnapshot,
 } from "./NavMissionHooks.js";
+import {
+  RuntimeNavMissionState,
+  type RuntimeNavMissionData,
+  type RuntimeNavMissionDataValue,
+  type RuntimeNavMissionDraft,
+  type RuntimeNavMissionPatch,
+  type RuntimeNavMissionRecord,
+  type RuntimeNavMissionRestoreOptions,
+  type RuntimeNavMissionSaveData,
+  type RuntimeNavMissionStateSnapshot,
+} from "./NavMissionState.js";
 import { RuntimeNavMeshQuery, type NavRouteResult } from "./NavMeshQuery.js";
 import type { RuntimeNavMeshManifest, RuntimeNavMeshTile } from "./NavMeshTypes.js";
 
@@ -30,6 +41,7 @@ export interface RuntimeNavGameplayApi {
   readonly walkableTileCount: number;
   readonly agents: RuntimeNavAgentRegistry;
   readonly missions: RuntimeNavMissionHooks;
+  readonly missionState: RuntimeNavMissionState;
   findTileContaining: (point: RuntimeNavPoint) => RuntimeNavTileHit | null;
   findNearestTile: (point: RuntimeNavPoint) => RuntimeNavTileHit | null;
   findRoute: (start: RuntimeNavPoint, goal: RuntimeNavPoint) => NavRouteResult;
@@ -47,6 +59,20 @@ export interface RuntimeNavGameplayApi {
   removeMissionHook: (id: string) => boolean;
   clearMissionHooks: () => void;
   snapshotMissionHooks: () => RuntimeNavMissionHookSnapshot;
+  createMission: (draft: RuntimeNavMissionDraft) => RuntimeNavMissionRecord;
+  upsertMission: (draft: RuntimeNavMissionDraft) => RuntimeNavMissionRecord;
+  getMission: (id: string) => RuntimeNavMissionRecord | null;
+  updateMission: (id: string, patch: RuntimeNavMissionPatch) => RuntimeNavMissionRecord;
+  activateMission: (id: string, data?: RuntimeNavMissionData) => RuntimeNavMissionRecord;
+  completeMission: (id: string, data?: RuntimeNavMissionData) => RuntimeNavMissionRecord;
+  failMission: (id: string, data?: RuntimeNavMissionData) => RuntimeNavMissionRecord;
+  resetMission: (id: string) => RuntimeNavMissionRecord;
+  setMissionData: (id: string, key: string, value: RuntimeNavMissionDataValue) => RuntimeNavMissionRecord;
+  removeMission: (id: string) => boolean;
+  clearMissions: () => void;
+  snapshotMissionState: () => RuntimeNavMissionStateSnapshot;
+  exportMissionState: () => RuntimeNavMissionSaveData;
+  restoreMissionState: (input: RuntimeNavMissionSaveData | string, options?: RuntimeNavMissionRestoreOptions) => RuntimeNavMissionStateSnapshot;
 }
 
 export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): RuntimeNavGameplayApi {
@@ -56,12 +82,14 @@ export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): R
     findRoute: (start, goal) => query.findRoute(toVector3(start), toVector3(goal)),
   });
   const missions = new RuntimeNavMissionHooks();
+  const missionState = new RuntimeNavMissionState();
   registry.subscribe((event) => missions.handleEvent(event));
   const api: RuntimeNavGameplayApi = {
     ready: true,
     walkableTileCount,
     agents: registry,
     missions,
+    missionState,
     findTileContaining: (point) => summarizeTile(query.findTileContaining(toVector3(point))),
     findNearestTile: (point) => summarizeTile(query.findNearestTile(toVector3(point))),
     findRoute: (start, goal) => query.findRoute(toVector3(start), toVector3(goal)),
@@ -79,6 +107,20 @@ export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): R
     removeMissionHook: (id) => missions.removeHook(id),
     clearMissionHooks: () => missions.clearHooks(),
     snapshotMissionHooks: () => missions.snapshot(),
+    createMission: (draft) => missionState.createMission(draft),
+    upsertMission: (draft) => missionState.upsertMission(draft),
+    getMission: (id) => missionState.getMission(id),
+    updateMission: (id, patch) => missionState.updateMission(id, patch),
+    activateMission: (id, data) => missionState.activateMission(id, data),
+    completeMission: (id, data) => missionState.completeMission(id, data),
+    failMission: (id, data) => missionState.failMission(id, data),
+    resetMission: (id) => missionState.resetMission(id),
+    setMissionData: (id, key, value) => missionState.setMissionData(id, key, value),
+    removeMission: (id) => missionState.removeMission(id),
+    clearMissions: () => missionState.clearMissions(),
+    snapshotMissionState: () => missionState.snapshot(),
+    exportMissionState: () => missionState.exportState(),
+    restoreMissionState: (input, options) => missionState.restoreState(input, options),
   };
   return api;
 }
