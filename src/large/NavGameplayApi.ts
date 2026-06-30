@@ -15,6 +15,8 @@ import {
 } from "./NavMissionHooks.js";
 import {
   RuntimeNavMissionState,
+  type RuntimeNavMissionData,
+  type RuntimeNavMissionDataValue,
   type RuntimeNavMissionDraft,
   type RuntimeNavMissionPatch,
   type RuntimeNavMissionRecord,
@@ -61,10 +63,11 @@ export interface RuntimeNavGameplayApi {
   upsertMission: (draft: RuntimeNavMissionDraft) => RuntimeNavMissionRecord;
   getMission: (id: string) => RuntimeNavMissionRecord | null;
   updateMission: (id: string, patch: RuntimeNavMissionPatch) => RuntimeNavMissionRecord;
-  activateMission: (id: string) => RuntimeNavMissionRecord;
-  completeMission: (id: string) => RuntimeNavMissionRecord;
-  failMission: (id: string) => RuntimeNavMissionRecord;
+  activateMission: (id: string, data?: RuntimeNavMissionData) => RuntimeNavMissionRecord;
+  completeMission: (id: string, data?: RuntimeNavMissionData) => RuntimeNavMissionRecord;
+  failMission: (id: string, data?: RuntimeNavMissionData) => RuntimeNavMissionRecord;
   resetMission: (id: string) => RuntimeNavMissionRecord;
+  setMissionData: (id: string, key: string, value: RuntimeNavMissionDataValue) => RuntimeNavMissionRecord;
   removeMission: (id: string) => boolean;
   clearMissions: () => void;
   snapshotMissionState: () => RuntimeNavMissionStateSnapshot;
@@ -108,10 +111,11 @@ export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): R
     upsertMission: (draft) => missionState.upsertMission(draft),
     getMission: (id) => missionState.getMission(id),
     updateMission: (id, patch) => missionState.updateMission(id, patch),
-    activateMission: (id) => missionState.activateMission(id),
-    completeMission: (id) => missionState.completeMission(id),
-    failMission: (id) => missionState.failMission(id),
+    activateMission: (id, data) => missionState.activateMission(id, data),
+    completeMission: (id, data) => missionState.completeMission(id, data),
+    failMission: (id, data) => missionState.failMission(id, data),
     resetMission: (id) => missionState.resetMission(id),
+    setMissionData: (id, key, value) => missionState.setMissionData(id, key, value),
     removeMission: (id) => missionState.removeMission(id),
     clearMissions: () => missionState.clearMissions(),
     snapshotMissionState: () => missionState.snapshot(),
