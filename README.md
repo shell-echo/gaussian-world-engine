@@ -1,62 +1,76 @@
-# Splat World Engine — Nav Mission State Persistence
+# Splat World Engine — Nav Mission Graph
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.34 在 0.33 的 mission hook scaffold 之上新增轻量 mission state persistence scaffold：任务可以被创建、激活、完成、失败、重置，并导出为可 JSON 序列化的 save payload，再在下次进入 Runtime 时 restore。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.35 在 0.34 的 mission state persistence scaffold 之上新增 mission graph / objective dependency scaffold：任务可以继续保存状态，objective 可以声明依赖其他 objective 或 mission 状态，并在 snapshot 时得到 resolved status 与 readyObjectiveIds。
 
 ```text
-RuntimeNavMissionHooks
-  ├── addHook(hook)
-  ├── removeHook(id)
-  ├── clearHooks()
-  └── snapshot()
-
 RuntimeNavMissionState
   ├── createMission(draft)
-  ├── updateMission(id, patch)
   ├── completeMission(id)
-  ├── failMission(id)
-  ├── snapshot()
   ├── exportState()
   └── restoreState(save)
+
+RuntimeNavMissionGraph
+  ├── createObjective(draft)
+  ├── completeObjective(id)
+  ├── snapshot(missionState)
+  ├── exportGraph()
+  └── restoreGraph(graph)
 ```
 
-## Runtime/Builder 0.34 能力
+## Runtime/Builder 0.35 能力
 
-- 新增 `src/large/NavMissionState.ts`
-- 新增 `RuntimeNavMissionState`
-- mission state 支持：
-  - `inactive`
+- 新增 `src/large/NavMissionGraph.ts`
+- 新增 `RuntimeNavMissionGraph`
+- objective 支持：
+  - `locked`
   - `active`
   - `completed`
   - `failed`
-- mission record 包含：
+- objective record 包含：
   - `id`
+  - `missionId`
+  - `title`
+  - `description`
   - `status`
-  - `progress`
+  - `autoActivate`
+  - `dependsOn`
+  - `requiredMissions`
+  - `conditions`
   - `data`
   - `updatedAt`
   - `completedAt`
   - `failedAt`
-- 支持 JSON save/restore scaffold：
-  - `exportState()`
-  - `restoreState(save)`
+- dependency resolver 支持：
+  - objective 依赖 objective 完成
+  - objective 依赖 mission 完成
+  - condition 指定 objective 或 mission 的目标状态
+  - 简单 cycle blocking 标记
+- graph snapshot 新增：
+  - `resolvedStatus`
+  - `dependenciesSatisfied`
+  - `blockedBy`
+  - `readyObjectiveIds`
+- 支持 graph JSON export/restore：
+  - `exportGraph()`
+  - `restoreGraph(graph)`
 - `RuntimeNavGameplayApi` 新增：
-  - `missionState`
-  - `createMission(draft)`
-  - `upsertMission(draft)`
-  - `getMission(id)`
-  - `updateMission(id, patch)`
-  - `activateMission(id)`
-  - `completeMission(id)`
-  - `failMission(id)`
-  - `resetMission(id)`
-  - `setMissionData(id, key, value)`
-  - `removeMission(id)`
-  - `clearMissions()`
-  - `snapshotMissionState()`
-  - `exportMissionState()`
-  - `restoreMissionState(save, options)`
-- package version 更新为 `0.34.0`
-- Runtime label 更新为 `runtime 0.34`
+  - `missionGraph`
+  - `createObjective(draft)`
+  - `upsertObjective(draft)`
+  - `getObjective(id)`
+  - `updateObjective(id, patch)`
+  - `activateObjective(id)`
+  - `completeObjective(id)`
+  - `failObjective(id)`
+  - `resetObjective(id)`
+  - `setObjectiveData(id, key, value)`
+  - `removeObjective(id)`
+  - `clearObjectives()`
+  - `snapshotMissionGraph()`
+  - `exportMissionGraph()`
+  - `restoreMissionGraph(graph, options)`
+- package version 更新为 `0.35.0`
+- Runtime label 更新为 `runtime 0.35`
 
 ## 运行 Runtime
 
@@ -187,33 +201,6 @@ window.splatWorld.navMesh.addMissionHook({
 window.splatWorld.navMesh.snapshotMissionState()
 ```
 
-返回示例：
-
-```json
-{
-  "schemaVersion": 1,
-  "count": 1,
-  "inactive": 0,
-  "active": 0,
-  "completed": 1,
-  "failed": 0,
-  "missions": [
-    {
-      "id": "quest-arrive-home",
-      "status": "completed",
-      "progress": 1,
-      "data": {
-        "title": "走到安全屋",
-        "targetAgentId": "npc-001"
-      },
-      "updatedAt": 1790000000000,
-      "completedAt": 1790000000000,
-      "failedAt": null
-    }
-  ]
-}
-```
-
 更新任务自定义数据：
 
 ```js
@@ -234,17 +221,97 @@ const save = localStorage.getItem("swe:mission-state")
 if (save) window.splatWorld.navMesh.restoreMissionState(save)
 ```
 
-合并式恢复：
+## Mission graph / objective dependency scaffold
+
+创建一个 mission 和两个 objective：
 
 ```js
-window.splatWorld.navMesh.restoreMissionState(save, { merge: true })
+window.splatWorld.navMesh.createMission({
+  id: "escape-house",
+  status: "active",
+  data: {
+    title: "逃出房子"
+  }
+})
+
+window.splatWorld.navMesh.createObjective({
+  id: "find-key",
+  missionId: "escape-house",
+  title: "找到钥匙"
+})
+
+window.splatWorld.navMesh.createObjective({
+  id: "open-door",
+  missionId: "escape-house",
+  title: "打开大门",
+  dependsOn: ["find-key"]
+})
+```
+
+初始 snapshot 中，`find-key` 会因为 `autoActivate` 默认开启而解析为 `active`，`open-door` 会被 `objective:find-key` 阻塞：
+
+```js
+window.splatWorld.navMesh.snapshotMissionGraph()
+```
+
+完成第一个 objective 后，第二个 objective 会进入 ready：
+
+```js
+window.splatWorld.navMesh.completeObjective("find-key")
+window.splatWorld.navMesh.snapshotMissionGraph().readyObjectiveIds
+// ["open-door"]
+```
+
+依赖 mission 状态：
+
+```js
+window.splatWorld.navMesh.createObjective({
+  id: "bonus-room",
+  title: "进入隐藏房间",
+  requiredMissions: ["escape-house"]
+})
+
+window.splatWorld.navMesh.completeMission("escape-house")
+window.splatWorld.navMesh.snapshotMissionGraph().readyObjectiveIds
+// ["open-door", "bonus-room"]
+```
+
+也可以用 condition 指定目标状态：
+
+```js
+window.splatWorld.navMesh.createObjective({
+  id: "retry-door",
+  title: "门打不开时触发提示",
+  conditions: [
+    {
+      kind: "objective",
+      id: "open-door",
+      status: "failed"
+    }
+  ]
+})
+```
+
+导出 graph 定义：
+
+```js
+const graph = window.splatWorld.navMesh.exportMissionGraph()
+localStorage.setItem("swe:mission-graph", JSON.stringify(graph))
+```
+
+恢复 graph 定义：
+
+```js
+const graph = localStorage.getItem("swe:mission-graph")
+if (graph) window.splatWorld.navMesh.restoreMissionGraph(graph)
 ```
 
 ## 已知边界
 
-- 0.34 仍然只是 mission state persistence scaffold，不包含完整任务图、任务依赖、任务编辑器 UI 或自动 localStorage 策略。
+- 0.35 仍然只是 mission graph / objective dependency scaffold，不包含任务编辑器 UI、任务脚本 DSL、自动奖励发放或自动 HUD 展示。
+- graph save payload 保存 objective 定义和状态，不保存 hook 回调、agent 实例、玩家位置或世界对象状态。
+- graph snapshot 会解析依赖，但不会自动改写 objective record；调用方可以根据 `readyObjectiveIds` 决定是否显式 `activateObjective()`。
 - hook 在当前 Runtime 生命周期内有效，刷新页面后需要重新注册。
-- save payload 只保存任务状态，不保存 hook 回调、agent 实例、玩家位置或世界对象状态。
 - event buffer 只按条数限制，不按内存大小限制。
 - 仍然没有局部避障、动态障碍或 agent-agent avoidance。
 - agent 仍沿 route points 直线移动，没有 funnel smoothing。
@@ -280,7 +347,8 @@ window.splatWorld.navMesh.restoreMissionState(save, { merge: true })
 - [x] Agent events / arrival callbacks
 - [x] Agent event buffer limits / mission hook scaffold
 - [x] Mission state persistence scaffold
-- [ ] Mission graph / objective dependency scaffold
+- [x] Mission graph / objective dependency scaffold
+- [ ] Mission runtime runner / auto-progress hooks
 
 ## 依赖与许可证
 
