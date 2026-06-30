@@ -160,7 +160,10 @@ export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): R
     clearObjectives: () => missionGraph.clearObjectives(),
     snapshotMissionGraph: () => missionGraph.snapshot(missionState),
     exportMissionGraph: () => missionGraph.exportGraph(),
-    restoreMissionGraph: (input, options) => missionGraph.restoreGraph(input, options),
+    restoreMissionGraph: (input, options) => {
+      missionGraph.restoreGraph(input, options);
+      return missionGraph.snapshot(missionState);
+    },
   };
   return api;
 }
