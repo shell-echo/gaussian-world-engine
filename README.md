@@ -49,6 +49,7 @@ RuntimeNavMissionState
   - `completeMission(id)`
   - `failMission(id)`
   - `resetMission(id)`
+  - `setMissionData(id, key, value)`
   - `removeMission(id)`
   - `clearMissions()`
   - `snapshotMissionState()`
@@ -211,6 +212,12 @@ window.splatWorld.navMesh.snapshotMissionState()
     }
   ]
 }
+```
+
+更新任务自定义数据：
+
+```js
+window.splatWorld.navMesh.setMissionData("quest-arrive-home", "clueCount", 3)
 ```
 
 导出并保存：
