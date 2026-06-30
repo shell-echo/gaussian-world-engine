@@ -23,6 +23,12 @@ import {
   type RuntimeNavMissionHookSnapshot,
 } from "./NavMissionHooks.js";
 import {
+  RuntimeNavMissionRunner,
+  type RuntimeNavMissionRunnerResult,
+  type RuntimeNavMissionRunnerRule,
+  type RuntimeNavMissionRunnerSnapshot,
+} from "./NavMissionRunner.js";
+import {
   RuntimeNavMissionState,
   type RuntimeNavMissionData,
   type RuntimeNavMissionDataValue,
@@ -52,6 +58,7 @@ export interface RuntimeNavGameplayApi {
   readonly missions: RuntimeNavMissionHooks;
   readonly missionState: RuntimeNavMissionState;
   readonly missionGraph: RuntimeNavMissionGraph;
+  readonly missionRunner: RuntimeNavMissionRunner;
   findTileContaining: (point: RuntimeNavPoint) => RuntimeNavTileHit | null;
   findNearestTile: (point: RuntimeNavPoint) => RuntimeNavTileHit | null;
   findRoute: (start: RuntimeNavPoint, goal: RuntimeNavPoint) => NavRouteResult;
@@ -97,6 +104,13 @@ export interface RuntimeNavGameplayApi {
   snapshotMissionGraph: () => RuntimeNavMissionGraphSnapshot;
   exportMissionGraph: () => RuntimeNavMissionGraphDefinition;
   restoreMissionGraph: (input: RuntimeNavMissionGraphDefinition | string, options?: RuntimeNavMissionGraphRestoreOptions) => RuntimeNavMissionGraphSnapshot;
+  addMissionRunnerRule: (rule: RuntimeNavMissionRunnerRule) => () => boolean;
+  upsertMissionRunnerRule: (rule: RuntimeNavMissionRunnerRule) => () => boolean;
+  removeMissionRunnerRule: (id: string) => boolean;
+  clearMissionRunnerRules: () => void;
+  snapshotMissionRunner: () => RuntimeNavMissionRunnerSnapshot;
+  runMissionRunner: () => RuntimeNavMissionRunnerResult;
+  handleMissionRunnerEvent: (event: RuntimeNavAgentRegistryEvent) => RuntimeNavMissionRunnerResult;
 }
 
 export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): RuntimeNavGameplayApi {
@@ -108,7 +122,11 @@ export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): R
   const missions = new RuntimeNavMissionHooks();
   const missionState = new RuntimeNavMissionState();
   const missionGraph = new RuntimeNavMissionGraph();
-  registry.subscribe((event) => missions.handleEvent(event));
+  const missionRunner = new RuntimeNavMissionRunner({ missionState, missionGraph });
+  registry.subscribe((event) => {
+    missions.handleEvent(event);
+    missionRunner.handleAgentEvent(event);
+  });
   const api: RuntimeNavGameplayApi = {
     ready: true,
     walkableTileCount,
@@ -116,6 +134,7 @@ export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): R
     missions,
     missionState,
     missionGraph,
+    missionRunner,
     findTileContaining: (point) => summarizeTile(query.findTileContaining(toVector3(point))),
     findNearestTile: (point) => summarizeTile(query.findNearestTile(toVector3(point))),
     findRoute: (start, goal) => query.findRoute(toVector3(start), toVector3(goal)),
@@ -164,6 +183,13 @@ export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): R
       missionGraph.restoreGraph(input, options);
       return missionGraph.snapshot(missionState);
     },
+    addMissionRunnerRule: (rule) => missionRunner.addRule(rule),
+    upsertMissionRunnerRule: (rule) => missionRunner.upsertRule(rule),
+    removeMissionRunnerRule: (id) => missionRunner.removeRule(id),
+    clearMissionRunnerRules: () => missionRunner.clearRules(),
+    snapshotMissionRunner: () => missionRunner.snapshot(),
+    runMissionRunner: () => missionRunner.run(),
+    handleMissionRunnerEvent: (event) => missionRunner.handleAgentEvent(event),
   };
   return api;
 }
