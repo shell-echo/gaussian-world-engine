@@ -5,14 +5,6 @@ import type { NavRouteResult } from "./NavMeshQuery.js";
 
 export type RuntimeNavAgentStatus = "idle" | "moving" | "arrived" | "blocked";
 
-export interface RuntimeNavAgentOptions {
-  id?: string;
-  position?: RuntimeNavPoint;
-  speed?: number;
-  arriveDistance?: number;
-  object?: THREE.Object3D;
-}
-
 export interface RuntimeNavAgentSnapshot {
   id: string;
   status: RuntimeNavAgentStatus;
@@ -25,6 +17,27 @@ export interface RuntimeNavAgentSnapshot {
   remainingDistance: number;
 }
 
+export interface RuntimeNavAgentStatusChange {
+  agentId: string;
+  previousStatus: RuntimeNavAgentStatus;
+  status: RuntimeNavAgentStatus;
+  snapshot: RuntimeNavAgentSnapshot;
+}
+
+export interface RuntimeNavAgentCallbacks {
+  onStatusChange?: (change: RuntimeNavAgentStatusChange) => void;
+  onArrive?: (snapshot: RuntimeNavAgentSnapshot) => void;
+  onBlocked?: (snapshot: RuntimeNavAgentSnapshot) => void;
+}
+
+export interface RuntimeNavAgentOptions extends RuntimeNavAgentCallbacks {
+  id?: string;
+  position?: RuntimeNavPoint;
+  speed?: number;
+  arriveDistance?: number;
+  object?: THREE.Object3D;
+}
+
 export interface RuntimeNavRouteProvider {
   findRoute: (start: RuntimeNavPoint, goal: RuntimeNavPoint) => NavRouteResult;
 }
@@ -34,6 +47,7 @@ export class RuntimeNavAgent {
   private readonly position = new THREE.Vector3();
   private readonly velocity = new THREE.Vector3();
   private readonly object: THREE.Object3D | null;
+  private readonly callbacks: RuntimeNavAgentCallbacks;
   private speedValue: number;
   private arriveDistanceValue: number;
   private statusValue: RuntimeNavAgentStatus = "idle";
@@ -49,6 +63,11 @@ export class RuntimeNavAgent {
     this.speedValue = positiveOr(options.speed, 2.5);
     this.arriveDistanceValue = positiveOr(options.arriveDistance, 0.25);
     this.object = options.object ?? null;
+    this.callbacks = {
+      onStatusChange: options.onStatusChange,
+      onArrive: options.onArrive,
+      onBlocked: options.onBlocked,
+    };
     const initialPosition = options.position ? toVector3(options.position) : this.object?.position.clone() ?? new THREE.Vector3();
     this.position.copy(initialPosition);
     if (this.object) this.object.position.copy(this.position);
@@ -82,19 +101,19 @@ export class RuntimeNavAgent {
     this.routePointIndex = 1;
     this.velocity.set(0, 0, 0);
     if (this.route.status !== "success" || this.route.points.length < 2) {
-      this.statusValue = "blocked";
+      this.setStatus("blocked");
       return this.route;
     }
-    this.statusValue = "moving";
+    this.setStatus("moving");
     return this.route;
   }
 
   stop(): void {
-    this.statusValue = "idle";
     this.velocity.set(0, 0, 0);
     this.destination = null;
     this.route = null;
     this.routePointIndex = 0;
+    this.setStatus("idle");
   }
 
   update(deltaSeconds: number): RuntimeNavAgentSnapshot {
@@ -147,10 +166,25 @@ export class RuntimeNavAgent {
   }
 
   private arrive(): void {
-    this.statusValue = "arrived";
     this.velocity.set(0, 0, 0);
     if (this.destination) this.position.copy(this.destination);
     if (this.object) this.object.position.copy(this.position);
+    this.setStatus("arrived");
+  }
+
+  private setStatus(status: RuntimeNavAgentStatus): void {
+    const previousStatus = this.statusValue;
+    if (previousStatus === status) return;
+    this.statusValue = status;
+    const snapshot = this.snapshot();
+    this.callbacks.onStatusChange?.({
+      agentId: this.idValue,
+      previousStatus,
+      status,
+      snapshot,
+    });
+    if (status === "arrived") this.callbacks.onArrive?.(snapshot);
+    if (status === "blocked") this.callbacks.onBlocked?.(snapshot);
   }
 
   private remainingDistance(): number {

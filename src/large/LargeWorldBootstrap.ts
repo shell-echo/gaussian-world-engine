@@ -198,7 +198,7 @@ function updateStats(stats: LargeTileStreamingStats): void {
       ? ` · route ${navRouteResult.status}`
       : "";
   const registry = navAgentRegistrySnapshot
-    ? ` · agents ${navAgentRegistrySnapshot.count} m${navAgentRegistrySnapshot.moving}/b${navAgentRegistrySnapshot.blocked}`
+    ? ` · agents ${navAgentRegistrySnapshot.count} m${navAgentRegistrySnapshot.moving}/b${navAgentRegistrySnapshot.blocked}/e${navAgentRegistrySnapshot.pendingEvents}`
     : navGameplayApi
       ? " · agents 0"
       : "";
@@ -352,7 +352,6 @@ function runtimeStatusLabel(): string {
   if (exposurePlan) features.push("Exposure Plan");
   if (navMesh) features.push("NavMesh Debug");
   if (navGameplayApi) features.push("Nav Gameplay API");
-  if (navGameplayApi) features.push("Agent Registry");
   if (navAgentDemo) features.push("Click-to-Move Agent");
   if (collisionPlan) features.push("Collision Streaming");
   return `${features.join(" + ")} enabled`;
@@ -363,7 +362,6 @@ function runtimeReadyLabel(manifest: LargeWorldManifest): string {
     exposurePlan ? "exposure" : "",
     navMesh ? `${navMesh.tiles.length} nav tiles` : "",
     navGameplayApi ? "nav gameplay api" : "",
-    navAgentRegistrySnapshot ? `${navAgentRegistrySnapshot.count} agents` : "",
     navAgentDemo ? "click-to-move" : "",
     navRouteResult?.status === "success" ? `${navRouteResult.tileIds.length} route tiles` : "",
     collisionPlan ? `${collisionPlan.tiles.length} collision tiles` : "",

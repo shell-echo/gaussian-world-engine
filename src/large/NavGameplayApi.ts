@@ -2,7 +2,12 @@ import * as THREE from "three";
 import type { Vec3Tuple } from "../types/world.js";
 import type { BoundsData } from "./LargeWorldTypes.js";
 import type { RuntimeNavAgent, RuntimeNavAgentOptions } from "./NavAgentController.js";
-import { RuntimeNavAgentRegistry, type RuntimeNavAgentRegistrySnapshot } from "./NavAgentRegistry.js";
+import {
+  RuntimeNavAgentRegistry,
+  type RuntimeNavAgentRegistryEvent,
+  type RuntimeNavAgentRegistryListener,
+  type RuntimeNavAgentRegistrySnapshot,
+} from "./NavAgentRegistry.js";
 import { RuntimeNavMeshQuery, type NavRouteResult } from "./NavMeshQuery.js";
 import type { RuntimeNavMeshManifest, RuntimeNavMeshTile } from "./NavMeshTypes.js";
 
@@ -27,6 +32,10 @@ export interface RuntimeNavGameplayApi {
   removeAgent: (id: string) => boolean;
   updateAgents: (deltaSeconds: number) => RuntimeNavAgentRegistrySnapshot;
   snapshotAgents: () => RuntimeNavAgentRegistrySnapshot;
+  subscribeAgentEvents: (listener: RuntimeNavAgentRegistryListener) => () => void;
+  peekAgentEvents: () => RuntimeNavAgentRegistryEvent[];
+  drainAgentEvents: () => RuntimeNavAgentRegistryEvent[];
+  clearAgentEvents: () => void;
 }
 
 export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): RuntimeNavGameplayApi {
@@ -47,6 +56,10 @@ export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): R
     removeAgent: (id) => registry.removeAgent(id),
     updateAgents: (deltaSeconds) => registry.update(deltaSeconds),
     snapshotAgents: () => registry.snapshot(),
+    subscribeAgentEvents: (listener) => registry.subscribe(listener),
+    peekAgentEvents: () => registry.peekEvents(),
+    drainAgentEvents: () => registry.drainEvents(),
+    clearAgentEvents: () => registry.clearEvents(),
   };
   return api;
 }
