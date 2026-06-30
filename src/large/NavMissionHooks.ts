@@ -39,13 +39,11 @@ export class RuntimeNavMissionHooks {
   }
 
   handleEvent(event: RuntimeNavAgentRegistryEvent): void {
-    const removeIds: string[] = [];
-    for (const hook of this.hooks.values()) {
-      if (!matchesHook(hook, event)) continue;
+    const matchingHooks = Array.from(this.hooks.values()).filter((hook) => matchesHook(hook, event));
+    for (const hook of matchingHooks) {
+      if (hook.once) this.hooks.delete(hook.id);
       hook.onEvent(event);
-      if (hook.once) removeIds.push(hook.id);
     }
-    for (const id of removeIds) this.hooks.delete(id);
   }
 
   snapshot(): RuntimeNavMissionHookSnapshot {
