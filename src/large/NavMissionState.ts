@@ -84,8 +84,8 @@ export class RuntimeNavMissionState {
       progress: patch.progress === undefined ? mission.progress : normalizeProgress(patch.progress),
       data: patch.data === undefined ? cloneData(mission.data) : cloneData(patch.data),
       updatedAt: now,
-      completedAt: status === "completed" ? mission.completedAt ?? now : status === "failed" ? null : mission.completedAt,
-      failedAt: status === "failed" ? mission.failedAt ?? now : status === "completed" ? null : mission.failedAt,
+      completedAt: status === "completed" ? mission.completedAt ?? now : null,
+      failedAt: status === "failed" ? mission.failedAt ?? now : null,
     };
     this.missions.set(mission.id, next);
     return cloneMission(next);
@@ -270,7 +270,7 @@ function readData(value: unknown): RuntimeNavMissionData {
 }
 
 function isMissionDataValue(value: unknown): value is RuntimeNavMissionDataValue {
-  return value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+  return value === null || typeof value === "string" || (typeof value === "number" && Number.isFinite(value)) || typeof value === "boolean";
 }
 
 function readTimestamp(value: unknown): number {
