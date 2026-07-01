@@ -174,7 +174,7 @@ export class RuntimeNavMissionDebugPanel {
       missionId: "debug-mission",
       title: "Arrive with debug-click-agent",
     });
-    this.options.nav.addMissionRunnerRule({
+    this.options.nav.upsertMissionRunnerRule({
       id: "debug-arrive-on-agent-arrived",
       event: { type: "arrived", agentId: "debug-click-agent" },
       action: { kind: "objective", id: "debug-arrive", status: "completed", data: { source: "mission-debug-panel" } },
