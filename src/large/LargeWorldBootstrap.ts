@@ -23,6 +23,7 @@ import {
 } from "./NavAgentDebugDemo";
 import type { RuntimeNavAgentSnapshot } from "./NavAgentController";
 import type { RuntimeNavAgentRegistrySnapshot } from "./NavAgentRegistry";
+import { RuntimeNavMissionDebugPanel } from "./NavMissionDebugPanel";
 import {
   createRuntimeNavGameplayApi,
   type RuntimeNavGameplayApi,
@@ -63,6 +64,7 @@ let navRouteResult: NavRouteResult | null = null;
 let collisionPlan: RuntimeCollisionPlan | null = null;
 let navMeshDebugGroup: THREE.Group | null = null;
 let navRouteDebugLine: THREE.Line | null = null;
+let missionDebugPanel: RuntimeNavMissionDebugPanel | null = null;
 let tileManager: LargeSplatTileManager | null = null;
 let collisionManager: LargeCollisionTileManager | null = null;
 let collisionStats: CollisionTileStreamingStats | null = null;
@@ -104,6 +106,7 @@ window.addEventListener("beforeunload", () => {
   tileManager?.dispose();
   collisionManager?.dispose();
   navAgentDemo?.dispose();
+  missionDebugPanel?.dispose();
   navGameplayApi?.agents.clear();
   disposeGroup(navMeshDebugGroup);
   disposeLine(navRouteDebugLine);
@@ -121,11 +124,13 @@ function installEngineHook(): void {
       tileManager?.dispose();
       collisionManager?.dispose();
       navAgentDemo?.dispose();
+      missionDebugPanel?.dispose();
       navGameplayApi?.agents.clear();
       disposeGroup(navMeshDebugGroup);
       disposeLine(navRouteDebugLine);
       navGameplayApi = null;
       navAgentDemo = null;
+      missionDebugPanel = null;
       navAgentSnapshot = null;
       navAgentRegistrySnapshot = null;
       navRouteResult = null;
@@ -162,6 +167,7 @@ function installEngineHook(): void {
         installRuntimeWorldApi(navGameplayApi);
         installNavRouteDebug(instance.scene, navMesh);
         installNavAgentDemo(instance, navGameplayApi, manifest);
+        installMissionDebugPanel(navGameplayApi);
       }
       worldNameElement && (worldNameElement.textContent = manifest.name);
       startTileLoop(instance);
@@ -207,6 +213,7 @@ function updateStats(stats: LargeTileStreamingStats): void {
     : navAgentDemo
       ? " · agent ready"
       : "";
+  const mission = missionDebugPanel ? " · mission hud" : "";
   const collision = collisionStats
     ? ` · col ${collisionStats.activeColliders}/${collisionStats.totalColliders}` +
       ` · cf ${collisionStats.reusedColliderFiles} h${collisionStats.colliderFileHits}/m${collisionStats.colliderFileMisses}`
@@ -221,6 +228,7 @@ function updateStats(stats: LargeTileStreamingStats): void {
     route +
     registry +
     demoAgent +
+    mission +
     collision;
 }
 
@@ -260,12 +268,25 @@ function installNavAgentDemo(engine: Engine, navApi: RuntimeNavGameplayApi, mani
   navAgentSnapshot = navAgentDemo.snapshot();
 }
 
+function installMissionDebugPanel(navApi: RuntimeNavGameplayApi): void {
+  if (!shouldShowMissionDebugPanel()) return;
+  missionDebugPanel = new RuntimeNavMissionDebugPanel({
+    nav: navApi,
+    initiallyVisible: !pageUrl.searchParams.has("missionDebugCollapsed"),
+    maxEvents: Number(pageUrl.searchParams.get("missionDebugEvents") ?? 8),
+  });
+}
+
 function shouldShowNavRoute(): boolean {
   return pageUrl.searchParams.has("navRoute") || pageUrl.searchParams.has("navFrom") || pageUrl.searchParams.has("navTo");
 }
 
 function shouldShowNavAgentDemo(): boolean {
   return pageUrl.searchParams.has("clickToMove") || pageUrl.searchParams.has("navAgentDemo") || pageUrl.searchParams.has("agentFrom") || pageUrl.searchParams.has("agentTo");
+}
+
+function shouldShowMissionDebugPanel(): boolean {
+  return pageUrl.searchParams.has("missionDebug") || pageUrl.searchParams.has("missionPanel") || pageUrl.searchParams.has("missionHud");
 }
 
 function installRuntimeWorldApi(navApi: RuntimeNavGameplayApi | null): void {
@@ -353,6 +374,7 @@ function runtimeStatusLabel(): string {
   if (navMesh) features.push("NavMesh Debug");
   if (navGameplayApi) features.push("Nav Gameplay API");
   if (navAgentDemo) features.push("Click-to-Move Agent");
+  if (missionDebugPanel) features.push("Mission HUD");
   if (collisionPlan) features.push("Collision Streaming");
   return `${features.join(" + ")} enabled`;
 }
@@ -363,6 +385,7 @@ function runtimeReadyLabel(manifest: LargeWorldManifest): string {
     navMesh ? `${navMesh.tiles.length} nav tiles` : "",
     navGameplayApi ? "nav gameplay api" : "",
     navAgentDemo ? "click-to-move" : "",
+    missionDebugPanel ? "mission hud" : "",
     navRouteResult?.status === "success" ? `${navRouteResult.tileIds.length} route tiles` : "",
     collisionPlan ? `${collisionPlan.tiles.length} collision tiles` : "",
   ].filter(Boolean).join(" · ");
