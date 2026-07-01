@@ -1,6 +1,6 @@
-# Splat World Engine — Nav Mission Graph
+# Splat World Engine — Nav Mission Runner
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.35 在 0.34 的 mission state persistence scaffold 之上新增 mission graph / objective dependency scaffold：任务可以继续保存状态，objective 可以声明依赖其他 objective 或 mission 状态，并在 snapshot 时得到 resolved status 与 readyObjectiveIds。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.36 在 0.35 的 mission graph / objective dependency scaffold 之上新增 mission runtime runner / auto-progress hooks：agent event 可以通过 rule 自动推进 mission 或 objective，graph 中 ready 的 objective 也可以由 runner 自动激活。
 
 ```text
 RuntimeNavMissionState
@@ -15,62 +15,51 @@ RuntimeNavMissionGraph
   ├── snapshot(missionState)
   ├── exportGraph()
   └── restoreGraph(graph)
+
+RuntimeNavMissionRunner
+  ├── addRule(rule)
+  ├── handleAgentEvent(event)
+  ├── run()
+  └── snapshot()
 ```
 
-## Runtime/Builder 0.35 能力
+## Runtime/Builder 0.36 能力
 
-- 新增 `src/large/NavMissionGraph.ts`
-- 新增 `RuntimeNavMissionGraph`
-- objective 支持：
-  - `locked`
-  - `active`
-  - `completed`
-  - `failed`
-- objective record 包含：
-  - `id`
-  - `missionId`
-  - `title`
-  - `description`
-  - `status`
-  - `autoActivate`
-  - `dependsOn`
-  - `requiredMissions`
-  - `conditions`
-  - `data`
-  - `updatedAt`
-  - `completedAt`
-  - `failedAt`
-- dependency resolver 支持：
-  - objective 依赖 objective 完成
-  - objective 依赖 mission 完成
-  - condition 指定 objective 或 mission 的目标状态
-  - 简单 cycle blocking 标记
-- graph snapshot 新增：
-  - `resolvedStatus`
-  - `dependenciesSatisfied`
-  - `blockedBy`
+- 新增 `src/large/NavMissionRunner.ts`
+- 新增 `RuntimeNavMissionRunner`
+- runner rule 支持：
+  - 按 agent event `type` 过滤
+  - 按 `agentId` 过滤
+  - 按当前 `status` 过滤
+  - 按 `previousStatus` 过滤
+  - `once`
+  - `enabled`
+- runner action 支持：
+  - 激活 / 完成 / 失败 / 重置 mission
+  - 激活 / 完成 / 失败 / 重置 objective
+  - 可附带 `data`
+- registry event 会自动进入 runner：
+  - 先触发已有 mission hooks
+  - 再触发 mission runner rules
+  - 最后自动激活 `readyObjectiveIds`
+- `RuntimeNavMissionRunnerResult` 返回：
+  - `firedRuleIds`
+  - `missionIds`
+  - `objectiveIds`
   - `readyObjectiveIds`
-- 支持 graph JSON export/restore：
-  - `exportGraph()`
-  - `restoreGraph(graph)`
+  - `autoActivatedObjectiveIds`
+  - `errors`
 - `RuntimeNavGameplayApi` 新增：
-  - `missionGraph`
-  - `createObjective(draft)`
-  - `upsertObjective(draft)`
-  - `getObjective(id)`
-  - `updateObjective(id, patch)`
-  - `activateObjective(id)`
-  - `completeObjective(id)`
-  - `failObjective(id)`
-  - `resetObjective(id)`
-  - `setObjectiveData(id, key, value)`
-  - `removeObjective(id)`
-  - `clearObjectives()`
-  - `snapshotMissionGraph()`
-  - `exportMissionGraph()`
-  - `restoreMissionGraph(graph, options)`
-- package version 更新为 `0.35.0`
-- Runtime label 更新为 `runtime 0.35`
+  - `missionRunner`
+  - `addMissionRunnerRule(rule)`
+  - `upsertMissionRunnerRule(rule)`
+  - `removeMissionRunnerRule(id)`
+  - `clearMissionRunnerRules()`
+  - `snapshotMissionRunner()`
+  - `runMissionRunner()`
+  - `handleMissionRunnerEvent(event)`
+- package version 更新为 `0.36.0`
+- Runtime label 更新为 `runtime 0.36`
 
 ## 运行 Runtime
 
@@ -181,20 +170,6 @@ window.splatWorld.navMesh.createMission({
 })
 ```
 
-用 hook 推进任务状态：
-
-```js
-window.splatWorld.navMesh.addMissionHook({
-  id: "complete-arrive-home",
-  agentId: "npc-001",
-  type: "arrived",
-  once: true,
-  onEvent: () => {
-    window.splatWorld.navMesh.completeMission("quest-arrive-home")
-  }
-})
-```
-
 查看任务状态：
 
 ```js
@@ -262,55 +237,102 @@ window.splatWorld.navMesh.snapshotMissionGraph().readyObjectiveIds
 // ["open-door"]
 ```
 
-依赖 mission 状态：
+## Mission runtime runner / auto-progress hooks
+
+创建一个 objective，并让 debug agent 到达目标后自动完成它：
 
 ```js
 window.splatWorld.navMesh.createObjective({
-  id: "bonus-room",
-  title: "进入隐藏房间",
-  requiredMissions: ["escape-house"]
+  id: "reach-safe-room",
+  title: "走到安全屋"
 })
 
-window.splatWorld.navMesh.completeMission("escape-house")
-window.splatWorld.navMesh.snapshotMissionGraph().readyObjectiveIds
-// ["open-door", "bonus-room"]
-```
-
-也可以用 condition 指定目标状态：
-
-```js
-window.splatWorld.navMesh.createObjective({
-  id: "retry-door",
-  title: "门打不开时触发提示",
-  conditions: [
-    {
-      kind: "objective",
-      id: "open-door",
-      status: "failed"
+window.splatWorld.navMesh.addMissionRunnerRule({
+  id: "complete-safe-room-on-arrive",
+  event: {
+    type: "arrived",
+    agentId: "debug-click-agent"
+  },
+  action: {
+    kind: "objective",
+    id: "reach-safe-room",
+    status: "completed",
+    data: {
+      source: "agent-arrived"
     }
-  ]
+  },
+  once: true
 })
 ```
 
-导出 graph 定义：
+当 `debug-click-agent` 触发 `arrived` event 时，runner 会自动执行 rule，并把 `reach-safe-room` 标记为 completed。
+
+查看 runner 状态：
 
 ```js
-const graph = window.splatWorld.navMesh.exportMissionGraph()
-localStorage.setItem("swe:mission-graph", JSON.stringify(graph))
+window.splatWorld.navMesh.snapshotMissionRunner()
 ```
 
-恢复 graph 定义：
+手动运行一次 runner，用于激活当前已经 ready 的 objectives：
 
 ```js
-const graph = localStorage.getItem("swe:mission-graph")
-if (graph) window.splatWorld.navMesh.restoreMissionGraph(graph)
+window.splatWorld.navMesh.runMissionRunner()
+```
+
+一个串联例子：
+
+```js
+window.splatWorld.navMesh.createObjective({
+  id: "find-key",
+  title: "找到钥匙"
+})
+
+window.splatWorld.navMesh.createObjective({
+  id: "open-door",
+  title: "打开门",
+  dependsOn: ["find-key"]
+})
+
+window.splatWorld.navMesh.addMissionRunnerRule({
+  id: "complete-find-key-on-arrive",
+  event: {
+    type: "arrived",
+    agentId: "debug-click-agent"
+  },
+  action: {
+    kind: "objective",
+    id: "find-key",
+    status: "completed"
+  },
+  once: true
+})
+```
+
+`find-key` 完成后，runner 会再次解析 graph，并自动把 `open-door` 加入 `autoActivatedObjectiveIds`。
+
+也可以让 event 直接推进 mission：
+
+```js
+window.splatWorld.navMesh.addMissionRunnerRule({
+  id: "fail-escape-on-blocked",
+  event: {
+    type: "blocked",
+    agentId: "npc-chaser"
+  },
+  action: {
+    kind: "mission",
+    id: "escape-house",
+    status: "failed"
+  }
+})
 ```
 
 ## 已知边界
 
-- 0.35 仍然只是 mission graph / objective dependency scaffold，不包含任务编辑器 UI、任务脚本 DSL、自动奖励发放或自动 HUD 展示。
-- graph save payload 保存 objective 定义和状态，不保存 hook 回调、agent 实例、玩家位置或世界对象状态。
-- graph snapshot 会解析依赖，但不会自动改写 objective record；调用方可以根据 `readyObjectiveIds` 决定是否显式 `activateObjective()`。
+- 0.36 仍然只是 mission runtime runner scaffold，不包含任务编辑器 UI、任务脚本 DSL、奖励系统或自动 HUD 展示。
+- runner rule 不会持久化到 mission state / graph save payload；刷新页面后需要重新注册。
+- runner 会响应 agent registry event，但不会监听任意 gameplay event、物品拾取 event 或 trigger event。
+- graph snapshot 会解析依赖；runner 的 `run()` / event handler 会把 ready objectives 显式激活。
 - hook 在当前 Runtime 生命周期内有效，刷新页面后需要重新注册。
 - event buffer 只按条数限制，不按内存大小限制。
 - 仍然没有局部避障、动态障碍或 agent-agent avoidance。
@@ -348,7 +370,8 @@ if (graph) window.splatWorld.navMesh.restoreMissionGraph(graph)
 - [x] Agent event buffer limits / mission hook scaffold
 - [x] Mission state persistence scaffold
 - [x] Mission graph / objective dependency scaffold
-- [ ] Mission runtime runner / auto-progress hooks
+- [x] Mission runtime runner / auto-progress hooks
+- [ ] Mission editor panel / debug HUD scaffold
 
 ## 依赖与许可证
 
