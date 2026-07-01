@@ -1,3 +1,4 @@
+import "./NavMissionDebugPanel.css";
 import type { RuntimeNavAgentRegistryEvent } from "./NavAgentRegistry.js";
 import type { RuntimeNavGameplayApi } from "./NavGameplayApi.js";
 
