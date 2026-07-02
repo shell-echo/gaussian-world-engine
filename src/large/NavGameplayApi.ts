@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { GameplayEvent } from "../gameplay/GameplaySystem.js";
 import type { Vec3Tuple } from "../types/world.js";
 import type { BoundsData } from "./LargeWorldTypes.js";
 import type { RuntimeNavAgent, RuntimeNavAgentOptions } from "./NavAgentController.js";
@@ -24,6 +25,7 @@ import {
 } from "./NavMissionHooks.js";
 import {
   RuntimeNavMissionRunner,
+  type RuntimeNavMissionRunnerEvent,
   type RuntimeNavMissionRunnerResult,
   type RuntimeNavMissionRunnerRule,
   type RuntimeNavMissionRunnerSnapshot,
@@ -110,7 +112,8 @@ export interface RuntimeNavGameplayApi {
   clearMissionRunnerRules: () => void;
   snapshotMissionRunner: () => RuntimeNavMissionRunnerSnapshot;
   runMissionRunner: () => RuntimeNavMissionRunnerResult;
-  handleMissionRunnerEvent: (event: RuntimeNavAgentRegistryEvent) => RuntimeNavMissionRunnerResult;
+  handleMissionRunnerEvent: (event: RuntimeNavMissionRunnerEvent) => RuntimeNavMissionRunnerResult;
+  handleMissionRunnerGameplayEvent: (event: GameplayEvent) => RuntimeNavMissionRunnerResult;
 }
 
 export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): RuntimeNavGameplayApi {
@@ -189,7 +192,8 @@ export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): R
     clearMissionRunnerRules: () => missionRunner.clearRules(),
     snapshotMissionRunner: () => missionRunner.snapshot(),
     runMissionRunner: () => missionRunner.run(),
-    handleMissionRunnerEvent: (event) => missionRunner.handleAgentEvent(event),
+    handleMissionRunnerEvent: (event) => missionRunner.handleEvent(event),
+    handleMissionRunnerGameplayEvent: (event) => missionRunner.handleGameplayEvent(event),
   };
   return api;
 }
