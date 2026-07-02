@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { Engine } from "../core/Engine";
+import { Engine, type EngineEvents } from "../core/Engine";
+import type { GameplayEvent } from "../gameplay/GameplaySystem";
 import { assertRuntimeCollisionPlan, type RuntimeCollisionPlan } from "./CollisionPlanTypes";
 import { assertExposurePlan, type ExposurePlan } from "./ExposurePlanTypes";
 import {
@@ -120,6 +121,7 @@ function installEngineHook(): void {
   Object.defineProperty(Engine, "create", {
     configurable: true,
     value: async (...args: Parameters<typeof Engine.create>): Promise<Engine> => {
+      args[2] = withGameplayEventBridge(args[2] ?? {});
       const instance = await originalCreate(...args);
       tileManager?.dispose();
       collisionManager?.dispose();
@@ -177,6 +179,31 @@ function installEngineHook(): void {
       return instance;
     },
   });
+}
+
+function withGameplayEventBridge(events: EngineEvents): EngineEvents {
+  return {
+    ...events,
+    onGameplayEvent: (event) => {
+      events.onGameplayEvent?.(event);
+      bridgeGameplayEventToMissionRunner(event);
+    },
+  };
+}
+
+function bridgeGameplayEventToMissionRunner(event: GameplayEvent): void {
+  const result = navGameplayApi?.handleMissionRunnerGameplayEvent(event);
+  missionDebugPanel?.recordGameplayEvent(event);
+  if (!result) return;
+  const changed =
+    result.firedRuleIds.length > 0 ||
+    result.missionIds.length > 0 ||
+    result.objectiveIds.length > 0 ||
+    result.autoActivatedObjectiveIds.length > 0 ||
+    result.errors.length > 0;
+  if (changed && statusElement) {
+    statusElement.textContent = `Gameplay ${event.kind}:${event.event} → mission runner ${result.firedRuleIds.length} rule(s)`;
+  }
 }
 
 function startTileLoop(engine: Engine): void {
