@@ -1,6 +1,5 @@
 import "./NavMissionDebugPanel.css";
 import type { GameplayEvent } from "../gameplay/GameplaySystem.js";
-import type { RuntimeNavAgentRegistryEvent } from "./NavAgentRegistry.js";
 import type { RuntimeNavGameplayApi } from "./NavGameplayApi.js";
 import type { RuntimeNavMissionRunnerEvent } from "./NavMissionRunner.js";
 
