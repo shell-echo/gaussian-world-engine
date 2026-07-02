@@ -121,8 +121,8 @@ function installEngineHook(): void {
   Object.defineProperty(Engine, "create", {
     configurable: true,
     value: async (...args: Parameters<typeof Engine.create>): Promise<Engine> => {
-      args[2] = withGameplayEventBridge(args[2] ?? {});
-      const instance = await originalCreate(...args);
+      const [canvas, bootstrapManifest, events] = args;
+      const instance = await originalCreate(canvas, bootstrapManifest, withGameplayEventBridge(events ?? {}));
       tileManager?.dispose();
       collisionManager?.dispose();
       navAgentDemo?.dispose();
