@@ -111,7 +111,7 @@ export function parseRuntimeNavMissionAuthoringDocument(
   return {
     schemaVersion: RUNTIME_NAV_MISSION_AUTHORING_SCHEMA_VERSION,
     savedAt: readTimestamp(value.savedAt),
-    metadata: normalizeMetadata(readObject(value.metadata)),
+    metadata: normalizeMetadata(value.metadata),
     missions: missions.map(readMissionDraft),
     objectives: objectives.map(readObjectiveDraft),
     runnerRules: runnerRules.map(readRunnerRule),
@@ -286,7 +286,7 @@ function readRunnerAction(value: unknown): RuntimeNavMissionRunnerRule["action"]
     return {
       kind: "objective",
       id,
-      status: readObjectiveStatus(value.status),
+      status: readObjectiveActionStatus(value.status),
       data: readData(value.data),
     };
   }
@@ -305,7 +305,8 @@ function readObjectiveDependencies(value: unknown): RuntimeNavMissionObjectiveDe
   });
 }
 
-function normalizeMetadata(metadata: RuntimeNavMissionAuthoringMetadata): RuntimeNavMissionAuthoringMetadata {
+function normalizeMetadata(metadata: unknown): RuntimeNavMissionAuthoringMetadata {
+  if (!isObject(metadata)) return {};
   const result: RuntimeNavMissionAuthoringMetadata = {};
   const id = readOptionalId(metadata.id);
   const title = readOptionalText(metadata.title);
@@ -331,13 +332,17 @@ function readMissionStatus(value: unknown): RuntimeNavMissionStatus | undefined 
   return undefined;
 }
 
-function readMissionActionStatus(value: unknown): Exclude<RuntimeNavMissionStatus, never> {
+function readMissionActionStatus(value: unknown): RuntimeNavMissionStatus {
   return readMissionStatus(value) ?? "inactive";
 }
 
 function readObjectiveStatus(value: unknown): RuntimeNavMissionObjectiveStatus | undefined {
   if (value === "locked" || value === "active" || value === "completed" || value === "failed") return value;
   return undefined;
+}
+
+function readObjectiveActionStatus(value: unknown): RuntimeNavMissionObjectiveStatus {
+  return readObjectiveStatus(value) ?? "locked";
 }
 
 function readRunnerEventType(value: unknown): RuntimeNavMissionRunnerEventFilter["type"] {
@@ -376,10 +381,6 @@ function readData(value: unknown): RuntimeNavMissionData {
 
 function cloneData(value: RuntimeNavMissionData): RuntimeNavMissionData {
   return readData(value);
-}
-
-function readObject(value: unknown): RuntimeNavMissionAuthoringMetadata {
-  return isObject(value) ? value : {};
 }
 
 function readRequiredId(value: unknown, message: string): string {
