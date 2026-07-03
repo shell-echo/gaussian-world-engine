@@ -10,6 +10,14 @@ import {
   type RuntimeNavAgentRegistrySnapshot,
 } from "./NavAgentRegistry.js";
 import {
+  applyRuntimeNavMissionAuthoringDocument,
+  exportRuntimeNavMissionAuthoringDocument,
+  type RuntimeNavMissionAuthoringApplyOptions,
+  type RuntimeNavMissionAuthoringApplyResult,
+  type RuntimeNavMissionAuthoringDocument,
+  type RuntimeNavMissionAuthoringMetadata,
+} from "./NavMissionAuthoring.js";
+import {
   RuntimeNavMissionGraph,
   type RuntimeNavMissionGraphDefinition,
   type RuntimeNavMissionGraphRestoreOptions,
@@ -114,6 +122,8 @@ export interface RuntimeNavGameplayApi {
   runMissionRunner: () => RuntimeNavMissionRunnerResult;
   handleMissionRunnerEvent: (event: RuntimeNavMissionRunnerEvent) => RuntimeNavMissionRunnerResult;
   handleMissionRunnerGameplayEvent: (event: GameplayEvent) => RuntimeNavMissionRunnerResult;
+  exportMissionAuthoring: (metadata?: RuntimeNavMissionAuthoringMetadata) => RuntimeNavMissionAuthoringDocument;
+  restoreMissionAuthoring: (input: RuntimeNavMissionAuthoringDocument | string, options?: RuntimeNavMissionAuthoringApplyOptions) => RuntimeNavMissionAuthoringApplyResult;
 }
 
 export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): RuntimeNavGameplayApi {
@@ -194,6 +204,8 @@ export function createRuntimeNavGameplayApi(manifest: RuntimeNavMeshManifest): R
     runMissionRunner: () => missionRunner.run(),
     handleMissionRunnerEvent: (event) => missionRunner.handleEvent(event),
     handleMissionRunnerGameplayEvent: (event) => missionRunner.handleGameplayEvent(event),
+    exportMissionAuthoring: (metadata) => exportRuntimeNavMissionAuthoringDocument(api, metadata),
+    restoreMissionAuthoring: (input, options) => applyRuntimeNavMissionAuthoringDocument(api, input, options),
   };
   return api;
 }
