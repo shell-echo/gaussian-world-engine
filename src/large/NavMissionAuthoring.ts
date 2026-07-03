@@ -264,24 +264,26 @@ function readRunnerAction(input: unknown): RuntimeNavMissionRunnerRule["action"]
 
 function readObjectiveDependencies(input: unknown): RuntimeNavMissionObjectiveDependency[] {
   if (!Array.isArray(input)) return [];
-  return input.flatMap((item) => {
-    if (!isObject(item)) return [];
+  const dependencies: RuntimeNavMissionObjectiveDependency[] = [];
+  for (const item of input) {
+    if (!isObject(item)) continue;
     const id = readOptionalString(item.id);
-    if (!id) return [];
+    if (!id) continue;
     if (item.kind === "mission") {
       const dependency: RuntimeNavMissionObjectiveDependency = { kind: "mission", id };
       const status = readMissionStatus(item.status);
       if (status) dependency.status = status;
-      return [dependency];
+      dependencies.push(dependency);
+      continue;
     }
     if (item.kind === "objective") {
       const dependency: RuntimeNavMissionObjectiveDependency = { kind: "objective", id };
       const status = readObjectiveStatus(item.status);
       if (status) dependency.status = status;
-      return [dependency];
+      dependencies.push(dependency);
     }
-    return [];
-  });
+  }
+  return dependencies;
 }
 
 function normalizeMetadata(input: unknown): RuntimeNavMissionAuthoringMetadata {
