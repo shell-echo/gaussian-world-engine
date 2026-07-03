@@ -75,7 +75,7 @@ export function createRuntimeNavMissionAuthoringDocument(
   return {
     schemaVersion: RUNTIME_NAV_MISSION_AUTHORING_SCHEMA_VERSION,
     savedAt: Date.now(),
-    metadata: normalizeMetadata(draft.metadata ?? {}),
+    metadata: normalizeMetadata(draft.metadata),
     missions: (draft.missions ?? []).map(normalizeMissionDraft),
     objectives: (draft.objectives ?? []).map(normalizeObjectiveDraft),
     runnerRules: (draft.runnerRules ?? []).map(normalizeRunnerRule),
@@ -102,19 +102,16 @@ export function parseRuntimeNavMissionAuthoringDocument(
   if (value.schemaVersion !== RUNTIME_NAV_MISSION_AUTHORING_SCHEMA_VERSION) {
     throw new Error(`Unsupported runtime nav mission authoring version: ${String(value.schemaVersion)}`);
   }
-  const missions = value.missions;
-  const objectives = value.objectives;
-  const runnerRules = value.runnerRules;
-  if (!Array.isArray(missions)) throw new Error("Runtime nav mission authoring document requires a missions array.");
-  if (!Array.isArray(objectives)) throw new Error("Runtime nav mission authoring document requires an objectives array.");
-  if (!Array.isArray(runnerRules)) throw new Error("Runtime nav mission authoring document requires a runnerRules array.");
+  if (!Array.isArray(value.missions)) throw new Error("Runtime nav mission authoring document requires a missions array.");
+  if (!Array.isArray(value.objectives)) throw new Error("Runtime nav mission authoring document requires an objectives array.");
+  if (!Array.isArray(value.runnerRules)) throw new Error("Runtime nav mission authoring document requires a runnerRules array.");
   return {
     schemaVersion: RUNTIME_NAV_MISSION_AUTHORING_SCHEMA_VERSION,
     savedAt: readTimestamp(value.savedAt),
     metadata: normalizeMetadata(value.metadata),
-    missions: missions.map(readMissionDraft),
-    objectives: objectives.map(readObjectiveDraft),
-    runnerRules: runnerRules.map(readRunnerRule),
+    missions: value.missions.map(normalizeMissionDraft),
+    objectives: value.objectives.map(normalizeObjectiveDraft),
+    runnerRules: value.runnerRules.map(normalizeRunnerRule),
   };
 }
 
@@ -175,110 +172,82 @@ function runnerRuleSnapshotToRule(snapshot: RuntimeNavMissionRunnerRuleSnapshot)
   });
 }
 
-function readMissionDraft(value: unknown): RuntimeNavMissionDraft {
-  if (!isObject(value)) throw new Error("Runtime nav mission authoring mission must be an object.");
-  return normalizeMissionDraft({
-    id: readRequiredId(value.id, "Runtime nav mission authoring mission requires an id."),
-    status: readMissionStatus(value.status),
-    progress: typeof value.progress === "number" ? normalizeProgress(value.progress) : undefined,
-    data: readData(value.data),
-  });
-}
-
-function normalizeMissionDraft(draft: RuntimeNavMissionDraft): RuntimeNavMissionDraft {
+function normalizeMissionDraft(input: unknown): RuntimeNavMissionDraft {
+  const value = requireObject(input, "Runtime nav mission authoring mission must be an object.");
   const mission: RuntimeNavMissionDraft = {
-    id: normalizeId(draft.id, "Runtime nav mission authoring mission requires an id."),
+    id: readRequiredString(value.id, "Runtime nav mission authoring mission requires an id."),
   };
-  if (draft.status) mission.status = readMissionStatus(draft.status);
-  if (draft.progress !== undefined) mission.progress = normalizeProgress(draft.progress);
-  if (draft.data) mission.data = cloneData(draft.data);
+  const status = readMissionStatus(value.status);
+  if (status) mission.status = status;
+  if (typeof value.progress === "number") mission.progress = normalizeProgress(value.progress);
+  if (isObject(value.data)) mission.data = readData(value.data);
   return mission;
 }
 
-function readObjectiveDraft(value: unknown): RuntimeNavMissionObjectiveDraft {
-  if (!isObject(value)) throw new Error("Runtime nav mission authoring objective must be an object.");
-  return normalizeObjectiveDraft({
-    id: readRequiredId(value.id, "Runtime nav mission authoring objective requires an id."),
-    missionId: readOptionalId(value.missionId),
-    title: readOptionalText(value.title),
-    description: readOptionalText(value.description),
-    status: readObjectiveStatus(value.status),
-    autoActivate: typeof value.autoActivate === "boolean" ? value.autoActivate : undefined,
-    dependsOn: readIdList(value.dependsOn),
-    requiredMissions: readIdList(value.requiredMissions),
-    conditions: readObjectiveDependencies(value.conditions),
-    data: readData(value.data),
-  });
-}
-
-function normalizeObjectiveDraft(draft: RuntimeNavMissionObjectiveDraft): RuntimeNavMissionObjectiveDraft {
+function normalizeObjectiveDraft(input: unknown): RuntimeNavMissionObjectiveDraft {
+  const value = requireObject(input, "Runtime nav mission authoring objective must be an object.");
   const objective: RuntimeNavMissionObjectiveDraft = {
-    id: normalizeId(draft.id, "Runtime nav mission authoring objective requires an id."),
+    id: readRequiredString(value.id, "Runtime nav mission authoring objective requires an id."),
   };
-  const missionId = readOptionalId(draft.missionId);
-  const title = readOptionalText(draft.title);
-  const description = readOptionalText(draft.description);
+  const missionId = readOptionalString(value.missionId);
+  const title = readOptionalText(value.title);
+  const description = readOptionalText(value.description);
+  const status = readObjectiveStatus(value.status);
+  const dependsOn = readStringList(value.dependsOn);
+  const requiredMissions = readStringList(value.requiredMissions);
+  const conditions = readObjectiveDependencies(value.conditions);
   if (missionId) objective.missionId = missionId;
   if (title) objective.title = title;
   if (description) objective.description = description;
-  if (draft.status) objective.status = readObjectiveStatus(draft.status);
-  if (draft.autoActivate !== undefined) objective.autoActivate = Boolean(draft.autoActivate);
-  if (draft.dependsOn) objective.dependsOn = readIdList(draft.dependsOn);
-  if (draft.requiredMissions) objective.requiredMissions = readIdList(draft.requiredMissions);
-  if (draft.conditions) objective.conditions = readObjectiveDependencies(draft.conditions);
-  if (draft.data) objective.data = cloneData(draft.data);
+  if (status) objective.status = status;
+  if (typeof value.autoActivate === "boolean") objective.autoActivate = value.autoActivate;
+  if (dependsOn.length > 0) objective.dependsOn = dependsOn;
+  if (requiredMissions.length > 0) objective.requiredMissions = requiredMissions;
+  if (conditions.length > 0) objective.conditions = conditions;
+  if (isObject(value.data)) objective.data = readData(value.data);
   return objective;
 }
 
-function readRunnerRule(value: unknown): RuntimeNavMissionRunnerRule {
-  if (!isObject(value)) throw new Error("Runtime nav mission authoring runner rule must be an object.");
-  return normalizeRunnerRule({
-    id: readRequiredId(value.id, "Runtime nav mission authoring runner rule requires an id."),
+function normalizeRunnerRule(input: unknown): RuntimeNavMissionRunnerRule {
+  const value = requireObject(input, "Runtime nav mission authoring runner rule must be an object.");
+  return {
+    id: readRequiredString(value.id, "Runtime nav mission authoring runner rule requires an id."),
     event: readRunnerEventFilter(value.event),
     action: readRunnerAction(value.action),
-    once: typeof value.once === "boolean" ? value.once : undefined,
-    enabled: typeof value.enabled === "boolean" ? value.enabled : undefined,
-  });
-}
-
-function normalizeRunnerRule(rule: RuntimeNavMissionRunnerRule): RuntimeNavMissionRunnerRule {
-  return {
-    id: normalizeId(rule.id, "Runtime nav mission authoring runner rule requires an id."),
-    event: readRunnerEventFilter(rule.event),
-    action: readRunnerAction(rule.action),
-    once: rule.once ?? false,
-    enabled: rule.enabled ?? true,
+    once: typeof value.once === "boolean" ? value.once : false,
+    enabled: typeof value.enabled === "boolean" ? value.enabled : true,
   };
 }
 
-function readRunnerEventFilter(value: unknown): RuntimeNavMissionRunnerEventFilter {
-  if (!isObject(value)) return { source: "any", type: "any" };
+function readRunnerEventFilter(input: unknown): RuntimeNavMissionRunnerEventFilter {
+  const value = isObject(input) ? input : {};
   const filter: RuntimeNavMissionRunnerEventFilter = {
-    source: value.source === "agent" || value.source === "gameplay" || value.source === "any" ? value.source : "any",
+    source: readRunnerEventSource(value.source),
     type: readRunnerEventType(value.type),
   };
-  const agentId = readOptionalId(value.agentId);
-  const sourceId = readOptionalId(value.sourceId);
-  const event = readOptionalId(value.event);
+  const agentId = readOptionalString(value.agentId);
+  const sourceId = readOptionalString(value.sourceId);
+  const event = readOptionalString(value.event);
+  const status = readAgentStatus(value.status);
+  const previousStatus = readAgentStatus(value.previousStatus);
+  const kind = readGameplayKind(value.kind);
   if (agentId) filter.agentId = agentId;
-  if (value.status === "idle" || value.status === "moving" || value.status === "arrived" || value.status === "blocked") filter.status = value.status;
-  if (value.previousStatus === "idle" || value.previousStatus === "moving" || value.previousStatus === "arrived" || value.previousStatus === "blocked") {
-    filter.previousStatus = value.previousStatus;
-  }
+  if (status) filter.status = status;
+  if (previousStatus) filter.previousStatus = previousStatus;
   if (sourceId) filter.sourceId = sourceId;
-  if (value.kind === "trigger" || value.kind === "interaction") filter.kind = value.kind;
+  if (kind) filter.kind = kind;
   if (event) filter.event = event;
   return filter;
 }
 
-function readRunnerAction(value: unknown): RuntimeNavMissionRunnerRule["action"] {
-  if (!isObject(value)) throw new Error("Runtime nav mission authoring runner rule requires an action object.");
-  const id = readRequiredId(value.id, "Runtime nav mission authoring runner action requires an id.");
+function readRunnerAction(input: unknown): RuntimeNavMissionRunnerRule["action"] {
+  const value = requireObject(input, "Runtime nav mission authoring runner rule requires an action object.");
+  const id = readRequiredString(value.id, "Runtime nav mission authoring runner action requires an id.");
   if (value.kind === "mission") {
     return {
       kind: "mission",
       id,
-      status: readMissionActionStatus(value.status),
+      status: readMissionStatus(value.status) ?? "inactive",
       data: readData(value.data),
     };
   }
@@ -286,63 +255,67 @@ function readRunnerAction(value: unknown): RuntimeNavMissionRunnerRule["action"]
     return {
       kind: "objective",
       id,
-      status: readObjectiveActionStatus(value.status),
+      status: readObjectiveStatus(value.status) ?? "locked",
       data: readData(value.data),
     };
   }
   throw new Error("Runtime nav mission authoring runner action kind must be mission or objective.");
 }
 
-function readObjectiveDependencies(value: unknown): RuntimeNavMissionObjectiveDependency[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
+function readObjectiveDependencies(input: unknown): RuntimeNavMissionObjectiveDependency[] {
+  if (!Array.isArray(input)) return [];
+  return input.flatMap((item) => {
     if (!isObject(item)) return [];
-    const id = readOptionalId(item.id);
+    const id = readOptionalString(item.id);
     if (!id) return [];
-    if (item.kind === "mission") return [{ kind: "mission", id, status: readMissionStatus(item.status) }];
-    if (item.kind === "objective") return [{ kind: "objective", id, status: readObjectiveStatus(item.status) }];
+    if (item.kind === "mission") {
+      const dependency: RuntimeNavMissionObjectiveDependency = { kind: "mission", id };
+      const status = readMissionStatus(item.status);
+      if (status) dependency.status = status;
+      return [dependency];
+    }
+    if (item.kind === "objective") {
+      const dependency: RuntimeNavMissionObjectiveDependency = { kind: "objective", id };
+      const status = readObjectiveStatus(item.status);
+      if (status) dependency.status = status;
+      return [dependency];
+    }
     return [];
   });
 }
 
-function normalizeMetadata(metadata: unknown): RuntimeNavMissionAuthoringMetadata {
-  if (!isObject(metadata)) return {};
-  const result: RuntimeNavMissionAuthoringMetadata = {};
-  const id = readOptionalId(metadata.id);
-  const title = readOptionalText(metadata.title);
-  const description = readOptionalText(metadata.description);
-  const version = readOptionalText(metadata.version);
-  if (id) result.id = id;
-  if (title) result.title = title;
-  if (description) result.description = description;
-  if (version) result.version = version;
-  if (Array.isArray(metadata.tags)) result.tags = readTextList(metadata.tags);
-  return result;
+function normalizeMetadata(input: unknown): RuntimeNavMissionAuthoringMetadata {
+  const value = isObject(input) ? input : {};
+  const metadata: RuntimeNavMissionAuthoringMetadata = {};
+  const id = readOptionalString(value.id);
+  const title = readOptionalText(value.title);
+  const description = readOptionalText(value.description);
+  const version = readOptionalText(value.version);
+  const tags = readTextList(value.tags);
+  if (id) metadata.id = id;
+  if (title) metadata.title = title;
+  if (description) metadata.description = description;
+  if (version) metadata.version = version;
+  if (tags.length > 0) metadata.tags = tags;
+  return metadata;
 }
 
 function cloneMetadata(metadata: RuntimeNavMissionAuthoringMetadata): RuntimeNavMissionAuthoringMetadata {
-  return {
-    ...metadata,
-    tags: metadata.tags ? [...metadata.tags] : undefined,
-  };
+  const clone: RuntimeNavMissionAuthoringMetadata = { ...metadata };
+  if (metadata.tags) clone.tags = [...metadata.tags];
+  return clone;
 }
 
-function readMissionStatus(value: unknown): RuntimeNavMissionStatus | undefined {
-  if (value === "inactive" || value === "active" || value === "completed" || value === "failed") return value;
-  return undefined;
+function readMissionStatus(value: unknown): RuntimeNavMissionStatus | null {
+  return value === "inactive" || value === "active" || value === "completed" || value === "failed" ? value : null;
 }
 
-function readMissionActionStatus(value: unknown): RuntimeNavMissionStatus {
-  return readMissionStatus(value) ?? "inactive";
+function readObjectiveStatus(value: unknown): RuntimeNavMissionObjectiveStatus | null {
+  return value === "locked" || value === "active" || value === "completed" || value === "failed" ? value : null;
 }
 
-function readObjectiveStatus(value: unknown): RuntimeNavMissionObjectiveStatus | undefined {
-  if (value === "locked" || value === "active" || value === "completed" || value === "failed") return value;
-  return undefined;
-}
-
-function readObjectiveActionStatus(value: unknown): RuntimeNavMissionObjectiveStatus {
-  return readObjectiveStatus(value) ?? "locked";
+function readRunnerEventSource(value: unknown): RuntimeNavMissionRunnerEventFilter["source"] {
+  return value === "agent" || value === "gameplay" || value === "any" ? value : "any";
 }
 
 function readRunnerEventType(value: unknown): RuntimeNavMissionRunnerEventFilter["type"] {
@@ -360,48 +333,49 @@ function readRunnerEventType(value: unknown): RuntimeNavMissionRunnerEventFilter
   return "any";
 }
 
-function readIdList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return Array.from(new Set(value.flatMap((item) => (typeof item === "string" ? [normalizeId(item, "Runtime nav mission authoring id cannot be empty.")] : []))));
+function readAgentStatus(value: unknown): RuntimeNavMissionRunnerEventFilter["status"] | null {
+  return value === "idle" || value === "moving" || value === "arrived" || value === "blocked" ? value : null;
 }
 
-function readTextList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return Array.from(new Set(value.flatMap((item) => (typeof item === "string" ? [item.trim()].filter(Boolean) : []))));
+function readGameplayKind(value: unknown): RuntimeNavMissionRunnerEventFilter["kind"] | null {
+  return value === "trigger" || value === "interaction" ? value : null;
 }
 
-function readData(value: unknown): RuntimeNavMissionData {
-  if (!isObject(value)) return {};
+function readData(input: unknown): RuntimeNavMissionData {
+  if (!isObject(input)) return {};
   const data: RuntimeNavMissionData = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (isDataValue(item)) data[key] = item;
+  for (const [key, value] of Object.entries(input)) {
+    if (isDataValue(value)) data[key] = value;
   }
   return data;
 }
 
-function cloneData(value: RuntimeNavMissionData): RuntimeNavMissionData {
-  return readData(value);
+function readStringList(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  return Array.from(new Set(input.flatMap((value) => (typeof value === "string" ? [normalizeString(value)] : [])).filter(Boolean)));
 }
 
-function readRequiredId(value: unknown, message: string): string {
+function readTextList(input: unknown): string[] {
+  return readStringList(input);
+}
+
+function readRequiredString(value: unknown, message: string): string {
   if (typeof value !== "string") throw new Error(message);
-  return normalizeId(value, message);
+  const text = normalizeString(value);
+  if (!text) throw new Error(message);
+  return text;
 }
 
-function readOptionalId(value: unknown): string | undefined {
-  return typeof value === "string" ? normalizeId(value, "Runtime nav mission authoring id cannot be empty.") : undefined;
+function readOptionalString(value: unknown): string | null {
+  return typeof value === "string" ? normalizeString(value) || null : null;
 }
 
-function readOptionalText(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const text = value.trim();
-  return text || undefined;
+function readOptionalText(value: unknown): string | null {
+  return readOptionalString(value);
 }
 
-function normalizeId(id: string, message: string): string {
-  const value = id.trim();
-  if (!value) throw new Error(message);
-  return value;
+function normalizeString(value: string): string {
+  return value.trim();
 }
 
 function normalizeProgress(value: number): number {
@@ -420,6 +394,11 @@ function parseJson(input: string): unknown {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Invalid runtime nav mission authoring JSON: ${message}`);
   }
+}
+
+function requireObject(value: unknown, message: string): Record<string, unknown> {
+  if (!isObject(value)) throw new Error(message);
+  return value;
 }
 
 function isDataValue(value: unknown): value is RuntimeNavMissionData[keyof RuntimeNavMissionData] {
