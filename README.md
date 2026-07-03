@@ -1,6 +1,6 @@
-# Splat World Engine — Mission Debug Panel
+# Splat World Engine — Gameplay Mission Bridge
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.37 在 0.36 的 mission runtime runner 之上新增 Mission editor panel / debug HUD scaffold：大场景 Runtime 可以用 URL 参数打开一个轻量 HUD，实时查看 mission state、objective graph、runner rules 和最近 agent events，并能手动运行 runner 或注入 demo mission。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.38 在 0.37 的 Mission debug HUD 之上新增 Gameplay trigger event bridge for mission runner：世界里的 trigger / interactable gameplay event 现在可以直接驱动 mission runner rule，让任务系统不再只依赖 agent arrived / blocked 事件。
 
 ```text
 RuntimeNavMissionState
@@ -17,8 +17,8 @@ RuntimeNavMissionGraph
   └── restoreGraph(graph)
 
 RuntimeNavMissionRunner
-  ├── addRule(rule)
   ├── handleAgentEvent(event)
+  ├── handleGameplayEvent(event)
   ├── run()
   └── snapshot()
 
@@ -28,35 +28,37 @@ RuntimeNavMissionDebugPanel
   └── Seed Demo
 ```
 
-## Runtime/Builder 0.37 能力
+## Runtime/Builder 0.38 能力
 
-- 新增 `src/large/NavMissionDebugPanel.ts`
-- 新增 `src/large/NavMissionDebugPanel.css`
-- 新增 `RuntimeNavMissionDebugPanel`
-- 大场景 Runtime 支持 URL 参数打开 HUD：
-  - `missionDebug=1`
-  - `missionPanel=1`
-  - `missionHud=1`
-- HUD 支持：
-  - mission state 计数
-  - objective graph 计数
-  - runner rule / event 计数
-  - 最近 agent events
-  - objective 简表
-  - `Refresh`
-  - `Run`
-  - `Seed Demo`
-- `LargeWorldBootstrap` 会在 NavMesh gameplay API 可用时安装 HUD
-- HUD 会订阅 agent registry events，并在事件触发后自动刷新
-- `Seed Demo` 会创建：
-  - `debug-mission`
-  - `debug-arrive`
-  - `debug-arrive-on-agent-arrived` runner rule
-- 支持 HUD 初始折叠与 event 数量配置：
-  - `missionDebugCollapsed=1`
-  - `missionDebugEvents=16`
-- package version 更新为 `0.37.0`
-- Runtime label 更新为 `runtime 0.37`
+- mission runner 新增 gameplay event 支持
+- runner event 现在支持两类 source：
+  - `agent`
+  - `gameplay`
+- gameplay event filter 支持：
+  - `source: "gameplay"`
+  - `type: "gameplay"`
+  - `type: "trigger"`
+  - `type: "interaction"`
+  - `kind: "trigger" | "interaction"`
+  - `sourceId`
+  - `event`
+- agent event filter 继续兼容：
+  - `type: "arrived" | "blocked" | "created" | "removed" | "status-change"`
+  - `agentId`
+  - `status`
+  - `previousStatus`
+- `RuntimeNavGameplayApi` 新增：
+  - `handleMissionRunnerGameplayEvent(event)`
+- `LargeWorldBootstrap` 会包装 Engine `onGameplayEvent`：
+  - 先保留原有 UI toast / status 逻辑
+  - 再桥接到 mission runner
+  - 最后刷新 Mission HUD
+- Mission HUD 最近 event 列表现在能展示 agent event 和 gameplay event
+- runner snapshot 新增：
+  - `handledAgentEvents`
+  - `handledGameplayEvents`
+- package version 更新为 `0.38.0`
+- Runtime label 更新为 `runtime 0.38`
 
 ## 运行 Runtime
 
@@ -99,7 +101,7 @@ npm run preview
 
 ## Event buffer limit
 
-默认最多保留最近 128 条 event。可以在运行时调整：
+默认最多保留最近 128 条 agent event。可以在运行时调整：
 
 ```js
 window.splatWorld.navMesh.setAgentEventLimit(32)
@@ -238,12 +240,6 @@ window.splatWorld.navMesh.createObjective({
 })
 ```
 
-初始 snapshot 中，`find-key` 会因为 `autoActivate` 默认开启而解析为 `active`，`open-door` 会被 `objective:find-key` 阻塞：
-
-```js
-window.splatWorld.navMesh.snapshotMissionGraph()
-```
-
 完成第一个 objective 后，第二个 objective 会进入 ready：
 
 ```js
@@ -265,6 +261,7 @@ window.splatWorld.navMesh.createObjective({
 window.splatWorld.navMesh.addMissionRunnerRule({
   id: "complete-safe-room-on-arrive",
   event: {
+    source: "agent",
     type: "arrived",
     agentId: "debug-click-agent"
   },
@@ -294,6 +291,84 @@ window.splatWorld.navMesh.snapshotMissionRunner()
 window.splatWorld.navMesh.runMissionRunner()
 ```
 
+## Gameplay trigger / interaction bridge
+
+世界对象的 trigger 和 interactable 会发出 `GameplayEvent`：
+
+```ts
+{
+  sourceId: string,
+  event: string,
+  message: string,
+  kind: "trigger" | "interaction"
+}
+```
+
+现在可以用 gameplay event 自动推进任务：
+
+```js
+window.splatWorld.navMesh.createObjective({
+  id: "enter-lobby",
+  title: "进入大厅"
+})
+
+window.splatWorld.navMesh.addMissionRunnerRule({
+  id: "complete-enter-lobby-trigger",
+  event: {
+    source: "gameplay",
+    kind: "trigger",
+    sourceId: "lobby-trigger",
+    event: "lobby:enter"
+  },
+  action: {
+    kind: "objective",
+    id: "enter-lobby",
+    status: "completed",
+    data: {
+      source: "gameplay-trigger"
+    }
+  },
+  once: true
+})
+```
+
+也可以监听交互事件：
+
+```js
+window.splatWorld.navMesh.addMissionRunnerRule({
+  id: "complete-read-note",
+  event: {
+    source: "gameplay",
+    kind: "interaction",
+    sourceId: "note-001",
+    event: "note:read"
+  },
+  action: {
+    kind: "objective",
+    id: "read-note",
+    status: "completed"
+  }
+})
+```
+
+更宽松的 filter 也可以只按类型匹配：
+
+```js
+window.splatWorld.navMesh.addMissionRunnerRule({
+  id: "fail-on-any-alarm-trigger",
+  event: {
+    source: "gameplay",
+    type: "trigger",
+    event: "alarm:enter"
+  },
+  action: {
+    kind: "mission",
+    id: "stealth-run",
+    status: "failed"
+  }
+})
+```
+
 ## Mission debug HUD scaffold
 
 打开 HUD 后可以直接点 `Seed Demo`，它等价于：
@@ -310,12 +385,13 @@ window.splatWorld.navMesh.upsertMission({
 window.splatWorld.navMesh.upsertObjective({
   id: "debug-arrive",
   missionId: "debug-mission",
-  title: "Arrive with debug-click-agent"
+  title: "Arrive with debug-click-agent or trigger bridge"
 })
 
 window.splatWorld.navMesh.upsertMissionRunnerRule({
   id: "debug-arrive-on-agent-arrived",
   event: {
+    source: "agent",
     type: "arrived",
     agentId: "debug-click-agent"
   },
@@ -331,17 +407,15 @@ window.splatWorld.navMesh.upsertMissionRunnerRule({
 })
 ```
 
-然后在 `clickToMove=1` 下点击场景，让 `debug-click-agent` 到达目标；HUD 会展示 event、runner fired 数、objective 状态变化。
+在 `clickToMove=1` 下点击场景，让 `debug-click-agent` 到达目标；HUD 会展示 agent event、runner fired 数、objective 状态变化。触发器和交互事件也会显示在同一个最近 event 列表里。
 
 ## 已知边界
 
-- 0.37 仍然只是 Mission editor panel / debug HUD scaffold，不是完整任务编辑器。
+- 0.38 仍然只是 gameplay trigger event bridge scaffold，不是完整任务脚本系统。
+- gameplay bridge 目前只桥接 Engine `GameplayEvent`，不包含物品背包、奖励、对话、战斗等更高层 gameplay domain event。
 - HUD 只在 large world 且 NavMesh gameplay API 可用时安装。
 - HUD 目前只展示摘要、最近 event 和 objective 简表，不支持可视化拖拽编辑 graph。
-- HUD 的 `Seed Demo` 用固定 demo id；它使用 upsert，适合重复点击调试，但不是正式内容创作流程。
 - runner rule 仍不会持久化到 mission state / graph save payload；刷新页面后需要重新注册。
-- runner 会响应 agent registry event，但不会监听任意 gameplay event、物品拾取 event 或 trigger event。
-- graph snapshot 会解析依赖；runner 的 `run()` / event handler 会把 ready objectives 显式激活。
 - event buffer 只按条数限制，不按内存大小限制。
 - 仍然没有局部避障、动态障碍或 agent-agent avoidance。
 - agent 仍沿 route points 直线移动，没有 funnel smoothing。
@@ -380,7 +454,8 @@ window.splatWorld.navMesh.upsertMissionRunnerRule({
 - [x] Mission graph / objective dependency scaffold
 - [x] Mission runtime runner / auto-progress hooks
 - [x] Mission editor panel / debug HUD scaffold
-- [ ] Gameplay trigger event bridge for mission runner
+- [x] Gameplay trigger event bridge for mission runner
+- [ ] Mission authoring save format scaffold
 
 ## 依赖与许可证
 

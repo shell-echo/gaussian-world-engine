@@ -1,6 +1,7 @@
 import "./NavMissionDebugPanel.css";
-import type { RuntimeNavAgentRegistryEvent } from "./NavAgentRegistry.js";
+import type { GameplayEvent } from "../gameplay/GameplaySystem.js";
 import type { RuntimeNavGameplayApi } from "./NavGameplayApi.js";
+import type { RuntimeNavMissionRunnerEvent } from "./NavMissionRunner.js";
 
 export interface RuntimeNavMissionDebugPanelOptions {
   nav: RuntimeNavGameplayApi;
@@ -18,7 +19,7 @@ export class RuntimeNavMissionDebugPanel {
   private readonly unsubscribe: () => void;
   private readonly maxEvents: number;
   private visible: boolean;
-  private readonly events: RuntimeNavAgentRegistryEvent[] = [];
+  private readonly events: RuntimeNavMissionRunnerEvent[] = [];
 
   constructor(private readonly options: RuntimeNavMissionDebugPanelOptions) {
     this.visible = options.initiallyVisible ?? true;
@@ -44,6 +45,11 @@ export class RuntimeNavMissionDebugPanel {
     this.toggleButton.remove();
   }
 
+  recordGameplayEvent(event: GameplayEvent): void {
+    this.pushEvent({ ...event, source: "gameplay", type: "gameplay" });
+    this.refresh();
+  }
+
   refresh(): void {
     const state = this.options.nav.snapshotMissionState();
     const graph = this.options.nav.snapshotMissionGraph();
@@ -62,8 +68,8 @@ export class RuntimeNavMissionDebugPanel {
     );
     this.runnerSummary.replaceChildren(
       createMetric("Rules", runner.ruleCount),
-      createMetric("Enabled", runner.enabledRules),
-      createMetric("Events", runner.handledEvents),
+      createMetric("Agent", runner.handledAgentEvents),
+      createMetric("Game", runner.handledGameplayEvents),
       createMetric("Fired", runner.firedRules),
     );
     this.renderEvents();
@@ -106,14 +112,14 @@ export class RuntimeNavMissionDebugPanel {
       createSection("State", this.stateSummary),
       createSection("Graph", this.graphSummary),
       createSection("Runner", this.runnerSummary),
-      createSection("Recent agent events", this.eventsList),
+      createSection("Recent mission events", this.eventsList),
     );
   }
 
   private renderEvents(): void {
     if (this.events.length === 0) {
       const empty = document.createElement("small");
-      empty.textContent = "No agent events yet.";
+      empty.textContent = "No mission events yet.";
       this.eventsList.replaceChildren(empty);
       return;
     }
@@ -122,9 +128,14 @@ export class RuntimeNavMissionDebugPanel {
         const row = document.createElement("div");
         row.className = "mission-debug-event";
         const title = document.createElement("b");
-        title.textContent = `${event.type} · ${event.agentId}`;
         const detail = document.createElement("small");
-        detail.textContent = event.previousStatus ? `${event.previousStatus} → ${event.status}` : event.status;
+        if (isGameplayEvent(event)) {
+          title.textContent = `${event.kind} · ${event.event}`;
+          detail.textContent = `${event.sourceId} · ${event.message}`;
+        } else {
+          title.textContent = `${event.type} · ${event.agentId}`;
+          detail.textContent = event.previousStatus ? `${event.previousStatus} → ${event.status}` : event.status;
+        }
         row.append(title, detail);
         return row;
       }),
@@ -159,7 +170,7 @@ export class RuntimeNavMissionDebugPanel {
     if (!section.parentElement) this.root.append(section);
   }
 
-  private pushEvent(event: RuntimeNavAgentRegistryEvent): void {
+  private pushEvent(event: RuntimeNavMissionRunnerEvent): void {
     this.events.push(event);
     while (this.events.length > this.maxEvents) this.events.shift();
   }
@@ -173,11 +184,11 @@ export class RuntimeNavMissionDebugPanel {
     this.options.nav.upsertObjective({
       id: "debug-arrive",
       missionId: "debug-mission",
-      title: "Arrive with debug-click-agent",
+      title: "Arrive with debug-click-agent or trigger bridge",
     });
     this.options.nav.upsertMissionRunnerRule({
       id: "debug-arrive-on-agent-arrived",
-      event: { type: "arrived", agentId: "debug-click-agent" },
+      event: { source: "agent", type: "arrived", agentId: "debug-click-agent" },
       action: { kind: "objective", id: "debug-arrive", status: "completed", data: { source: "mission-debug-panel" } },
       once: true,
     });
@@ -212,6 +223,10 @@ function createButton(label: string, onClick: () => void): HTMLButtonElement {
   button.textContent = label;
   button.addEventListener("click", onClick);
   return button;
+}
+
+function isGameplayEvent(event: RuntimeNavMissionRunnerEvent): event is Extract<RuntimeNavMissionRunnerEvent, { source: "gameplay" }> {
+  return "source" in event && event.source === "gameplay";
 }
 
 function normalizeMaxEvents(value: number | undefined): number {

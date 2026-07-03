@@ -1,3 +1,4 @@
+import type { GameplayEvent } from "../gameplay/GameplaySystem.js";
 import type { RuntimeNavAgentRegistryEvent } from "./NavAgentRegistry.js";
 import type {
   RuntimeNavMissionGraph,
@@ -11,15 +12,26 @@ import type {
   RuntimeNavMissionStatus,
 } from "./NavMissionState.js";
 
-export type RuntimeNavMissionRunnerEventType = RuntimeNavAgentRegistryEvent["type"] | "any";
+export interface RuntimeNavMissionRunnerGameplayEvent extends GameplayEvent {
+  source: "gameplay";
+  type: "gameplay";
+}
+
+export type RuntimeNavMissionRunnerEvent = RuntimeNavAgentRegistryEvent | RuntimeNavMissionRunnerGameplayEvent;
+export type RuntimeNavMissionRunnerEventSource = "agent" | "gameplay" | "any";
+export type RuntimeNavMissionRunnerEventType = RuntimeNavAgentRegistryEvent["type"] | GameplayEvent["kind"] | "gameplay" | "any";
 export type RuntimeNavMissionRunnerMissionActionStatus = Extract<RuntimeNavMissionStatus, "inactive" | "active" | "completed" | "failed">;
 export type RuntimeNavMissionRunnerObjectiveActionStatus = RuntimeNavMissionObjectiveStatus;
 
 export interface RuntimeNavMissionRunnerEventFilter {
+  source?: RuntimeNavMissionRunnerEventSource;
   type?: RuntimeNavMissionRunnerEventType;
   agentId?: string;
   status?: RuntimeNavAgentRegistryEvent["status"];
   previousStatus?: RuntimeNavAgentRegistryEvent["previousStatus"];
+  sourceId?: string;
+  kind?: GameplayEvent["kind"];
+  event?: string;
 }
 
 export type RuntimeNavMissionRunnerAction =
@@ -56,13 +68,15 @@ export interface RuntimeNavMissionRunnerSnapshot {
   ruleCount: number;
   enabledRules: number;
   handledEvents: number;
+  handledAgentEvents: number;
+  handledGameplayEvents: number;
   firedRules: number;
   autoActivatedObjectives: number;
   rules: RuntimeNavMissionRunnerRuleSnapshot[];
 }
 
 export interface RuntimeNavMissionRunnerResult {
-  event: RuntimeNavAgentRegistryEvent | null;
+  event: RuntimeNavMissionRunnerEvent | null;
   firedRuleIds: string[];
   missionIds: string[];
   objectiveIds: string[];
@@ -79,6 +93,8 @@ export interface RuntimeNavMissionRunnerOptions {
 export class RuntimeNavMissionRunner {
   private readonly rules = new Map<string, RuntimeNavMissionRunnerRule>();
   private handledEventsValue = 0;
+  private handledAgentEventsValue = 0;
+  private handledGameplayEventsValue = 0;
   private firedRulesValue = 0;
   private autoActivatedObjectivesValue = 0;
 
@@ -106,7 +122,20 @@ export class RuntimeNavMissionRunner {
   }
 
   handleAgentEvent(event: RuntimeNavAgentRegistryEvent): RuntimeNavMissionRunnerResult {
+    return this.handleEvent(event);
+  }
+
+  handleGameplayEvent(event: GameplayEvent): RuntimeNavMissionRunnerResult {
+    return this.handleEvent(toGameplayRunnerEvent(event));
+  }
+
+  handleEvent(event: RuntimeNavMissionRunnerEvent): RuntimeNavMissionRunnerResult {
     this.handledEventsValue += 1;
+    if (isGameplayEvent(event)) {
+      this.handledGameplayEventsValue += 1;
+    } else {
+      this.handledAgentEventsValue += 1;
+    }
     const result = createResult(event);
     const matchingRules = Array.from(this.rules.values()).filter((rule) => rule.enabled !== false && matchesRule(rule, event));
     for (const rule of matchingRules) {
@@ -130,6 +159,8 @@ export class RuntimeNavMissionRunner {
       ruleCount: rules.length,
       enabledRules: rules.filter((rule) => rule.enabled).length,
       handledEvents: this.handledEventsValue,
+      handledAgentEvents: this.handledAgentEventsValue,
+      handledGameplayEvents: this.handledGameplayEventsValue,
       firedRules: this.firedRulesValue,
       autoActivatedObjectives: this.autoActivatedObjectivesValue,
       rules,
@@ -204,10 +235,14 @@ function normalizeRule(rule: RuntimeNavMissionRunnerRule): RuntimeNavMissionRunn
 
 function normalizeEventFilter(filter: RuntimeNavMissionRunnerEventFilter | undefined): RuntimeNavMissionRunnerEventFilter {
   return {
+    source: filter?.source ?? "any",
     type: filter?.type ?? "any",
     agentId: filter?.agentId ? normalizeId(filter.agentId, "Runtime nav mission runner event agentId cannot be empty.") : undefined,
     status: filter?.status,
     previousStatus: filter?.previousStatus,
+    sourceId: filter?.sourceId ? normalizeId(filter.sourceId, "Runtime nav mission runner event sourceId cannot be empty.") : undefined,
+    kind: filter?.kind,
+    event: filter?.event ? normalizeId(filter.event, "Runtime nav mission runner gameplay event name cannot be empty.") : undefined,
   };
 }
 
@@ -228,20 +263,44 @@ function normalizeAction(action: RuntimeNavMissionRunnerAction): RuntimeNavMissi
   };
 }
 
-function matchesRule(rule: RuntimeNavMissionRunnerRule, event: RuntimeNavAgentRegistryEvent): boolean {
-  const filter = rule.event ?? { type: "any" };
+function matchesRule(rule: RuntimeNavMissionRunnerRule, event: RuntimeNavMissionRunnerEvent): boolean {
+  const filter = rule.event ?? { source: "any", type: "any" };
+  if (filter.source && filter.source !== "any") {
+    if (filter.source === "gameplay" && !isGameplayEvent(event)) return false;
+    if (filter.source === "agent" && isGameplayEvent(event)) return false;
+  }
   const type = filter.type ?? "any";
-  if (type !== "any" && type !== event.type) return false;
-  if (filter.agentId && filter.agentId !== event.agentId) return false;
-  if (filter.status && filter.status !== event.status) return false;
-  if (filter.previousStatus && filter.previousStatus !== event.previousStatus) return false;
+  if (type !== "any" && !matchesType(type, event)) return false;
+  if (filter.agentId) {
+    if (isGameplayEvent(event) || filter.agentId !== event.agentId) return false;
+  }
+  if (filter.status) {
+    if (isGameplayEvent(event) || filter.status !== event.status) return false;
+  }
+  if (filter.previousStatus) {
+    if (isGameplayEvent(event) || filter.previousStatus !== event.previousStatus) return false;
+  }
+  if (filter.sourceId) {
+    if (!isGameplayEvent(event) || filter.sourceId !== event.sourceId) return false;
+  }
+  if (filter.kind) {
+    if (!isGameplayEvent(event) || filter.kind !== event.kind) return false;
+  }
+  if (filter.event) {
+    if (!isGameplayEvent(event) || filter.event !== event.event) return false;
+  }
   return true;
+}
+
+function matchesType(type: RuntimeNavMissionRunnerEventType, event: RuntimeNavMissionRunnerEvent): boolean {
+  if (isGameplayEvent(event)) return type === "gameplay" || type === event.kind;
+  return type === event.type;
 }
 
 function snapshotRule(rule: RuntimeNavMissionRunnerRule): RuntimeNavMissionRunnerRuleSnapshot {
   return {
     id: rule.id,
-    event: { ...(rule.event ?? { type: "any" }) },
+    event: { ...(rule.event ?? { source: "any", type: "any" }) },
     action: cloneAction(rule.action),
     once: rule.once ?? false,
     enabled: rule.enabled ?? true,
@@ -261,7 +320,7 @@ function cloneAction(action: RuntimeNavMissionRunnerAction): RuntimeNavMissionRu
   };
 }
 
-function createResult(event: RuntimeNavAgentRegistryEvent | null): RuntimeNavMissionRunnerResult {
+function createResult(event: RuntimeNavMissionRunnerEvent | null): RuntimeNavMissionRunnerResult {
   return {
     event,
     firedRuleIds: [],
@@ -280,6 +339,18 @@ function mergeResult(target: RuntimeNavMissionRunnerResult, source: RuntimeNavMi
   target.readyObjectiveIds.push(...source.readyObjectiveIds);
   target.autoActivatedObjectiveIds.push(...source.autoActivatedObjectiveIds);
   target.errors.push(...source.errors);
+}
+
+function toGameplayRunnerEvent(event: GameplayEvent): RuntimeNavMissionRunnerGameplayEvent {
+  return {
+    ...event,
+    source: "gameplay",
+    type: "gameplay",
+  };
+}
+
+function isGameplayEvent(event: RuntimeNavMissionRunnerEvent): event is RuntimeNavMissionRunnerGameplayEvent {
+  return "source" in event && event.source === "gameplay";
 }
 
 function normalizeId(id: string, message: string): string {
