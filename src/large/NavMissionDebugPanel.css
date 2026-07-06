@@ -103,13 +103,16 @@
 }
 
 .mission-debug-events,
+.mission-debug-diagnostics,
+.mission-debug-diagnostics-body,
 .mission-debug-section-body {
   display: grid;
   gap: 6px;
 }
 
 .mission-debug-event,
-.mission-debug-objective {
+.mission-debug-objective,
+.mission-debug-diagnostic {
   min-width: 0;
   display: grid;
   gap: 2px;
@@ -118,8 +121,24 @@
   background: rgba(255, 255, 255, 0.045);
 }
 
+.mission-debug-diagnostic.error {
+  border: 1px solid rgba(255, 93, 93, 0.36);
+  background: rgba(255, 93, 93, 0.08);
+}
+
+.mission-debug-diagnostic.warning {
+  border: 1px solid rgba(255, 200, 87, 0.34);
+  background: rgba(255, 200, 87, 0.07);
+}
+
+.mission-debug-diagnostic.info {
+  border: 1px solid rgba(118, 190, 255, 0.24);
+  background: rgba(118, 190, 255, 0.055);
+}
+
 .mission-debug-event b,
-.mission-debug-objective b {
+.mission-debug-objective b,
+.mission-debug-diagnostic b {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -129,6 +148,7 @@
 
 .mission-debug-event small,
 .mission-debug-objective small,
+.mission-debug-diagnostic small,
 .mission-debug-section-body > small {
   color: rgba(255, 255, 255, 0.46);
   font-size: 10px;
