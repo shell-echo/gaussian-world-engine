@@ -27,6 +27,7 @@ import type { RuntimeNavAgentSnapshot } from "./NavAgentController";
 import type { RuntimeNavAgentRegistrySnapshot } from "./NavAgentRegistry";
 import { RuntimeNavMissionDebugPanel } from "./NavMissionDebugPanel";
 import {
+  createRuntimeNavMissionGameplaySourceRegistry,
   loadRuntimeNavMissionPackages,
   normalizeRuntimeNavMissionPackageReferences,
   type RuntimeNavMissionPackageDiagnosticsReport,
@@ -297,6 +298,7 @@ async function installMissionPackages(navApi: RuntimeNavGameplayApi, manifest: L
       nav: navApi,
       packages,
       fetcher: nativeFetch,
+      gameplaySources: createRuntimeNavMissionGameplaySourceRegistry(manifest.colliders ?? []),
       onStatus: (message) => {
         statusElement && (statusElement.textContent = message);
       },
