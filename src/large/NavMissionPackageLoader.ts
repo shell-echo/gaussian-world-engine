@@ -22,6 +22,8 @@ export interface RuntimeNavMissionPackageDiagnostic {
 export interface RuntimeNavMissionGameplaySourceRegistry {
   triggers: string[];
   interactions: string[];
+  triggerEvents: Record<string, string>;
+  interactionEvents: Record<string, string>;
 }
 
 export interface RuntimeNavMissionPackageReference {
@@ -73,13 +75,23 @@ export function createRuntimeNavMissionGameplaySourceRegistry(
 ): RuntimeNavMissionGameplaySourceRegistry {
   const triggers = new Set<string>();
   const interactions = new Set<string>();
+  const triggerEvents: Record<string, string> = {};
+  const interactionEvents: Record<string, string> = {};
   for (const collider of colliders) {
-    if (collider.behavior?.mode === "trigger") triggers.add(collider.id);
-    if (collider.interactable) interactions.add(collider.id);
+    if (collider.behavior?.mode === "trigger") {
+      triggers.add(collider.id);
+      triggerEvents[collider.id] = collider.behavior.event;
+    }
+    if (collider.interactable) {
+      interactions.add(collider.id);
+      interactionEvents[collider.id] = collider.interactable.event;
+    }
   }
   return {
     triggers: Array.from(triggers).sort(),
     interactions: Array.from(interactions).sort(),
+    triggerEvents,
+    interactionEvents,
   };
 }
 
@@ -272,19 +284,51 @@ function validateGameplaySourceRule(
   if (!registry || !rule.event || rule.event.source === "agent") return [];
   const sourceId = rule.event.sourceId;
   if (!sourceId || !isGameplayEventFilter(rule.event)) return [];
+
+  const diagnostics: RuntimeNavMissionPackageDiagnostic[] = [];
   const kind = readGameplayKind(rule.event);
   const triggerIds = new Set(registry.triggers);
   const interactionIds = new Set(registry.interactions);
-  if (kind === "trigger" && !triggerIds.has(sourceId)) {
-    return [createDiagnostic("warning", "gameplay_source.missing_trigger", `Runner rule ${rule.id} references missing trigger sourceId ${sourceId}.`, url, rule.id)];
+
+  if (kind === "trigger") {
+    if (!triggerIds.has(sourceId)) {
+      return [createDiagnostic("warning", "gameplay_source.missing_trigger", `Runner rule ${rule.id} references missing trigger sourceId ${sourceId}.`, url, rule.id)];
+    }
+    diagnostics.push(...validateGameplayEventName(rule, registry.triggerEvents[sourceId], "trigger", url));
+    return diagnostics;
   }
-  if (kind === "interaction" && !interactionIds.has(sourceId)) {
-    return [createDiagnostic("warning", "gameplay_source.missing_interaction", `Runner rule ${rule.id} references missing interaction sourceId ${sourceId}.`, url, rule.id)];
+
+  if (kind === "interaction") {
+    if (!interactionIds.has(sourceId)) {
+      return [createDiagnostic("warning", "gameplay_source.missing_interaction", `Runner rule ${rule.id} references missing interaction sourceId ${sourceId}.`, url, rule.id)];
+    }
+    diagnostics.push(...validateGameplayEventName(rule, registry.interactionEvents[sourceId], "interaction", url));
+    return diagnostics;
   }
-  if (!kind && !triggerIds.has(sourceId) && !interactionIds.has(sourceId)) {
+
+  if (!triggerIds.has(sourceId) && !interactionIds.has(sourceId)) {
     return [createDiagnostic("warning", "gameplay_source.missing_source_id", `Runner rule ${rule.id} references missing gameplay sourceId ${sourceId}.`, url, rule.id)];
   }
-  return [];
+
+  if (triggerIds.has(sourceId)) {
+    diagnostics.push(...validateGameplayEventName(rule, registry.triggerEvents[sourceId], "trigger", url));
+  }
+  if (interactionIds.has(sourceId)) {
+    diagnostics.push(...validateGameplayEventName(rule, registry.interactionEvents[sourceId], "interaction", url));
+  }
+  return diagnostics;
+}
+
+function validateGameplayEventName(
+  rule: RuntimeNavMissionRunnerRule,
+  expectedEvent: string | undefined,
+  kind: "trigger" | "interaction",
+  url?: string,
+): RuntimeNavMissionPackageDiagnostic[] {
+  const eventName = rule.event?.event;
+  if (!eventName || !expectedEvent || eventName === expectedEvent) return [];
+  const code = kind === "trigger" ? "gameplay_source.trigger_event_mismatch" : "gameplay_source.interaction_event_mismatch";
+  return [createDiagnostic("warning", code, `Runner rule ${rule.id} listens for ${kind} event ${eventName}, but world sourceId ${rule.event?.sourceId ?? "unknown"} emits ${expectedEvent}.`, url, rule.id)];
 }
 
 function isGameplayEventFilter(event: RuntimeNavMissionRunnerRule["event"]): boolean {
