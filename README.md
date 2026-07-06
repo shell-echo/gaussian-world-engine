@@ -1,51 +1,49 @@
-# Splat World Engine — Mission Diagnostics HUD
+# Splat World Engine — Mission Gameplay Source Validation
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.42 在 0.41 的 diagnostics report 之上新增 Mission diagnostics HUD panel：Mission HUD 现在会直接展示 package diagnostics 指标和诊断列表，不需要只依赖 console 查看 package 问题。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.43 在 0.42 的 Mission diagnostics HUD 之上新增 Mission package sourceId validation against world gameplay objects：mission package 里的 gameplay runner rule 现在会根据当前 world 的 trigger / interactable collider 做 `sourceId` 校验。
 
 ```text
-RuntimeNavMissionPackageDiagnosticsReport
-  ├── ok
-  ├── packageCount
-  ├── loadedPackages
-  ├── warnings
-  ├── errors
-  └── diagnostics[]
+WorldManifest.colliders
+  ├── behavior.mode = "trigger"      -> gameplay trigger sourceId
+  └── interactable                   -> gameplay interaction sourceId
+
+RuntimeNavMissionGameplaySourceRegistry
+  ├── triggers[]
+  └── interactions[]
+
+RuntimeNavMissionPackageLoader
+  ├── createRuntimeNavMissionGameplaySourceRegistry(colliders)
+  ├── validateRuntimeNavMissionPackageDocument(document, url, { gameplaySources })
+  └── loadRuntimeNavMissionPackages({ gameplaySources })
 
 RuntimeNavMissionDebugPanel
-  ├── State
-  ├── Graph
-  ├── Runner
-  ├── Package diagnostics
-  ├── Recent mission events
-  └── Objectives
-
-LargeWorldBootstrap
-  ├── window.splatWorld.missionPackages
-  ├── missionDebug=1
-  └── missionDiagnostics=6
+  └── Package diagnostics
 ```
 
-## Runtime/Builder 0.42 能力
+## Runtime/Builder 0.43 能力
 
-- Mission HUD 新增 `Package diagnostics` section
-- diagnostics section 显示：
-  - package count
-  - loaded package count
-  - warning count
-  - error count
-- diagnostics list 优先展示 warning / error
-- 如果没有 warning / error，会展示 info summary
-- 新增 `maxDiagnostics` HUD 配置
-- URL 参数新增：
-  - `missionDiagnostics=6`
-- `LargeWorldBootstrap` 会把 `missionPackageReport` 传入 `RuntimeNavMissionDebugPanel`
-- diagnostics rows 按 severity 增加基础样式：
-  - error
-  - warning
-  - info
-- `window.splatWorld.missionPackages` 仍保留完整 report，HUD 只做摘要展示
-- package version 更新为 `0.42.0`
-- Runtime label 更新为 `runtime 0.42`
+- `NavMissionPackageLoader` 新增 `RuntimeNavMissionGameplaySourceRegistry`
+- 新增 helper：
+  - `createRuntimeNavMissionGameplaySourceRegistry(colliders)`
+- `RuntimeNavMissionPackageValidationOptions` 新增：
+  - `gameplaySources?: RuntimeNavMissionGameplaySourceRegistry | null`
+- `RuntimeNavMissionPackageLoadOptions` 支持传入 `gameplaySources`
+- `validateRuntimeNavMissionPackageDocument(document, url, options)` 会校验 gameplay rule 的 `sourceId`
+- `LargeWorldBootstrap` 会从 `manifest.colliders` 自动生成 source registry 并传给 package loader
+- 支持区分：
+  - `kind: "trigger"` / `type: "trigger"` -> 必须存在 trigger collider
+  - `kind: "interaction"` / `type: "interaction"` -> 必须存在 interactable collider
+  - 未指定 kind 但写了 `sourceId` -> 必须存在 trigger 或 interactable 任意一种
+- 新增 diagnostics code：
+  - `gameplay_source.missing_trigger`
+  - `gameplay_source.missing_interaction`
+  - `gameplay_source.missing_source_id`
+- sourceId 缺失目前是 `warning`，不会阻止 package apply
+- Mission HUD 的 `Package diagnostics` section 会直接显示这些 warning
+- 完整 report 仍保留在：
+  - `window.splatWorld.missionPackages`
+- package version 更新为 `0.43.0`
+- Runtime label 更新为 `runtime 0.43`
 
 ## 运行 Runtime
 
@@ -92,6 +90,66 @@ npm run build
 npm run preview
 ```
 
+## Gameplay sourceId validation
+
+world 里的 trigger collider：
+
+```json
+{
+  "id": "lobby-trigger",
+  "type": "box",
+  "size": [4, 2, 4],
+  "behavior": {
+    "mode": "trigger",
+    "event": "lobby:enter",
+    "message": "Entered lobby"
+  }
+}
+```
+
+world 里的 interactable collider：
+
+```json
+{
+  "id": "note-001",
+  "type": "box",
+  "size": [0.4, 0.4, 0.4],
+  "interactable": {
+    "prompt": "Read note",
+    "event": "note:read",
+    "message": "Read the note"
+  }
+}
+```
+
+mission package 里的 runner rule 会被校验：
+
+```json
+{
+  "id": "complete-enter-lobby-trigger",
+  "event": {
+    "source": "gameplay",
+    "kind": "trigger",
+    "sourceId": "lobby-trigger",
+    "event": "lobby:enter"
+  },
+  "action": {
+    "kind": "objective",
+    "id": "enter-lobby",
+    "status": "completed"
+  },
+  "once": true,
+  "enabled": true
+}
+```
+
+如果 `sourceId` 不存在于当前 world 的 gameplay objects 中，diagnostics 会输出：
+
+```text
+WARNING · gameplay_source.missing_trigger
+Runner rule complete-enter-lobby-trigger references missing trigger sourceId lobby-trigger.
+```
+
 ## Mission diagnostics HUD panel
 
 HUD 会展示四个诊断指标：
@@ -106,13 +164,6 @@ Packages · Loaded · Warn · Errors
 1. 优先显示 warning / error
 2. 如果没有 warning / error，显示 info summary
 3. 最多显示 missionDiagnostics 指定数量，默认 6 条
-```
-
-示例 row：
-
-```text
-WARNING · objective.missing_mission
-Objective intro-door references missing mission intro-mission.
 ```
 
 常见 warning / error code：
@@ -131,6 +182,9 @@ runner_rule.broad_event
 runner_rule.disabled
 runner_rule.missing_mission_action_target
 runner_rule.missing_objective_action_target
+gameplay_source.missing_trigger
+gameplay_source.missing_interaction
+gameplay_source.missing_source_id
 package.load_failed
 ```
 
@@ -210,47 +264,12 @@ package.load_failed
 }
 ```
 
-## Gameplay trigger / interaction bridge
-
-世界对象的 trigger 和 interactable 会发出 `GameplayEvent`：
-
-```ts
-{
-  sourceId: string,
-  event: string,
-  message: string,
-  kind: "trigger" | "interaction"
-}
-```
-
-mission package 里的 runner rule 可以直接监听这些事件：
-
-```json
-{
-  "id": "complete-enter-lobby-trigger",
-  "event": {
-    "source": "gameplay",
-    "kind": "trigger",
-    "sourceId": "lobby-trigger",
-    "event": "lobby:enter"
-  },
-  "action": {
-    "kind": "objective",
-    "id": "enter-lobby",
-    "status": "completed"
-  },
-  "once": true,
-  "enabled": true
-}
-```
-
 ## 已知边界
 
-- 0.42 仍然只是 Mission diagnostics HUD panel scaffold，不是完整诊断工作台。
-- HUD 只展示摘要和前 N 条诊断，完整 report 仍通过 `window.splatWorld.missionPackages` 查看。
-- diagnostics 目前主要检查 authoring document 内部引用关系，不检查世界对象、trigger sourceId 是否真实存在。
+- 0.43 仍然只是 sourceId validation scaffold，不是完整 world gameplay authoring validator。
+- 当前只检查 `sourceId` 是否存在于 trigger / interactable collider，不检查事件名是否匹配 collider 的 `behavior.event` 或 `interactable.event`。
+- sourceId 缺失目前是 warning，不会阻止 package apply。
 - package 目前只支持 JSON authoring document，不支持压缩包、签名、版本依赖解析或远程 registry。
-- 有 error 的 package 不会 apply；warning 不会阻止 apply。
 - authoring document 仍只保存任务设计内容，不保存 player / agent / world object runtime state。
 - package 可以包含 runner rules，但仍没有专门的可视化规则编辑器。
 - HUD 只在 large world 且 NavMesh gameplay API 可用时安装。
@@ -297,7 +316,8 @@ mission package 里的 runner rule 可以直接监听这些事件：
 - [x] Mission package loader / URL manifest hook
 - [x] Mission package validation / diagnostics report
 - [x] Mission diagnostics HUD panel
-- [ ] Mission package sourceId validation against world gameplay objects
+- [x] Mission package sourceId validation against world gameplay objects
+- [ ] Mission package gameplay event-name validation
 
 ## 依赖与许可证
 
