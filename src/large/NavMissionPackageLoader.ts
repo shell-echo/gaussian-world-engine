@@ -1,3 +1,4 @@
+import type { ColliderData } from "../types/world.js";
 import type { RuntimeNavGameplayApi } from "./NavGameplayApi.js";
 import type {
   RuntimeNavMissionAuthoringApplyOptions,
@@ -6,6 +7,7 @@ import type {
   RuntimeNavMissionAuthoringMetadata,
 } from "./NavMissionAuthoring.js";
 import { parseRuntimeNavMissionAuthoringDocument } from "./NavMissionAuthoring.js";
+import type { RuntimeNavMissionRunnerRule } from "./NavMissionRunner.js";
 
 export type RuntimeNavMissionPackageDiagnosticSeverity = "info" | "warning" | "error";
 
@@ -17,12 +19,21 @@ export interface RuntimeNavMissionPackageDiagnostic {
   id?: string;
 }
 
+export interface RuntimeNavMissionGameplaySourceRegistry {
+  triggers: string[];
+  interactions: string[];
+}
+
 export interface RuntimeNavMissionPackageReference {
   url: string;
   merge?: boolean;
 }
 
-export interface RuntimeNavMissionPackageLoadOptions {
+export interface RuntimeNavMissionPackageValidationOptions {
+  gameplaySources?: RuntimeNavMissionGameplaySourceRegistry | null;
+}
+
+export interface RuntimeNavMissionPackageLoadOptions extends RuntimeNavMissionPackageValidationOptions {
   nav: RuntimeNavGameplayApi;
   packages: RuntimeNavMissionPackageReference[];
   fetcher?: typeof fetch;
@@ -57,6 +68,21 @@ export interface RuntimeNavMissionPackageLoadResult {
   diagnostics: RuntimeNavMissionPackageDiagnostic[];
 }
 
+export function createRuntimeNavMissionGameplaySourceRegistry(
+  colliders: readonly ColliderData[],
+): RuntimeNavMissionGameplaySourceRegistry {
+  const triggers = new Set<string>();
+  const interactions = new Set<string>();
+  for (const collider of colliders) {
+    if (collider.behavior?.mode === "trigger") triggers.add(collider.id);
+    if (collider.interactable) interactions.add(collider.id);
+  }
+  return {
+    triggers: Array.from(triggers).sort(),
+    interactions: Array.from(interactions).sort(),
+  };
+}
+
 export async function loadRuntimeNavMissionPackages(
   options: RuntimeNavMissionPackageLoadOptions,
 ): Promise<RuntimeNavMissionPackageDiagnosticsReport> {
@@ -67,7 +93,13 @@ export async function loadRuntimeNavMissionPackages(
   for (const [index, packageRef] of packages.entries()) {
     options.onStatus?.(`Loading mission package ${index + 1}/${packages.length}`);
     const merge = packageRef.merge ?? options.merge ?? index > 0;
-    const result = await loadSingleRuntimeNavMissionPackage({ fetcher, nav: options.nav, packageRef, merge });
+    const result = await loadSingleRuntimeNavMissionPackage({
+      fetcher,
+      nav: options.nav,
+      packageRef,
+      merge,
+      gameplaySources: options.gameplaySources,
+    });
     results.push(result);
     diagnostics.push(...result.diagnostics);
   }
@@ -96,6 +128,7 @@ export function normalizeRuntimeNavMissionPackageReferences(
 export function validateRuntimeNavMissionPackageDocument(
   document: RuntimeNavMissionAuthoringDocument,
   url?: string,
+  options: RuntimeNavMissionPackageValidationOptions = {},
 ): RuntimeNavMissionPackageDiagnostic[] {
   const diagnostics: RuntimeNavMissionPackageDiagnostic[] = [];
   const missionIds = new Set<string>();
@@ -158,6 +191,7 @@ export function validateRuntimeNavMissionPackageDocument(
     if (rule.action.kind === "objective" && !objectiveIds.has(rule.action.id)) {
       diagnostics.push(createDiagnostic("error", "runner_rule.missing_objective_action_target", `Runner rule ${rule.id} targets missing objective ${rule.action.id}.`, url, rule.id));
     }
+    diagnostics.push(...validateGameplaySourceRule(rule, options.gameplaySources ?? null, url));
   }
 
   diagnostics.push(createDiagnostic("info", "package.summary", `Mission package contains ${document.missions.length} mission(s), ${document.objectives.length} objective(s), and ${document.runnerRules.length} runner rule(s).`, url));
@@ -169,11 +203,14 @@ async function loadSingleRuntimeNavMissionPackage(options: {
   nav: RuntimeNavGameplayApi;
   packageRef: RuntimeNavMissionPackageReference;
   merge: boolean;
+  gameplaySources?: RuntimeNavMissionGameplaySourceRegistry | null;
 }): Promise<RuntimeNavMissionPackageLoadResult> {
   const diagnostics: RuntimeNavMissionPackageDiagnostic[] = [];
   try {
     const document = await fetchMissionPackage(options.fetcher, options.packageRef.url);
-    diagnostics.push(...validateRuntimeNavMissionPackageDocument(document, options.packageRef.url));
+    diagnostics.push(...validateRuntimeNavMissionPackageDocument(document, options.packageRef.url, {
+      gameplaySources: options.gameplaySources,
+    }));
     const hasErrors = diagnostics.some((diagnostic) => diagnostic.severity === "error");
     if (hasErrors) {
       return {
@@ -225,6 +262,44 @@ function normalizePackages(packages: RuntimeNavMissionPackageReference[]): Runti
     result.push({ url, merge: packageRef.merge });
   }
   return result;
+}
+
+function validateGameplaySourceRule(
+  rule: RuntimeNavMissionRunnerRule,
+  registry: RuntimeNavMissionGameplaySourceRegistry | null,
+  url?: string,
+): RuntimeNavMissionPackageDiagnostic[] {
+  if (!registry || !rule.event || rule.event.source === "agent") return [];
+  const sourceId = rule.event.sourceId;
+  if (!sourceId || !isGameplayEventFilter(rule.event)) return [];
+  const kind = readGameplayKind(rule.event);
+  const triggerIds = new Set(registry.triggers);
+  const interactionIds = new Set(registry.interactions);
+  if (kind === "trigger" && !triggerIds.has(sourceId)) {
+    return [createDiagnostic("warning", "gameplay_source.missing_trigger", `Runner rule ${rule.id} references missing trigger sourceId ${sourceId}.`, url, rule.id)];
+  }
+  if (kind === "interaction" && !interactionIds.has(sourceId)) {
+    return [createDiagnostic("warning", "gameplay_source.missing_interaction", `Runner rule ${rule.id} references missing interaction sourceId ${sourceId}.`, url, rule.id)];
+  }
+  if (!kind && !triggerIds.has(sourceId) && !interactionIds.has(sourceId)) {
+    return [createDiagnostic("warning", "gameplay_source.missing_source_id", `Runner rule ${rule.id} references missing gameplay sourceId ${sourceId}.`, url, rule.id)];
+  }
+  return [];
+}
+
+function isGameplayEventFilter(event: RuntimeNavMissionRunnerRule["event"]): boolean {
+  if (!event) return false;
+  if (event.source === "gameplay") return true;
+  if (event.type === "gameplay" || event.type === "trigger" || event.type === "interaction") return true;
+  if (event.kind === "trigger" || event.kind === "interaction") return true;
+  return Boolean(event.sourceId && event.source !== "agent");
+}
+
+function readGameplayKind(event: RuntimeNavMissionRunnerRule["event"]): "trigger" | "interaction" | null {
+  if (!event) return null;
+  if (event.kind === "trigger" || event.kind === "interaction") return event.kind;
+  if (event.type === "trigger" || event.type === "interaction") return event.type;
+  return null;
 }
 
 function createReport(
