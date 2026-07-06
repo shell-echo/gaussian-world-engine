@@ -29,7 +29,7 @@ import { RuntimeNavMissionDebugPanel } from "./NavMissionDebugPanel";
 import {
   loadRuntimeNavMissionPackages,
   normalizeRuntimeNavMissionPackageReferences,
-  type RuntimeNavMissionPackageLoadResult,
+  type RuntimeNavMissionPackageDiagnosticsReport,
   type RuntimeNavMissionPackageReference,
 } from "./NavMissionPackageLoader";
 import {
@@ -50,6 +50,7 @@ import {
 
 interface RuntimeWorldWindowApi {
   navMesh?: RuntimeNavGameplayApi;
+  missionPackages?: RuntimeNavMissionPackageDiagnosticsReport;
 }
 
 const statusElement = optionalElement<HTMLElement>("status");
@@ -73,7 +74,7 @@ let collisionPlan: RuntimeCollisionPlan | null = null;
 let navMeshDebugGroup: THREE.Group | null = null;
 let navRouteDebugLine: THREE.Line | null = null;
 let missionDebugPanel: RuntimeNavMissionDebugPanel | null = null;
-let missionPackageResults: RuntimeNavMissionPackageLoadResult[] = [];
+let missionPackageReport: RuntimeNavMissionPackageDiagnosticsReport | null = null;
 let tileManager: LargeSplatTileManager | null = null;
 let collisionManager: LargeCollisionTileManager | null = null;
 let collisionStats: CollisionTileStreamingStats | null = null;
@@ -141,7 +142,7 @@ function installEngineHook(): void {
       navGameplayApi = null;
       navAgentDemo = null;
       missionDebugPanel = null;
-      missionPackageResults = [];
+      missionPackageReport = null;
       navAgentSnapshot = null;
       navAgentRegistrySnapshot = null;
       navRouteResult = null;
@@ -178,6 +179,7 @@ function installEngineHook(): void {
         installRuntimeWorldApi(navGameplayApi);
         installNavRouteDebug(instance.scene, navMesh);
         await installMissionPackages(navGameplayApi, manifest);
+        installRuntimeWorldApi(navGameplayApi);
         installNavAgentDemo(instance, navGameplayApi, manifest);
         installMissionDebugPanel(navGameplayApi);
       }
@@ -251,7 +253,7 @@ function updateStats(stats: LargeTileStreamingStats): void {
       ? " · agent ready"
       : "";
   const mission = missionDebugPanel ? " · mission hud" : "";
-  const missionPackages = missionPackageResults.length > 0 ? ` · mission pkg ${missionPackageResults.length}` : "";
+  const missionPackages = missionPackageReport ? ` · mission pkg ${missionPackageReport.loadedPackages}/${missionPackageReport.packageCount} w${missionPackageReport.warnings}/e${missionPackageReport.errors}` : "";
   const collision = collisionStats
     ? ` · col ${collisionStats.activeColliders}/${collisionStats.totalColliders}` +
       ` · cf ${collisionStats.reusedColliderFiles} h${collisionStats.colliderFileHits}/m${collisionStats.colliderFileMisses}`
@@ -291,7 +293,7 @@ async function installMissionPackages(navApi: RuntimeNavGameplayApi, manifest: L
   const packages = collectMissionPackages(manifest);
   if (packages.length === 0) return;
   try {
-    missionPackageResults = await loadRuntimeNavMissionPackages({
+    missionPackageReport = await loadRuntimeNavMissionPackages({
       nav: navApi,
       packages,
       fetcher: nativeFetch,
@@ -299,12 +301,18 @@ async function installMissionPackages(navApi: RuntimeNavGameplayApi, manifest: L
         statusElement && (statusElement.textContent = message);
       },
     });
-    showToast(`Mission package loaded · ${missionPackageResults.length}`, 3600);
+    console.info("Mission package diagnostics", missionPackageReport);
+    showToast(
+      missionPackageReport.errors > 0
+        ? `Mission package diagnostics · ${missionPackageReport.loadedPackages}/${missionPackageReport.packageCount} loaded · ${missionPackageReport.errors} error(s)`
+        : `Mission package loaded · ${missionPackageReport.loadedPackages}/${missionPackageReport.packageCount} · ${missionPackageReport.warnings} warning(s)`,
+      missionPackageReport.errors > 0 ? 5200 : 3600,
+    );
   } catch (error) {
-    missionPackageResults = [];
-    console.warn("Mission package load skipped.", error);
+    missionPackageReport = null;
+    console.warn("Mission package diagnostics failed.", error);
     const message = error instanceof Error ? error.message : String(error);
-    showToast(`Mission package failed · ${message}`, 5200);
+    showToast(`Mission package diagnostics failed · ${message}`, 5200);
   }
 }
 
@@ -352,12 +360,13 @@ function shouldShowMissionDebugPanel(): boolean {
 function installRuntimeWorldApi(navApi: RuntimeNavGameplayApi | null): void {
   const target = window as unknown as { splatWorld?: RuntimeWorldWindowApi };
   if (navApi) {
-    target.splatWorld = { ...(target.splatWorld ?? {}), navMesh: navApi };
+    target.splatWorld = { ...(target.splatWorld ?? {}), navMesh: navApi, missionPackages: missionPackageReport ?? undefined };
     return;
   }
   if (!target.splatWorld) return;
   delete target.splatWorld.navMesh;
-  if (!target.splatWorld.navMesh) delete target.splatWorld;
+  delete target.splatWorld.missionPackages;
+  if (!target.splatWorld.navMesh && !target.splatWorld.missionPackages) delete target.splatWorld;
 }
 
 function interceptLargeManifest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -454,7 +463,7 @@ function runtimeStatusLabel(): string {
   if (navGameplayApi) features.push("Nav Gameplay API");
   if (navAgentDemo) features.push("Click-to-Move Agent");
   if (missionDebugPanel) features.push("Mission HUD");
-  if (missionPackageResults.length > 0) features.push("Mission Packages");
+  if (missionPackageReport) features.push("Mission Package Diagnostics");
   if (collisionPlan) features.push("Collision Streaming");
   return `${features.join(" + ")} enabled`;
 }
@@ -466,7 +475,7 @@ function runtimeReadyLabel(manifest: LargeWorldManifest): string {
     navGameplayApi ? "nav gameplay api" : "",
     navAgentDemo ? "click-to-move" : "",
     missionDebugPanel ? "mission hud" : "",
-    missionPackageResults.length > 0 ? `${missionPackageResults.length} mission package(s)` : "",
+    missionPackageReport ? `${missionPackageReport.loadedPackages}/${missionPackageReport.packageCount} mission package(s) · w${missionPackageReport.warnings}/e${missionPackageReport.errors}` : "",
     navRouteResult?.status === "success" ? `${navRouteResult.tileIds.length} route tiles` : "",
     collisionPlan ? `${collisionPlan.tiles.length} collision tiles` : "",
   ].filter(Boolean).join(" · ");
