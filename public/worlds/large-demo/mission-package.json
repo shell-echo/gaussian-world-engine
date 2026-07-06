@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "savedAt": 0,
+  "metadata": {
+    "id": "large-demo-mission-pack",
+    "title": "Large Demo Mission Pack",
+    "version": "0.1.0",
+    "tags": ["demo", "mission-package"]
+  },
+  "missions": [
+    {
+      "id": "large-demo-mission",
+      "status": "active",
+      "progress": 0,
+      "data": {
+        "title": "Large Demo Mission"
+      }
+    }
+  ],
+  "objectives": [
+    {
+      "id": "large-demo-arrive",
+      "missionId": "large-demo-mission",
+      "title": "Move debug-click-agent to a destination"
+    }
+  ],
+  "runnerRules": [
+    {
+      "id": "large-demo-arrive-on-agent-arrived",
+      "event": {
+        "source": "agent",
+        "type": "arrived",
+        "agentId": "debug-click-agent"
+      },
+      "action": {
+        "kind": "objective",
+        "id": "large-demo-arrive",
+        "status": "completed",
+        "data": {
+          "source": "mission-package"
+        }
+      },
+      "once": true,
+      "enabled": true
+    }
+  ]
+}

@@ -23,6 +23,11 @@ export interface LargeSplatTile {
   neighbors?: string[];
 }
 
+export interface LargeWorldMissionPackage {
+  url: string;
+  merge?: boolean;
+}
+
 export interface LargeWorldManifest {
   format: "splatworld-large";
   version: 1;
@@ -35,6 +40,8 @@ export interface LargeWorldManifest {
   exposurePlan?: string;
   navigation?: string;
   collisionPlan?: string;
+  missionPackage?: string;
+  missionPackages?: Array<string | LargeWorldMissionPackage>;
   colliders?: WorldManifest["colliders"];
   environment?: WorldManifest["environment"];
   streaming?: {
@@ -108,6 +115,10 @@ export function assertLargeWorldManifest(value: unknown): asserts value is Large
   if (manifest.collisionPlan !== undefined && (typeof manifest.collisionPlan !== "string" || !manifest.collisionPlan.trim())) {
     throw new Error("Large world manifest has an invalid collisionPlan path.");
   }
+  if (manifest.missionPackage !== undefined && (typeof manifest.missionPackage !== "string" || !manifest.missionPackage.trim())) {
+    throw new Error("Large world manifest has an invalid missionPackage path.");
+  }
+  if (manifest.missionPackages !== undefined) assertMissionPackages(manifest.missionPackages);
 
   const ids = new Set<string>();
   for (const tile of manifest.tiles) {
@@ -165,6 +176,24 @@ export function resolveLargeWorldConfig(manifest: LargeWorldManifest): LargeWorl
       256,
     ),
   };
+}
+
+function assertMissionPackages(value: unknown): asserts value is Array<string | LargeWorldMissionPackage> {
+  if (!Array.isArray(value)) throw new Error("Large world manifest missionPackages must be an array.");
+  for (const item of value) {
+    if (typeof item === "string") {
+      if (!item.trim()) throw new Error("Large world manifest has an empty mission package path.");
+      continue;
+    }
+    if (!item || typeof item !== "object") throw new Error("Large world manifest has an invalid mission package entry.");
+    const packageRef = item as Partial<LargeWorldMissionPackage>;
+    if (typeof packageRef.url !== "string" || !packageRef.url.trim()) {
+      throw new Error("Large world manifest mission package entry requires a url.");
+    }
+    if (packageRef.merge !== undefined && typeof packageRef.merge !== "boolean") {
+      throw new Error("Large world manifest mission package merge flag must be boolean.");
+    }
+  }
 }
 
 function assertTile(value: unknown): asserts value is LargeSplatTile {
