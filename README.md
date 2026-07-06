@@ -1,61 +1,51 @@
-# Splat World Engine — Mission Package Diagnostics
+# Splat World Engine — Mission Diagnostics HUD
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.41 在 0.40 的 Mission package loader 之上新增 Mission package validation / diagnostics report：mission package 加载不再只是成功或失败，而是会产出结构化诊断报告，用于定位 package schema、引用关系和 runner rule 配置问题。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.42 在 0.41 的 diagnostics report 之上新增 Mission diagnostics HUD panel：Mission HUD 现在会直接展示 package diagnostics 指标和诊断列表，不需要只依赖 console 查看 package 问题。
 
 ```text
-RuntimeNavMissionPackageLoader
-  ├── normalizeRuntimeNavMissionPackageReferences(refs, baseUrl)
-  ├── validateRuntimeNavMissionPackageDocument(document, url)
-  └── loadRuntimeNavMissionPackages(options)
-
 RuntimeNavMissionPackageDiagnosticsReport
   ├── ok
   ├── packageCount
   ├── loadedPackages
-  ├── failedPackages
   ├── warnings
   ├── errors
-  ├── diagnostics[]
-  └── results[]
+  └── diagnostics[]
+
+RuntimeNavMissionDebugPanel
+  ├── State
+  ├── Graph
+  ├── Runner
+  ├── Package diagnostics
+  ├── Recent mission events
+  └── Objectives
 
 LargeWorldBootstrap
-  ├── window.splatWorld.navMesh
-  └── window.splatWorld.missionPackages
+  ├── window.splatWorld.missionPackages
+  ├── missionDebug=1
+  └── missionDiagnostics=6
 ```
 
-## Runtime/Builder 0.41 能力
+## Runtime/Builder 0.42 能力
 
-- `src/large/NavMissionPackageLoader.ts` 新增 diagnostics report
-- 新增 diagnostic severity：
-  - `info`
-  - `warning`
-  - `error`
-- 新增 `RuntimeNavMissionPackageDiagnostic`
-- 新增 `RuntimeNavMissionPackageDiagnosticsReport`
-- 新增 `validateRuntimeNavMissionPackageDocument(document, url)`
-- package loader 现在会检查：
-  - empty package
-  - duplicate mission id
-  - duplicate objective id
-  - duplicate runner rule id
-  - objective 引用缺失 mission
-  - objective 引用缺失 objective dependency
-  - objective 引用缺失 required mission
-  - objective condition 引用缺失 mission / objective
-  - runner rule action target 缺失 mission / objective
-  - runner rule broad event filter
-  - disabled runner rule
-- 单个 package 失败不会直接中断所有 package 加载
-- 有 `error` 的 package 不会被 apply，但 report 会保留失败原因
-- `LargeWorldBootstrap` 会把 report 暴露到：
-  - `window.splatWorld.missionPackages`
-- Runtime status / ready toast 会显示：
+- Mission HUD 新增 `Package diagnostics` section
+- diagnostics section 显示：
+  - package count
   - loaded package count
   - warning count
   - error count
-- package diagnostics 会 `console.info("Mission package diagnostics", report)` 输出完整报告
-- package version 更新为 `0.41.0`
-- Runtime label 更新为 `runtime 0.41`
+- diagnostics list 优先展示 warning / error
+- 如果没有 warning / error，会展示 info summary
+- 新增 `maxDiagnostics` HUD 配置
+- URL 参数新增：
+  - `missionDiagnostics=6`
+- `LargeWorldBootstrap` 会把 `missionPackageReport` 传入 `RuntimeNavMissionDebugPanel`
+- diagnostics rows 按 severity 增加基础样式：
+  - error
+  - warning
+  - info
+- `window.splatWorld.missionPackages` 仍保留完整 report，HUD 只做摘要展示
+- package version 更新为 `0.42.0`
+- Runtime label 更新为 `runtime 0.42`
 
 ## 运行 Runtime
 
@@ -70,19 +60,19 @@ npm run dev
 http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1&missionDebug=1
 ```
 
+控制 HUD 展示的 diagnostics 条数：
+
+```text
+http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1&missionDiagnostics=12
+```
+
 通过 URL 加载额外 mission package：
 
 ```text
 http://localhost:5173?world=/worlds/large-demo/world.json&mission=/worlds/large-demo/mission-package.json&missionDebug=1
 ```
 
-多个 URL package 可以重复传参：
-
-```text
-http://localhost:5173?world=/worlds/large-demo/world.json&mission=/missions/base.json&mission=/missions/extra.json&missionDebug=1
-```
-
-查看 diagnostics report：
+查看完整 diagnostics report：
 
 ```js
 window.splatWorld.missionPackages
@@ -100,6 +90,48 @@ window.splatWorld.missionPackages.diagnostics.filter((item) => item.severity !==
 npm run typecheck
 npm run build
 npm run preview
+```
+
+## Mission diagnostics HUD panel
+
+HUD 会展示四个诊断指标：
+
+```text
+Packages · Loaded · Warn · Errors
+```
+
+诊断列表展示策略：
+
+```text
+1. 优先显示 warning / error
+2. 如果没有 warning / error，显示 info summary
+3. 最多显示 missionDiagnostics 指定数量，默认 6 条
+```
+
+示例 row：
+
+```text
+WARNING · objective.missing_mission
+Objective intro-door references missing mission intro-mission.
+```
+
+常见 warning / error code：
+
+```text
+package.empty
+mission.duplicate_id
+objective.duplicate_id
+objective.missing_mission
+objective.missing_dependency
+objective.missing_required_mission
+objective.condition_missing_mission
+objective.condition_missing_objective
+runner_rule.duplicate_id
+runner_rule.broad_event
+runner_rule.disabled
+runner_rule.missing_mission_action_target
+runner_rule.missing_objective_action_target
+package.load_failed
 ```
 
 ## Mission package manifest hook
@@ -130,7 +162,7 @@ npm run preview
 }
 ```
 
-一个 package 本质上就是 0.39 的 authoring document：
+一个 package 本质上就是 authoring document：
 
 ```json
 {
@@ -178,57 +210,6 @@ npm run preview
 }
 ```
 
-## Diagnostics report 示例
-
-```json
-{
-  "ok": true,
-  "packageCount": 1,
-  "loadedPackages": 1,
-  "failedPackages": 0,
-  "warnings": 0,
-  "errors": 0,
-  "diagnostics": [
-    {
-      "severity": "info",
-      "code": "package.summary",
-      "message": "Mission package contains 1 mission(s), 1 objective(s), and 1 runner rule(s)."
-    }
-  ],
-  "results": [
-    {
-      "url": "http://localhost:5173/worlds/large-demo/mission-package.json",
-      "ok": true,
-      "merge": false,
-      "counts": {
-        "missions": 1,
-        "objectives": 1,
-        "runnerRules": 1
-      }
-    }
-  ]
-}
-```
-
-常见 warning / error code：
-
-```text
-package.empty
-mission.duplicate_id
-objective.duplicate_id
-objective.missing_mission
-objective.missing_dependency
-objective.missing_required_mission
-objective.condition_missing_mission
-objective.condition_missing_objective
-runner_rule.duplicate_id
-runner_rule.broad_event
-runner_rule.disabled
-runner_rule.missing_mission_action_target
-runner_rule.missing_objective_action_target
-package.load_failed
-```
-
 ## Gameplay trigger / interaction bridge
 
 世界对象的 trigger 和 interactable 会发出 `GameplayEvent`：
@@ -265,7 +246,8 @@ mission package 里的 runner rule 可以直接监听这些事件：
 
 ## 已知边界
 
-- 0.41 仍然只是 Mission package validation / diagnostics report scaffold，不是完整诊断 UI。
+- 0.42 仍然只是 Mission diagnostics HUD panel scaffold，不是完整诊断工作台。
+- HUD 只展示摘要和前 N 条诊断，完整 report 仍通过 `window.splatWorld.missionPackages` 查看。
 - diagnostics 目前主要检查 authoring document 内部引用关系，不检查世界对象、trigger sourceId 是否真实存在。
 - package 目前只支持 JSON authoring document，不支持压缩包、签名、版本依赖解析或远程 registry。
 - 有 error 的 package 不会 apply；warning 不会阻止 apply。
@@ -314,7 +296,8 @@ mission package 里的 runner rule 可以直接监听这些事件：
 - [x] Mission authoring save format scaffold
 - [x] Mission package loader / URL manifest hook
 - [x] Mission package validation / diagnostics report
-- [ ] Mission diagnostics HUD panel
+- [x] Mission diagnostics HUD panel
+- [ ] Mission package sourceId validation against world gameplay objects
 
 ## 依赖与许可证
 
