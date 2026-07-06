@@ -35,6 +35,7 @@ export interface RuntimeNavMissionGameplaySourceRegistry {
 export interface RuntimeNavMissionPackageReference {
   url: string;
   merge?: boolean;
+  severityPolicy?: RuntimeNavMissionDiagnosticsSeverityPolicy | null;
 }
 
 export interface RuntimeNavMissionPackageValidationOptions {
@@ -107,6 +108,7 @@ export async function loadRuntimeNavMissionPackages(
 ): Promise<RuntimeNavMissionPackageDiagnosticsReport> {
   const fetcher = options.fetcher ?? fetch;
   const packages = normalizePackages(options.packages);
+  const defaultSeverityPolicy = options.severityPolicy ?? readRuntimeNavMissionPackageUrlSeverityPolicy();
   const results: RuntimeNavMissionPackageLoadResult[] = [];
   const diagnostics: RuntimeNavMissionPackageDiagnostic[] = [];
   for (const [index, packageRef] of packages.entries()) {
@@ -118,7 +120,7 @@ export async function loadRuntimeNavMissionPackages(
       packageRef,
       merge,
       gameplaySources: options.gameplaySources,
-      severityPolicy: options.severityPolicy,
+      severityPolicy: packageRef.severityPolicy ?? defaultSeverityPolicy,
     });
     results.push(result);
     diagnostics.push(...result.diagnostics);
@@ -140,6 +142,7 @@ export function normalizeRuntimeNavMissionPackageReferences(
       return {
         url: new URL(item.url, baseUrl).href,
         merge: item.merge,
+        severityPolicy: item.severityPolicy,
       };
     }),
   );
@@ -247,7 +250,7 @@ function normalizePackages(packages: RuntimeNavMissionPackageReference[]): Runti
     const url = packageRef.url.trim();
     if (!url || seen.has(url)) continue;
     seen.add(url);
-    result.push({ url, merge: packageRef.merge });
+    result.push({ url, merge: packageRef.merge, severityPolicy: packageRef.severityPolicy });
   }
   return result;
 }
@@ -281,6 +284,23 @@ function validateGameplayEventName(rule: RuntimeNavMissionRunnerRule, expectedEv
   if (!eventName || !expectedEvent || eventName === expectedEvent) return [];
   const code = kind === "trigger" ? "gameplay_source.trigger_event_mismatch" : "gameplay_source.interaction_event_mismatch";
   return [createDiagnostic("warning", code, `Runner rule ${rule.id} listens for ${kind} event ${eventName}, but world sourceId ${rule.event?.sourceId ?? "unknown"} emits ${expectedEvent}.`, url, rule.id)];
+}
+
+function readRuntimeNavMissionPackageUrlSeverityPolicy(): RuntimeNavMissionDiagnosticsSeverityPolicy | null {
+  if (typeof window === "undefined") return null;
+  const url = new URL(window.location.href);
+  const policy: RuntimeNavMissionDiagnosticsSeverityPolicy = {};
+  for (const value of url.searchParams.getAll("missionDiagnosticSeverity")) {
+    const [code, severity] = value.split(":");
+    if (code && isMissionDiagnosticSeverity(severity)) policy.codes = { ...(policy.codes ?? {}), [code]: severity };
+  }
+  if (url.searchParams.has("missionDiagnosticsStrict")) policy.warningAsError = true;
+  if (url.searchParams.has("missionDiagnosticsNoInfo")) policy.hideInfo = true;
+  return policy.codes || policy.warningAsError || policy.hideInfo ? policy : null;
+}
+
+function isMissionDiagnosticSeverity(value: string | undefined): value is RuntimeNavMissionPackageDiagnosticSeverity {
+  return value === "info" || value === "warning" || value === "error";
 }
 
 function isGameplayEventFilter(event: RuntimeNavMissionRunnerRule["event"]): boolean {
