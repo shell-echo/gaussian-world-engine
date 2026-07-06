@@ -1,52 +1,35 @@
-# Splat World Engine — Mission Gameplay Event Validation
+# Splat World Engine — Mission Diagnostics Severity Policy
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.44 在 0.43 的 gameplay `sourceId` validation 之上新增 Mission package gameplay event-name validation：mission package 里的 gameplay runner rule 现在会继续检查 `event` 名是否和当前 world trigger / interactable collider 配置匹配。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.45 在 0.44 的 gameplay event-name validation 之上新增 Mission package diagnostics severity policy：diagnostics 不再只能使用内置 severity，调用方可以按 diagnostic code 调整 severity、把 warning 统一升级为 error，或者隐藏 info 级诊断。
 
 ```text
-WorldManifest.colliders
-  ├── behavior.mode = "trigger"
-  │   ├── id        -> gameplay trigger sourceId
-  │   └── event     -> gameplay trigger event name
-  └── interactable
-      ├── collider.id          -> gameplay interaction sourceId
-      └── interactable.event   -> gameplay interaction event name
-
-RuntimeNavMissionGameplaySourceRegistry
-  ├── triggers[]
-  ├── interactions[]
-  ├── triggerEvents{sourceId:event}
-  └── interactionEvents{sourceId:event}
-
 RuntimeNavMissionPackageLoader
-  ├── createRuntimeNavMissionGameplaySourceRegistry(colliders)
-  ├── validateRuntimeNavMissionPackageDocument(document, url, { gameplaySources })
-  └── loadRuntimeNavMissionPackages({ gameplaySources })
+  ├── validateRuntimeNavMissionPackageDocument(document, url, { severityPolicy })
+  ├── loadRuntimeNavMissionPackages({ severityPolicy })
+  └── applyRuntimeNavMissionPackageDiagnosticsSeverityPolicy(diagnostics, policy)
+
+RuntimeNavMissionDiagnosticsSeverityPolicy
+  ├── codes{diagnosticCode:severity}
+  ├── warningAsError
+  └── hideInfo
 ```
 
-## Runtime/Builder 0.44 能力
+## Runtime/Builder 0.45 能力
 
-- `RuntimeNavMissionGameplaySourceRegistry` 扩展为同时保存：
-  - `triggers[]`
-  - `interactions[]`
-  - `triggerEvents`
-  - `interactionEvents`
-- `createRuntimeNavMissionGameplaySourceRegistry(colliders)` 会从 world colliders 提取：
-  - trigger sourceId + `behavior.event`
-  - interaction sourceId + `interactable.event`
-- `validateRuntimeNavMissionPackageDocument(document, url, options)` 现在会继续校验 gameplay rule 的 `event` 名称
-- 校验规则：
-  - `kind: "trigger"` / `type: "trigger"`：`event` 必须匹配 trigger collider 的 `behavior.event`
-  - `kind: "interaction"` / `type: "interaction"`：`event` 必须匹配 interactable collider 的 `interactable.event`
-  - 未指定 kind 但 sourceId 同时存在于 trigger / interaction 时，会分别检查可匹配的 event
-- 新增 diagnostics code：
-  - `gameplay_source.trigger_event_mismatch`
-  - `gameplay_source.interaction_event_mismatch`
-- event mismatch 当前是 `warning`，不会阻止 package apply
-- Mission HUD 的 `Package diagnostics` section 会直接显示这些 warning
-- 完整 report 仍保留在：
-  - `window.splatWorld.missionPackages`
-- package version 更新为 `0.44.0`
-- Runtime label 更新为 `runtime 0.44`
+- 新增 `RuntimeNavMissionDiagnosticsSeverityPolicy`
+- `RuntimeNavMissionPackageValidationOptions` 新增：
+  - `severityPolicy?: RuntimeNavMissionDiagnosticsSeverityPolicy | null`
+- `RuntimeNavMissionPackageLoadOptions` 同样支持 `severityPolicy`
+- 新增 helper：
+  - `applyRuntimeNavMissionPackageDiagnosticsSeverityPolicy(diagnostics, policy)`
+- policy 支持：
+  - `codes`：按 diagnostic code 覆盖 severity
+  - `warningAsError`：把所有 warning 升级为 error
+  - `hideInfo`：从 report 中移除 info diagnostics
+- package 是否 apply 现在会基于 policy 后的 severity 判断
+- report 的 `warnings` / `errors` / `ok` 统计也基于 policy 后的 diagnostics
+- package version 更新为 `0.45.0`
+- Runtime label 更新为 `runtime 0.45`
 
 ## 运行 Runtime
 
@@ -59,12 +42,6 @@ npm run dev
 
 ```text
 http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1&missionDebug=1
-```
-
-控制 HUD 展示的 diagnostics 条数：
-
-```text
-http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1&missionDiagnostics=12
 ```
 
 通过 URL 加载额外 mission package：
@@ -92,6 +69,45 @@ npm run typecheck
 npm run build
 npm run preview
 ```
+
+## Severity policy 示例
+
+把某个 warning 提升为 error：
+
+```ts
+await loadRuntimeNavMissionPackages({
+  nav,
+  packages,
+  gameplaySources,
+  severityPolicy: {
+    codes: {
+      "gameplay_source.missing_trigger": "error"
+    }
+  }
+});
+```
+
+把所有 warning 视为 error：
+
+```ts
+await loadRuntimeNavMissionPackages({
+  nav,
+  packages,
+  severityPolicy: {
+    warningAsError: true
+  }
+});
+```
+
+隐藏 info diagnostics：
+
+```ts
+const diagnostics = applyRuntimeNavMissionPackageDiagnosticsSeverityPolicy(rawDiagnostics, {
+  hideInfo: true
+});
+```
+
+注意：如果 policy 把某个 diagnostic 调整为 `error`，对应 package 会被视为 failed package，不会 apply 到 runtime mission graph。
 
 ## Gameplay sourceId + event validation
 
@@ -144,20 +160,6 @@ mission package 里的 runner rule 会被校验：
   "once": true,
   "enabled": true
 }
-```
-
-如果 `sourceId` 不存在于当前 world 的 gameplay objects 中，diagnostics 会输出：
-
-```text
-WARNING · gameplay_source.missing_trigger
-Runner rule complete-enter-lobby-trigger references missing trigger sourceId lobby-trigger.
-```
-
-如果 `sourceId` 存在，但 event name 不匹配，diagnostics 会输出：
-
-```text
-WARNING · gameplay_source.trigger_event_mismatch
-Runner rule complete-enter-lobby-trigger listens for trigger event lobby:wrong, but world sourceId lobby-trigger emits lobby:enter.
 ```
 
 ## Mission diagnostics HUD panel
@@ -228,59 +230,12 @@ package.load_failed
 }
 ```
 
-一个 package 本质上就是 authoring document：
-
-```json
-{
-  "schemaVersion": 1,
-  "savedAt": 0,
-  "metadata": {
-    "id": "large-demo-mission-pack",
-    "title": "Large Demo Mission Pack",
-    "version": "0.1.0"
-  },
-  "missions": [
-    {
-      "id": "large-demo-mission",
-      "status": "active",
-      "progress": 0,
-      "data": {
-        "title": "Large Demo Mission"
-      }
-    }
-  ],
-  "objectives": [
-    {
-      "id": "large-demo-arrive",
-      "missionId": "large-demo-mission",
-      "title": "Move debug-click-agent to a destination"
-    }
-  ],
-  "runnerRules": [
-    {
-      "id": "large-demo-arrive-on-agent-arrived",
-      "event": {
-        "source": "agent",
-        "type": "arrived",
-        "agentId": "debug-click-agent"
-      },
-      "action": {
-        "kind": "objective",
-        "id": "large-demo-arrive",
-        "status": "completed"
-      },
-      "once": true,
-      "enabled": true
-    }
-  ]
-}
-```
-
 ## 已知边界
 
-- 0.44 仍然只是 gameplay event-name validation scaffold，不是完整 world gameplay authoring validator。
-- 当前只检查 runner rule 中明确写出的 `event` 名称；没写 `event` 的 broad gameplay rule 不会做 event-name mismatch 诊断。
-- event mismatch 目前是 warning，不会阻止 package apply。
+- 0.45 是 severity policy scaffold，不是完整 policy authoring UI。
+- policy 目前在 loader API 层生效，Runtime URL / manifest 级 policy hook 会在下一阶段补上。
+- `hideInfo` 会移除 info diagnostics，因此 info summary 不会出现在 report / HUD 中。
+- 如果 policy 把 warning 升级为 error，package 会被阻止 apply。
 - package 目前只支持 JSON authoring document，不支持压缩包、签名、版本依赖解析或远程 registry。
 - authoring document 仍只保存任务设计内容，不保存 player / agent / world object runtime state。
 - package 可以包含 runner rules，但仍没有专门的可视化规则编辑器。
@@ -330,7 +285,8 @@ package.load_failed
 - [x] Mission diagnostics HUD panel
 - [x] Mission package sourceId validation against world gameplay objects
 - [x] Mission package gameplay event-name validation
-- [ ] Mission package diagnostics severity policy
+- [x] Mission package diagnostics severity policy
+- [ ] Mission diagnostics policy URL / manifest hook
 
 ## 依赖与许可证
 
