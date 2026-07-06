@@ -1,65 +1,48 @@
-# Splat World Engine — Mission Authoring Format
+# Splat World Engine — Mission Package Loader
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.39 在 0.38 的 gameplay trigger bridge 之上新增 Mission authoring save format scaffold：可以把 mission state seed、objective graph 和 mission runner rules 打包成一个 authoring document，用于导出、导入、复用任务设计内容。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.40 在 0.39 的 Mission authoring format 之上新增 Mission package loader / URL manifest hook：large world manifest 和 URL 参数现在可以自动加载 mission authoring document，让任务设计内容能随世界启动一起注入 Runtime。
 
 ```text
-RuntimeNavMissionState
-  ├── createMission(draft)
-  ├── completeMission(id)
-  ├── exportState()
-  └── restoreState(save)
-
-RuntimeNavMissionGraph
-  ├── createObjective(draft)
-  ├── completeObjective(id)
-  ├── snapshot(missionState)
-  ├── exportGraph()
-  └── restoreGraph(graph)
-
-RuntimeNavMissionRunner
-  ├── handleAgentEvent(event)
-  ├── handleGameplayEvent(event)
-  ├── run()
-  └── snapshot()
-
 RuntimeNavMissionAuthoringDocument
   ├── metadata
   ├── missions
   ├── objectives
   └── runnerRules
+
+RuntimeNavMissionPackageLoader
+  ├── normalizeRuntimeNavMissionPackageReferences(refs, baseUrl)
+  └── loadRuntimeNavMissionPackages(options)
+
+LargeWorldBootstrap
+  ├── manifest.missionPackage
+  ├── manifest.missionPackages[]
+  ├── ?mission=/path/to/package.json
+  └── ?missionPackage=/path/to/package.json
 ```
 
-## Runtime/Builder 0.39 能力
+## Runtime/Builder 0.40 能力
 
-- 新增 `src/large/NavMissionAuthoring.ts`
-- 新增 `RUNTIME_NAV_MISSION_AUTHORING_SCHEMA_VERSION = 1`
-- 新增 `RuntimeNavMissionAuthoringDocument`
-- authoring document 字段：
-  - `schemaVersion`
-  - `savedAt`
-  - `metadata`
-  - `missions`
-  - `objectives`
-  - `runnerRules`
-- metadata 支持：
-  - `id`
-  - `title`
-  - `description`
-  - `version`
-  - `tags`
-- authoring helper：
-  - `createRuntimeNavMissionAuthoringDocument(draft)`
-  - `exportRuntimeNavMissionAuthoringDocument(source, metadata)`
-  - `parseRuntimeNavMissionAuthoringDocument(input)`
-  - `applyRuntimeNavMissionAuthoringDocument(target, input, options)`
-- `RuntimeNavGameplayApi` 新增：
-  - `exportMissionAuthoring(metadata)`
-  - `restoreMissionAuthoring(input, options)`
-- `restoreMissionAuthoring(input, { merge: true })` 支持增量合并
-- 默认 restore 会清空当前 missions、objectives、runner rules，再导入 authoring document
-- authoring format 只保存任务设计内容，不保存 agent 位置、事件计数、`completedAt` / `failedAt` 等运行时状态
-- package version 更新为 `0.39.0`
-- Runtime label 更新为 `runtime 0.39`
+- 新增 `src/large/NavMissionPackageLoader.ts`
+- large world manifest 新增：
+  - `missionPackage?: string`
+  - `missionPackages?: Array<string | { url: string, merge?: boolean }>`
+- URL 参数新增：
+  - `mission=/path/to/mission-package.json`
+  - `missionPackage=/path/to/mission-package.json`
+- 支持多个 mission package：
+  - manifest package 先加载
+  - URL package 后加载
+  - 第一个 package 默认 replace 当前 mission authoring 内容
+  - 后续 package 默认 merge
+  - manifest entry 可以用 `{ "url": "...", "merge": true }` 显式指定
+- `LargeWorldBootstrap` 会在 NavMesh gameplay API 创建后自动加载 mission package
+- Mission HUD 安装在 package 加载之后，因此打开 HUD 能直接看到导入后的 missions / objectives / runner rules
+- large demo 新增：
+  - `public/worlds/large-demo/mission-package.json`
+  - `world.json` 挂载 `missionPackage: "./mission-package.json"`
+- Runtime status / ready toast 会显示 mission package 数量
+- package version 更新为 `0.40.0`
+- Runtime label 更新为 `runtime 0.40`
 
 ## 运行 Runtime
 
@@ -68,16 +51,22 @@ npm install
 npm run dev
 ```
 
-大场景 click-to-move 示例：
-
-```text
-http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1
-```
-
-打开 Mission HUD：
+大场景 click-to-move + Mission HUD 示例：
 
 ```text
 http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1&missionDebug=1
+```
+
+通过 URL 加载额外 mission package：
+
+```text
+http://localhost:5173?world=/worlds/large-demo/world.json&mission=/worlds/large-demo/mission-package.json&missionDebug=1
+```
+
+多个 URL package 可以重复传参：
+
+```text
+http://localhost:5173?world=/worlds/large-demo/world.json&mission=/missions/base.json&mission=/missions/extra.json&missionDebug=1
 ```
 
 验证：
@@ -86,186 +75,6 @@ http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1&missionD
 npm run typecheck
 npm run build
 npm run preview
-```
-
-## Event buffer limit
-
-默认最多保留最近 128 条 agent event。可以在运行时调整：
-
-```js
-window.splatWorld.navMesh.setAgentEventLimit(32)
-```
-
-查看状态：
-
-```js
-window.splatWorld.navMesh.snapshotAgents()
-```
-
-读取并清空 pending events：
-
-```js
-const events = window.splatWorld.navMesh.drainAgentEvents()
-```
-
-## Mission state persistence scaffold
-
-创建一个任务：
-
-```js
-window.splatWorld.navMesh.createMission({
-  id: "quest-arrive-home",
-  status: "active",
-  progress: 0,
-  data: {
-    title: "走到安全屋",
-    targetAgentId: "npc-001"
-  }
-})
-```
-
-导出并保存 runtime save：
-
-```js
-const save = window.splatWorld.navMesh.exportMissionState()
-localStorage.setItem("swe:mission-state", JSON.stringify(save))
-```
-
-恢复 runtime save：
-
-```js
-const save = localStorage.getItem("swe:mission-state")
-if (save) window.splatWorld.navMesh.restoreMissionState(save)
-```
-
-## Mission graph / objective dependency scaffold
-
-创建一个 mission 和两个 objective：
-
-```js
-window.splatWorld.navMesh.createMission({
-  id: "escape-house",
-  status: "active",
-  data: {
-    title: "逃出房子"
-  }
-})
-
-window.splatWorld.navMesh.createObjective({
-  id: "find-key",
-  missionId: "escape-house",
-  title: "找到钥匙"
-})
-
-window.splatWorld.navMesh.createObjective({
-  id: "open-door",
-  missionId: "escape-house",
-  title: "打开大门",
-  dependsOn: ["find-key"]
-})
-```
-
-完成第一个 objective 后，第二个 objective 会进入 ready：
-
-```js
-window.splatWorld.navMesh.completeObjective("find-key")
-window.splatWorld.navMesh.snapshotMissionGraph().readyObjectiveIds
-// ["open-door"]
-```
-
-## Mission runtime runner / auto-progress hooks
-
-创建一个 objective，并让 debug agent 到达目标后自动完成它：
-
-```js
-window.splatWorld.navMesh.createObjective({
-  id: "reach-safe-room",
-  title: "走到安全屋"
-})
-
-window.splatWorld.navMesh.addMissionRunnerRule({
-  id: "complete-safe-room-on-arrive",
-  event: {
-    source: "agent",
-    type: "arrived",
-    agentId: "debug-click-agent"
-  },
-  action: {
-    kind: "objective",
-    id: "reach-safe-room",
-    status: "completed",
-    data: {
-      source: "agent-arrived"
-    }
-  },
-  once: true
-})
-```
-
-手动运行一次 runner，用于激活当前已经 ready 的 objectives：
-
-```js
-window.splatWorld.navMesh.runMissionRunner()
-```
-
-## Gameplay trigger / interaction bridge
-
-世界对象的 trigger 和 interactable 会发出 `GameplayEvent`：
-
-```ts
-{
-  sourceId: string,
-  event: string,
-  message: string,
-  kind: "trigger" | "interaction"
-}
-```
-
-现在可以用 gameplay event 自动推进任务：
-
-```js
-window.splatWorld.navMesh.createObjective({
-  id: "enter-lobby",
-  title: "进入大厅"
-})
-
-window.splatWorld.navMesh.addMissionRunnerRule({
-  id: "complete-enter-lobby-trigger",
-  event: {
-    source: "gameplay",
-    kind: "trigger",
-    sourceId: "lobby-trigger",
-    event: "lobby:enter"
-  },
-  action: {
-    kind: "objective",
-    id: "enter-lobby",
-    status: "completed",
-    data: {
-      source: "gameplay-trigger"
-    }
-  },
-  once: true
-})
-```
-
-也可以监听交互事件：
-
-```js
-window.splatWorld.navMesh.addMissionRunnerRule({
-  id: "complete-read-note",
-  event: {
-    source: "gameplay",
-    kind: "interaction",
-    sourceId: "note-001",
-    event: "note:read"
-  },
-  action: {
-    kind: "objective",
-    id: "read-note",
-    status: "completed"
-  }
-})
 ```
 
 ## Mission authoring save format scaffold
@@ -300,47 +109,73 @@ window.splatWorld.navMesh.restoreMissionAuthoring(authoredMission, {
 })
 ```
 
-一个 authoring document 的形状：
+## Mission package manifest hook
+
+在 large world manifest 里挂一个 package：
+
+```json
+{
+  "format": "splatworld-large",
+  "version": 1,
+  "name": "Large Tile Streaming Demo",
+  "navigation": "./navmesh.json",
+  "missionPackage": "./mission-package.json"
+}
+```
+
+挂多个 package：
+
+```json
+{
+  "missionPackages": [
+    "./mission-base.json",
+    {
+      "url": "./mission-extra.json",
+      "merge": true
+    }
+  ]
+}
+```
+
+一个 package 本质上就是 0.39 的 authoring document：
 
 ```json
 {
   "schemaVersion": 1,
-  "savedAt": 1772520000000,
+  "savedAt": 0,
   "metadata": {
-    "id": "escape-house-pack",
-    "title": "Escape House",
-    "version": "0.1.0",
-    "tags": ["demo", "indoor"]
+    "id": "large-demo-mission-pack",
+    "title": "Large Demo Mission Pack",
+    "version": "0.1.0"
   },
   "missions": [
     {
-      "id": "escape-house",
+      "id": "large-demo-mission",
       "status": "active",
       "progress": 0,
       "data": {
-        "title": "逃出房子"
+        "title": "Large Demo Mission"
       }
     }
   ],
   "objectives": [
     {
-      "id": "find-key",
-      "missionId": "escape-house",
-      "title": "找到钥匙"
+      "id": "large-demo-arrive",
+      "missionId": "large-demo-mission",
+      "title": "Move debug-click-agent to a destination"
     }
   ],
   "runnerRules": [
     {
-      "id": "complete-find-key",
+      "id": "large-demo-arrive-on-agent-arrived",
       "event": {
-        "source": "gameplay",
-        "kind": "interaction",
-        "sourceId": "key-001",
-        "event": "item:collect"
+        "source": "agent",
+        "type": "arrived",
+        "agentId": "debug-click-agent"
       },
       "action": {
         "kind": "objective",
-        "id": "find-key",
+        "id": "large-demo-arrive",
         "status": "completed"
       },
       "once": true,
@@ -350,16 +185,47 @@ window.splatWorld.navMesh.restoreMissionAuthoring(authoredMission, {
 }
 ```
 
-## Mission debug HUD scaffold
+## Gameplay trigger / interaction bridge
 
-打开 HUD 后可以直接点 `Seed Demo`，它会创建一个 demo mission、objective 和 runner rule。触发器、交互事件和 agent event 都会显示在同一个最近 event 列表里。
+世界对象的 trigger 和 interactable 会发出 `GameplayEvent`：
+
+```ts
+{
+  sourceId: string,
+  event: string,
+  message: string,
+  kind: "trigger" | "interaction"
+}
+```
+
+mission package 里的 runner rule 可以直接监听这些事件：
+
+```json
+{
+  "id": "complete-enter-lobby-trigger",
+  "event": {
+    "source": "gameplay",
+    "kind": "trigger",
+    "sourceId": "lobby-trigger",
+    "event": "lobby:enter"
+  },
+  "action": {
+    "kind": "objective",
+    "id": "enter-lobby",
+    "status": "completed"
+  },
+  "once": true,
+  "enabled": true
+}
+```
 
 ## 已知边界
 
-- 0.39 仍然只是 mission authoring save format scaffold，不是完整任务编辑器或任务包发布系统。
-- authoring document 保存设计内容，不保存 player / agent / world object runtime state。
-- authoring document 目前不包含 asset references、奖励、对话、背包、战斗或 trigger 可视化布局。
-- runner rule 现在可以放进 authoring document，但仍没有专门的可视化规则编辑器。
+- 0.40 仍然只是 Mission package loader / URL manifest hook scaffold，不是完整任务包发布系统。
+- package 目前只支持 JSON authoring document，不支持压缩包、签名、版本依赖解析或远程 registry。
+- package 加载失败会被跳过并显示 toast，不会阻止 world runtime 启动。
+- authoring document 仍只保存任务设计内容，不保存 player / agent / world object runtime state。
+- package 可以包含 runner rules，但仍没有专门的可视化规则编辑器。
 - HUD 只在 large world 且 NavMesh gameplay API 可用时安装。
 - event buffer 只按条数限制，不按内存大小限制。
 - 仍然没有局部避障、动态障碍或 agent-agent avoidance。
@@ -401,7 +267,8 @@ window.splatWorld.navMesh.restoreMissionAuthoring(authoredMission, {
 - [x] Mission editor panel / debug HUD scaffold
 - [x] Gameplay trigger event bridge for mission runner
 - [x] Mission authoring save format scaffold
-- [ ] Mission package loader / URL manifest hook
+- [x] Mission package loader / URL manifest hook
+- [ ] Mission package validation / diagnostics report
 
 ## 依赖与许可证
 
