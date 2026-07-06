@@ -1,12 +1,15 @@
 import "./NavMissionDebugPanel.css";
 import type { GameplayEvent } from "../gameplay/GameplaySystem.js";
 import type { RuntimeNavGameplayApi } from "./NavGameplayApi.js";
+import type { RuntimeNavMissionPackageDiagnosticsReport, RuntimeNavMissionPackageDiagnostic } from "./NavMissionPackageLoader.js";
 import type { RuntimeNavMissionRunnerEvent } from "./NavMissionRunner.js";
 
 export interface RuntimeNavMissionDebugPanelOptions {
   nav: RuntimeNavGameplayApi;
   initiallyVisible?: boolean;
   maxEvents?: number;
+  maxDiagnostics?: number;
+  missionPackages?: RuntimeNavMissionPackageDiagnosticsReport | null;
 }
 
 export class RuntimeNavMissionDebugPanel {
@@ -15,15 +18,19 @@ export class RuntimeNavMissionDebugPanel {
   private readonly stateSummary = document.createElement("div");
   private readonly graphSummary = document.createElement("div");
   private readonly runnerSummary = document.createElement("div");
+  private readonly diagnosticsSummary = document.createElement("div");
+  private readonly diagnosticsList = document.createElement("div");
   private readonly eventsList = document.createElement("div");
   private readonly unsubscribe: () => void;
   private readonly maxEvents: number;
+  private readonly maxDiagnostics: number;
   private visible: boolean;
   private readonly events: RuntimeNavMissionRunnerEvent[] = [];
 
   constructor(private readonly options: RuntimeNavMissionDebugPanelOptions) {
     this.visible = options.initiallyVisible ?? true;
     this.maxEvents = normalizeMaxEvents(options.maxEvents);
+    this.maxDiagnostics = normalizeMaxDiagnostics(options.maxDiagnostics);
     this.root.className = "mission-debug-panel panel";
     this.toggleButton.type = "button";
     this.toggleButton.className = "mission-debug-toggle";
@@ -72,6 +79,7 @@ export class RuntimeNavMissionDebugPanel {
       createMetric("Game", runner.handledGameplayEvents),
       createMetric("Fired", runner.firedRules),
     );
+    this.renderDiagnostics(this.options.missionPackages ?? null);
     this.renderEvents();
     this.renderObjectiveRows(graph.objectives.slice(0, 6));
   }
@@ -105,14 +113,55 @@ export class RuntimeNavMissionDebugPanel {
     this.stateSummary.className = "mission-debug-metrics";
     this.graphSummary.className = "mission-debug-metrics";
     this.runnerSummary.className = "mission-debug-metrics";
+    this.diagnosticsSummary.className = "mission-debug-metrics";
+    this.diagnosticsList.className = "mission-debug-diagnostics";
     this.eventsList.className = "mission-debug-events";
+
+    const diagnosticsBody = document.createElement("div");
+    diagnosticsBody.className = "mission-debug-diagnostics-body";
+    diagnosticsBody.append(this.diagnosticsSummary, this.diagnosticsList);
 
     this.root.replaceChildren(
       heading,
       createSection("State", this.stateSummary),
       createSection("Graph", this.graphSummary),
       createSection("Runner", this.runnerSummary),
+      createSection("Package diagnostics", diagnosticsBody),
       createSection("Recent mission events", this.eventsList),
+    );
+  }
+
+  private renderDiagnostics(report: RuntimeNavMissionPackageDiagnosticsReport | null): void {
+    if (!report) {
+      this.diagnosticsSummary.replaceChildren(
+        createMetric("Packages", 0),
+        createMetric("Loaded", 0),
+        createMetric("Warn", 0),
+        createMetric("Errors", 0),
+      );
+      const empty = document.createElement("small");
+      empty.textContent = "No mission package diagnostics.";
+      this.diagnosticsList.replaceChildren(empty);
+      return;
+    }
+
+    this.diagnosticsSummary.replaceChildren(
+      createMetric("Packages", report.packageCount),
+      createMetric("Loaded", report.loadedPackages),
+      createMetric("Warn", report.warnings),
+      createMetric("Errors", report.errors),
+    );
+
+    const visibleDiagnostics = selectVisibleDiagnostics(report.diagnostics, this.maxDiagnostics);
+    if (visibleDiagnostics.length === 0) {
+      const empty = document.createElement("small");
+      empty.textContent = report.ok ? "Mission packages passed diagnostics." : "No visible diagnostics.";
+      this.diagnosticsList.replaceChildren(empty);
+      return;
+    }
+
+    this.diagnosticsList.replaceChildren(
+      ...visibleDiagnostics.map((diagnostic) => createDiagnosticRow(diagnostic)),
     );
   }
 
@@ -225,6 +274,26 @@ function createButton(label: string, onClick: () => void): HTMLButtonElement {
   return button;
 }
 
+function createDiagnosticRow(diagnostic: RuntimeNavMissionPackageDiagnostic): HTMLElement {
+  const row = document.createElement("div");
+  row.className = `mission-debug-diagnostic ${diagnostic.severity}`;
+  const title = document.createElement("b");
+  title.textContent = `${diagnostic.severity.toUpperCase()} · ${diagnostic.code}`;
+  const detail = document.createElement("small");
+  const suffix = [diagnostic.id, diagnostic.url].filter(Boolean).join(" · ");
+  detail.textContent = suffix ? `${diagnostic.message} · ${suffix}` : diagnostic.message;
+  row.append(title, detail);
+  return row;
+}
+
+function selectVisibleDiagnostics(
+  diagnostics: RuntimeNavMissionPackageDiagnostic[],
+  maxDiagnostics: number,
+): RuntimeNavMissionPackageDiagnostic[] {
+  const actionable = diagnostics.filter((diagnostic) => diagnostic.severity !== "info");
+  return (actionable.length > 0 ? actionable : diagnostics).slice(0, maxDiagnostics);
+}
+
 function isGameplayEvent(event: RuntimeNavMissionRunnerEvent): event is Extract<RuntimeNavMissionRunnerEvent, { source: "gameplay" }> {
   return "source" in event && event.source === "gameplay";
 }
@@ -232,4 +301,9 @@ function isGameplayEvent(event: RuntimeNavMissionRunnerEvent): event is Extract<
 function normalizeMaxEvents(value: number | undefined): number {
   if (!value || !Number.isFinite(value)) return 8;
   return Math.max(1, Math.min(64, Math.floor(value)));
+}
+
+function normalizeMaxDiagnostics(value: number | undefined): number {
+  if (!value || !Number.isFinite(value)) return 6;
+  return Math.max(1, Math.min(32, Math.floor(value)));
 }

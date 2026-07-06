@@ -342,6 +342,8 @@ function installMissionDebugPanel(navApi: RuntimeNavGameplayApi): void {
     nav: navApi,
     initiallyVisible: !pageUrl.searchParams.has("missionDebugCollapsed"),
     maxEvents: Number(pageUrl.searchParams.get("missionDebugEvents") ?? 8),
+    maxDiagnostics: Number(pageUrl.searchParams.get("missionDiagnostics") ?? 6),
+    missionPackages: missionPackageReport,
   });
 }
 
