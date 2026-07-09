@@ -1,39 +1,42 @@
-# Splat World Engine — Mission Diagnostics Policy Schema
+# Splat World Engine — Mission Diagnostics Known-Code Registry
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.48 在 0.47 的 shared defaults 合并规则之上新增 Mission diagnostics policy authoring schema：severity policy 现在有独立的 parse / assert / URL override parser，Runtime、manifest entry、editor authoring 后续都可以复用同一套校验入口。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.49 在 0.48 的 policy authoring schema 之上新增 Mission diagnostics known-code registry：诊断 code 不再只是散落在 loader 里的字符串，Runtime / editor / authoring schema 可以共享同一份 code 元数据。
 
 ```text
-NavMissionDiagnosticsPolicySchema
-  ├── RUNTIME_NAV_MISSION_DIAGNOSTIC_SEVERITIES
-  ├── parseRuntimeNavMissionDiagnosticsSeverityPolicy(input)
-  ├── assertRuntimeNavMissionDiagnosticsSeverityPolicy(input)
-  ├── parseRuntimeNavMissionDiagnosticSeverityOverride(input)
-  └── isRuntimeNavMissionPackageDiagnosticSeverity(value)
+NavMissionDiagnosticsCodeRegistry
+  ├── RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES
+  ├── RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODES
+  ├── isRuntimeNavMissionKnownDiagnosticCode(code)
+  └── getRuntimeNavMissionKnownDiagnosticCodeEntry(code)
 
-RuntimeNavMissionPackageLoader
-  ├── URL severity policy parser
-  ├── loader severityPolicy parser
-  ├── package entry severityPolicy parser
-  └── shared defaults merge
+NavMissionDiagnosticsPolicySchema
+  ├── allowUnknownCodes=true   // 默认兼容未来扩展
+  └── allowUnknownCodes=false  // 严格 authoring / editor 校验
 ```
 
-## Runtime/Builder 0.48 能力
+## Runtime/Builder 0.49 能力
 
-- 新增 `src/large/NavMissionDiagnosticsPolicySchema.ts`
-- 新增 authoring/schema API：
-  - `parseRuntimeNavMissionDiagnosticsSeverityPolicy(input)`
-  - `assertRuntimeNavMissionDiagnosticsSeverityPolicy(input)`
-  - `parseRuntimeNavMissionDiagnosticSeverityOverride(input)`
-  - `isRuntimeNavMissionPackageDiagnosticSeverity(value)`
-- `codes` 会被 normalize：
-  - code 会 trim
-  - empty code 会抛错
-  - severity 只能是 `info` / `warning` / `error`
-- `warningAsError` / `hideInfo` 必须是 boolean
-- `loadRuntimeNavMissionPackages(...)` 的 URL policy、loader policy、package entry policy 都会走同一个 parser
-- 无效 policy 会明确抛错，不再悄悄被忽略
-- package version 更新为 `0.48.0`
-- Runtime label 更新为 `runtime 0.48`
+- 新增 `src/large/NavMissionDiagnosticsCodeRegistry.ts`
+- registry 覆盖当前全部 mission package diagnostics：
+  - `package.*`
+  - `mission.*`
+  - `objective.*`
+  - `runner_rule.*`
+  - `gameplay_source.*`
+- 每个 code entry 包含：
+  - `code`
+  - `category`
+  - `defaultSeverity`
+  - `description`
+- 新增 helper：
+  - `isRuntimeNavMissionKnownDiagnosticCode(code)`
+  - `getRuntimeNavMissionKnownDiagnosticCodeEntry(code)`
+- policy schema 新增 `RuntimeNavMissionDiagnosticsSeverityPolicyParseOptions`
+- `parseRuntimeNavMissionDiagnosticsSeverityPolicy(input, { allowUnknownCodes: false })` 可以严格拒绝未知 code
+- `parseRuntimeNavMissionDiagnosticSeverityOverride(input, { allowUnknownCodes: false })` 可以严格拒绝未知 URL override code
+- 默认仍允许未知 code，避免后续插件或扩展 diagnostics 被旧 Runtime 误拒绝
+- package version 更新为 `0.49.0`
+- Runtime label 更新为 `runtime 0.49`
 
 ## 运行 Runtime
 
@@ -86,32 +89,41 @@ npm run build
 npm run preview
 ```
 
-## Authoring schema 示例
+## Known-code registry 示例
 
-校验并 normalize policy：
+列出全部已知 code：
 
 ```ts
-const policy = parseRuntimeNavMissionDiagnosticsSeverityPolicy({
-  codes: {
-    "gameplay_source.missing_trigger": "error"
-  },
-  warningAsError: true,
-  hideInfo: false
+import { RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES } from "./large/NavMissionDiagnosticsCodeRegistry";
+
+for (const entry of RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES) {
+  console.log(entry.code, entry.defaultSeverity, entry.description);
+}
+```
+
+校验一个 code 是否已注册：
+
+```ts
+if (isRuntimeNavMissionKnownDiagnosticCode("gameplay_source.missing_trigger")) {
+  // safe for strict editor policy authoring
+}
+```
+
+严格解析 policy：
+
+```ts
+const policy = parseRuntimeNavMissionDiagnosticsSeverityPolicy(input, {
+  allowUnknownCodes: false
 });
 ```
 
-校验 URL override：
+严格解析 URL override：
 
 ```ts
 const override = parseRuntimeNavMissionDiagnosticSeverityOverride(
-  "gameplay_source.missing_trigger:error"
+  "gameplay_source.missing_trigger:error",
+  { allowUnknownCodes: false }
 );
-```
-
-用于 assert：
-
-```ts
-assertRuntimeNavMissionDiagnosticsSeverityPolicy(input);
 ```
 
 ## Shared defaults 合并示例
@@ -162,6 +174,8 @@ Packages · Loaded · Warn · Errors
 
 ```text
 package.empty
+package.summary
+package.load_failed
 mission.duplicate_id
 objective.duplicate_id
 objective.missing_mission
@@ -179,13 +193,13 @@ gameplay_source.missing_interaction
 gameplay_source.missing_source_id
 gameplay_source.trigger_event_mismatch
 gameplay_source.interaction_event_mismatch
-package.load_failed
 ```
 
 ## 已知边界
 
-- 0.48 是 policy schema scaffold，不是完整可视化 policy editor。
-- schema 目前只校验 severity policy 结构，不校验 diagnostic code 是否属于固定枚举。
+- 0.49 是 known-code registry scaffold，不是完整可视化 policy editor。
+- registry 目前覆盖 Runtime 内置 diagnostics；插件或扩展 diagnostics 仍可以通过默认 `allowUnknownCodes=true` 使用自定义 code。
+- strict authoring 只校验 code 是否注册，不校验某个 code 是否适合被提升或降级。
 - large world manifest 顶层共享字段还没有独立 schema；当前 manifest 侧仍通过 `missionPackages[]` entry 做局部配置。
 - `missionDiagnosticsStrict=1` 会把 warning 升级为 error，因此可能阻止 package apply。
 - `missionDiagnosticsNoInfo=1` 会移除 info diagnostics，因此 info summary 不会出现在 report / HUD 中。
@@ -242,7 +256,8 @@ package.load_failed
 - [x] Mission diagnostics policy URL / manifest hook
 - [x] Mission diagnostics policy top-level shared defaults
 - [x] Mission diagnostics policy authoring schema
-- [ ] Mission diagnostics known-code registry
+- [x] Mission diagnostics known-code registry
+- [ ] Mission diagnostics policy editor presets
 
 ## 依赖与许可证
 
