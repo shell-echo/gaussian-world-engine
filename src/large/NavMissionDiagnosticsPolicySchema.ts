@@ -1,3 +1,4 @@
+import { isRuntimeNavMissionKnownDiagnosticCode } from "./NavMissionDiagnosticsCodeRegistry.js";
 import type {
   RuntimeNavMissionDiagnosticsSeverityPolicy,
   RuntimeNavMissionPackageDiagnosticSeverity,
@@ -11,9 +12,15 @@ export interface RuntimeNavMissionDiagnosticsSeverityPolicySchema {
   hideInfo?: boolean;
 }
 
+export interface RuntimeNavMissionDiagnosticsSeverityPolicyParseOptions {
+  allowUnknownCodes?: boolean;
+}
+
 export function parseRuntimeNavMissionDiagnosticsSeverityPolicy(
   input: unknown,
+  options: RuntimeNavMissionDiagnosticsSeverityPolicyParseOptions = {},
 ): RuntimeNavMissionDiagnosticsSeverityPolicy | null {
+  const allowUnknownCodes = options.allowUnknownCodes ?? true;
   if (input === null || input === undefined) return null;
   if (!isObject(input)) throw new Error("Mission diagnostics severity policy must be an object.");
   const policy: RuntimeNavMissionDiagnosticsSeverityPolicy = {};
@@ -23,6 +30,9 @@ export function parseRuntimeNavMissionDiagnosticsSeverityPolicy(
     for (const [code, severity] of Object.entries(input.codes)) {
       const normalizedCode = code.trim();
       if (!normalizedCode) throw new Error("Mission diagnostics severity policy code must not be empty.");
+      if (!allowUnknownCodes && !isRuntimeNavMissionKnownDiagnosticCode(normalizedCode)) {
+        throw new Error(`Mission diagnostics severity policy code ${normalizedCode} is not registered.`);
+      }
       if (!isRuntimeNavMissionPackageDiagnosticSeverity(severity)) {
         throw new Error(`Mission diagnostics severity policy code ${normalizedCode} has invalid severity.`);
       }
@@ -43,16 +53,20 @@ export function parseRuntimeNavMissionDiagnosticsSeverityPolicy(
 
 export function assertRuntimeNavMissionDiagnosticsSeverityPolicy(
   input: unknown,
+  options: RuntimeNavMissionDiagnosticsSeverityPolicyParseOptions = {},
 ): asserts input is RuntimeNavMissionDiagnosticsSeverityPolicySchema {
-  parseRuntimeNavMissionDiagnosticsSeverityPolicy(input);
+  parseRuntimeNavMissionDiagnosticsSeverityPolicy(input, options);
 }
 
 export function parseRuntimeNavMissionDiagnosticSeverityOverride(
   input: string,
+  options: RuntimeNavMissionDiagnosticsSeverityPolicyParseOptions = {},
 ): [string, RuntimeNavMissionPackageDiagnosticSeverity] | null {
+  const allowUnknownCodes = options.allowUnknownCodes ?? true;
   const [code, severity] = input.split(":");
   const normalizedCode = code?.trim();
   if (!normalizedCode || !isRuntimeNavMissionPackageDiagnosticSeverity(severity)) return null;
+  if (!allowUnknownCodes && !isRuntimeNavMissionKnownDiagnosticCode(normalizedCode)) return null;
   return [normalizedCode, severity];
 }
 
