@@ -82,7 +82,15 @@ export class RuntimeNavMissionDebugPanel {
   getDiagnosticsPolicyPresetSelection(): RuntimeNavMissionDiagnosticsPolicyEditorPresetSelection {
     const preset =
       getRuntimeNavMissionDiagnosticsPolicyPreset(this.selectedDiagnosticsPresetId) ??
-      RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS[0];
+      getRuntimeNavMissionDiagnosticsPolicyPreset("default");
+    if (!preset) {
+      return {
+        id: "default",
+        label: "Default",
+        description: "Use built-in diagnostic severities and include info summaries.",
+        policy: null,
+      };
+    }
     return {
       id: preset.id,
       label: preset.label,
