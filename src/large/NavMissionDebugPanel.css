@@ -105,9 +105,54 @@
 .mission-debug-events,
 .mission-debug-diagnostics,
 .mission-debug-diagnostics-body,
+.mission-debug-diagnostics-preset,
 .mission-debug-section-body {
   display: grid;
   gap: 6px;
+}
+
+.mission-debug-diagnostics-preset {
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.mission-debug-diagnostics-preset-label {
+  display: grid;
+  gap: 5px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mission-debug-diagnostics-preset-label select {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(12, 14, 18, 0.92);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 11px;
+}
+
+.mission-debug-diagnostics-preset-description {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.mission-debug-diagnostics-preset-policy {
+  display: block;
+  max-height: 118px;
+  overflow: auto;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: pre-wrap;
 }
 
 .mission-debug-event,
@@ -149,6 +194,7 @@
 .mission-debug-event small,
 .mission-debug-objective small,
 .mission-debug-diagnostic small,
+.mission-debug-diagnostics-preset small,
 .mission-debug-section-body > small {
   color: rgba(255, 255, 255, 0.46);
   font-size: 10px;
