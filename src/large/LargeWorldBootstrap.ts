@@ -30,6 +30,7 @@ import {
   createRuntimeNavMissionGameplaySourceRegistry,
   loadRuntimeNavMissionPackages,
   normalizeRuntimeNavMissionPackageReferences,
+  type RuntimeNavMissionDiagnosticsSeverityPolicy,
   type RuntimeNavMissionPackageDiagnosticsReport,
   type RuntimeNavMissionPackageReference,
 } from "./NavMissionPackageLoader";
@@ -182,7 +183,7 @@ function installEngineHook(): void {
         await installMissionPackages(navGameplayApi, manifest);
         installRuntimeWorldApi(navGameplayApi);
         installNavAgentDemo(instance, navGameplayApi, manifest);
-        installMissionDebugPanel(navGameplayApi);
+        installMissionDebugPanel(navGameplayApi, manifest);
       }
       worldNameElement && (worldNameElement.textContent = manifest.name);
       startTileLoop(instance);
@@ -290,31 +291,47 @@ function installNavRouteDebug(scene: THREE.Scene, manifest: RuntimeNavMeshManife
   );
 }
 
-async function installMissionPackages(navApi: RuntimeNavGameplayApi, manifest: LargeWorldManifest): Promise<void> {
+async function installMissionPackages(
+  navApi: RuntimeNavGameplayApi,
+  manifest: LargeWorldManifest,
+  severityPolicy: RuntimeNavMissionDiagnosticsSeverityPolicy | null = null,
+): Promise<RuntimeNavMissionPackageDiagnosticsReport | null> {
   const packages = collectMissionPackages(manifest);
-  if (packages.length === 0) return;
+  if (packages.length === 0) {
+    missionPackageReport = null;
+    missionDebugPanel?.setMissionPackages(null);
+    installRuntimeWorldApi(navApi);
+    return null;
+  }
   try {
     missionPackageReport = await loadRuntimeNavMissionPackages({
       nav: navApi,
       packages,
       fetcher: nativeFetch,
       gameplaySources: createRuntimeNavMissionGameplaySourceRegistry(manifest.colliders ?? []),
+      severityPolicy,
       onStatus: (message) => {
         statusElement && (statusElement.textContent = message);
       },
     });
     console.info("Mission package diagnostics", missionPackageReport);
+    missionDebugPanel?.setMissionPackages(missionPackageReport);
+    installRuntimeWorldApi(navApi);
     showToast(
       missionPackageReport.errors > 0
         ? `Mission package diagnostics · ${missionPackageReport.loadedPackages}/${missionPackageReport.packageCount} loaded · ${missionPackageReport.errors} error(s)`
         : `Mission package loaded · ${missionPackageReport.loadedPackages}/${missionPackageReport.packageCount} · ${missionPackageReport.warnings} warning(s)`,
       missionPackageReport.errors > 0 ? 5200 : 3600,
     );
+    return missionPackageReport;
   } catch (error) {
     missionPackageReport = null;
+    missionDebugPanel?.setMissionPackages(null);
+    installRuntimeWorldApi(navApi);
     console.warn("Mission package diagnostics failed.", error);
     const message = error instanceof Error ? error.message : String(error);
     showToast(`Mission package diagnostics failed · ${message}`, 5200);
+    return null;
   }
 }
 
@@ -338,7 +355,7 @@ function installNavAgentDemo(engine: Engine, navApi: RuntimeNavGameplayApi, mani
   navAgentSnapshot = navAgentDemo.snapshot();
 }
 
-function installMissionDebugPanel(navApi: RuntimeNavGameplayApi): void {
+function installMissionDebugPanel(navApi: RuntimeNavGameplayApi, manifest: LargeWorldManifest): void {
   if (!shouldShowMissionDebugPanel()) return;
   missionDebugPanel = new RuntimeNavMissionDebugPanel({
     nav: navApi,
@@ -346,6 +363,8 @@ function installMissionDebugPanel(navApi: RuntimeNavGameplayApi): void {
     maxEvents: Number(pageUrl.searchParams.get("missionDebugEvents") ?? 8),
     maxDiagnostics: Number(pageUrl.searchParams.get("missionDiagnostics") ?? 6),
     missionPackages: missionPackageReport,
+    initialDiagnosticsPresetId: pageUrl.searchParams.get("missionDiagnosticsPreset"),
+    onDiagnosticsPolicyApply: (selection) => installMissionPackages(navApi, manifest, selection.policy),
   });
 }
 
