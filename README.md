@@ -1,44 +1,42 @@
-# Splat World Engine — Mission Diagnostics Policy Presets
+# Splat World Engine — Mission Diagnostics Editor Preset Picker
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.50 在 0.49 的 known-code registry 之上新增 Mission diagnostics policy editor presets：editor、URL 调试和 manifest authoring 可以复用同一组预设策略，而不是每次手写完整 `severityPolicy`。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.51 在 0.50 的 Mission diagnostics policy presets 之上，给 Mission editor / debug HUD 增加一个轻量 preset picker：editor 区域可以直接从内置 presets 选择策略，并生成对应的 `severityPolicy` scaffold，后续再继续扩展 custom overrides UI。
 
 ```text
+NavMissionDebugPanel
+  └── Package diagnostics
+      ├── Diagnostics preset <select>
+      ├── preset description
+      └── generated severityPolicy preview
+
 NavMissionDiagnosticsPolicyPresets
   ├── RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS
   ├── RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESET_IDS
   ├── isRuntimeNavMissionDiagnosticsPolicyPresetId(id)
   ├── getRuntimeNavMissionDiagnosticsPolicyPreset(id)
   └── createRuntimeNavMissionDiagnosticsPolicyFromPreset(id)
-
-URL
-  └── missionDiagnosticsPreset=quiet|strict|gameplay-strict|authoring-strict
 ```
 
-## Runtime/Builder 0.50 能力
+## Runtime/Builder 0.51 能力
 
-- 新增 `src/large/NavMissionDiagnosticsPolicyPresets.ts`
-- 新增内置 presets：
+- 在 `src/large/NavMissionDebugPanel.ts` 的 `Package diagnostics` 区域新增 Mission diagnostics editor preset picker UI。
+- picker 使用 `RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS` 渲染选项。
+- 支持内置 presets：
   - `default`：使用内置 severity，不隐藏 info
   - `quiet`：隐藏 info diagnostics
   - `strict`：把所有 warning 当作 error
   - `gameplay-strict`：把 gameplay source 相关 warning 提升为 error
   - `authoring-strict`：把 package authoring 引用问题提升为 error，并隐藏 info
-- 新增 helper：
-  - `isRuntimeNavMissionDiagnosticsPolicyPresetId(id)`
-  - `getRuntimeNavMissionDiagnosticsPolicyPreset(id)`
-  - `createRuntimeNavMissionDiagnosticsPolicyFromPreset(id)`
-  - `cloneRuntimeNavMissionDiagnosticsSeverityPolicy(policy)`
-- Runtime URL 新增：
-  - `missionDiagnosticsPreset=quiet`
-  - `missionDiagnosticsPreset=strict`
-  - `missionDiagnosticsPreset=gameplay-strict`
-  - `missionDiagnosticsPreset=authoring-strict`
-- URL 解析顺序：
-  - preset 先生成 base policy
-  - `missionDiagnosticSeverity=code:severity` 可以覆盖 preset 的 code
-  - `missionDiagnosticsStrict=1` / `missionDiagnosticsNoInfo=1` 可以继续叠加
-- package version 更新为 `0.50.0`
-- Runtime label 更新为 `runtime 0.50`
+- 选择 preset 后使用 `createRuntimeNavMissionDiagnosticsPolicyFromPreset(id)` 生成对应 policy。
+- UI 保持 scaffold 简单：一个 `<select>`、说明文本、当前 preset description、生成后的 `severityPolicy` 预览。
+- package version 更新为 `0.51.0`。
+- Runtime label 更新为 `runtime 0.51`。
+
+## Checklist
+
+- [x] Mission diagnostics policy editor presets
+- [x] Mission diagnostics editor preset picker UI
+- [ ] Mission diagnostics policy editor custom overrides UI
 
 ## 运行 Runtime
 
@@ -57,6 +55,12 @@ http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1&missionD
 
 ```text
 http://localhost:5173?world=/worlds/large-demo/world.json&mission=/worlds/large-demo/mission-package.json&missionDebug=1
+```
+
+打开 Mission diagnostics preset picker：
+
+```text
+http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1
 ```
 
 使用 quiet preset：
@@ -91,9 +95,9 @@ npm run build
 npm run preview
 ```
 
-## Preset 示例
+## Preset picker 行为
 
-列出全部 presets：
+picker 从内置 preset 列表生成选项：
 
 ```ts
 import { RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS } from "./large/NavMissionDiagnosticsPolicyPresets";
@@ -103,17 +107,47 @@ for (const preset of RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS) {
 }
 ```
 
-从 preset 创建 policy：
+选择某个 preset 后生成 policy：
 
 ```ts
 const policy = createRuntimeNavMissionDiagnosticsPolicyFromPreset("gameplay-strict");
 ```
 
-查找单个 preset：
+`default` preset 会生成 `null` policy，表示使用 Runtime 内置 diagnostic severity：
 
-```ts
-const preset = getRuntimeNavMissionDiagnosticsPolicyPreset("authoring-strict");
+```text
+severityPolicy: <built-in defaults>
 ```
+
+`gameplay-strict` 会生成类似：
+
+```json
+{
+  "severityPolicy": {
+    "codes": {
+      "gameplay_source.missing_trigger": "error",
+      "gameplay_source.missing_interaction": "error",
+      "gameplay_source.missing_source_id": "error",
+      "gameplay_source.trigger_event_mismatch": "error",
+      "gameplay_source.interaction_event_mismatch": "error"
+    }
+  }
+}
+```
+
+## URL preset 合并顺序
+
+Runtime URL 仍然支持：
+
+```text
+missionDiagnosticsPreset=quiet|strict|gameplay-strict|authoring-strict
+```
+
+URL 解析顺序：
+
+1. preset 先生成 base policy
+2. `missionDiagnosticSeverity=code:severity` 可以覆盖 preset 的 code
+3. `missionDiagnosticsStrict=1` / `missionDiagnosticsNoInfo=1` 可以继续叠加
 
 ## Known-code registry 示例
 
@@ -206,7 +240,9 @@ gameplay_source.interaction_event_mismatch
 
 ## 已知边界
 
-- 0.50 是 policy preset scaffold，不是完整可视化 policy editor UI。
+- 0.51 是 Mission diagnostics editor preset picker scaffold，不是完整可视化 policy editor。
+- picker 目前生成 preset policy 预览，不会热重载已经完成加载的 mission package diagnostics；实际 Runtime loader policy 仍通过 URL / manifest / loader options 生效。
+- custom code override UI 还没有实现，下一步是 `Mission diagnostics policy editor custom overrides UI`。
 - presets 目前是内置静态列表，还没有从外部 manifest 或 editor plugin 注册自定义 preset。
 - URL 未知 preset 会被忽略，并回退到普通 URL policy 解析。
 - `missionDiagnosticsPreset=strict` 会把 warning 升级为 error，因此可能阻止 package apply。
@@ -218,63 +254,3 @@ gameplay_source.interaction_event_mismatch
 - authoring document 仍只保存任务设计内容，不保存 player / agent / world object runtime state。
 - package 可以包含 runner rules，但仍没有专门的可视化规则编辑器。
 - HUD 只在 large world 且 NavMesh gameplay API 可用时安装。
-- event buffer 只按条数限制，不按内存大小限制。
-- 仍然没有局部避障、动态障碍或 agent-agent avoidance。
-- agent 仍沿 route points 直线移动，没有 funnel smoothing。
-
-## 下一阶段
-
-- [x] `.splatworld` 世界包
-- [x] Web Worker 代理生成
-- [x] QEM Mesh Simplification
-- [x] Compound Convex Decomposition
-- [x] Large Gaussian Tile Streaming Runtime
-- [x] Tile Spatial Index + LOD Hysteresis
-- [x] Outdoor Capture Builder Contract
-- [x] `swe-builder` CLI scaffold
-- [x] Builder frame extraction adapter
-- [x] Builder chunk job manifests for external trainers
-- [x] Pose solver adapter contract
-- [x] COLMAP adapter runner
-- [x] COLMAP model-to-pose-result converter
-- [x] Large Tile LOD cross-fade
-- [x] Seam / exposure optimizer scaffold
-- [x] Apply exposure plan in Runtime
-- [x] NavMesh / 大场景碰撞规划 scaffold
-- [x] Runtime NavMesh loader
-- [x] Runtime collision tile streaming
-- [x] Heightfield / mesh collision artifacts scaffold
-- [x] Collider file cache / LRU
-- [x] Recast/Detour-style runtime path query scaffold
-- [x] Route query API for gameplay systems
-- [x] NPC agent movement controller scaffold
-- [x] Agent debug visualizer / click-to-move demo
-- [x] Agent registry / automatic engine-loop integration
-- [x] Agent events / arrival callbacks
-- [x] Agent event buffer limits / mission hook scaffold
-- [x] Mission state persistence scaffold
-- [x] Mission graph / objective dependency scaffold
-- [x] Mission runtime runner / auto-progress hooks
-- [x] Mission editor panel / debug HUD scaffold
-- [x] Gameplay trigger event bridge for mission runner
-- [x] Mission authoring save format scaffold
-- [x] Mission package loader / URL manifest hook
-- [x] Mission package validation / diagnostics report
-- [x] Mission diagnostics HUD panel
-- [x] Mission package sourceId validation against world gameplay objects
-- [x] Mission package gameplay event-name validation
-- [x] Mission package diagnostics severity policy
-- [x] Mission diagnostics policy URL / manifest hook
-- [x] Mission diagnostics policy top-level shared defaults
-- [x] Mission diagnostics policy authoring schema
-- [x] Mission diagnostics known-code registry
-- [x] Mission diagnostics policy editor presets
-- [ ] Mission diagnostics editor preset picker UI
-
-## 依赖与许可证
-
-- Spark：MIT
-- Three.js：MIT
-- Rapier：Apache-2.0
-
-项目本身使用 MIT License。导入场景、GLB、音频、训练模型与数据集仍需分别确认授权。
