@@ -108,7 +108,10 @@ export async function loadRuntimeNavMissionPackages(
 ): Promise<RuntimeNavMissionPackageDiagnosticsReport> {
   const fetcher = options.fetcher ?? fetch;
   const packages = normalizePackages(options.packages);
-  const defaultSeverityPolicy = options.severityPolicy ?? readRuntimeNavMissionPackageUrlSeverityPolicy();
+  const sharedSeverityPolicy = mergeRuntimeNavMissionDiagnosticsSeverityPolicies(
+    readRuntimeNavMissionPackageUrlSeverityPolicy(),
+    options.severityPolicy,
+  );
   const results: RuntimeNavMissionPackageLoadResult[] = [];
   const diagnostics: RuntimeNavMissionPackageDiagnostic[] = [];
   for (const [index, packageRef] of packages.entries()) {
@@ -120,7 +123,7 @@ export async function loadRuntimeNavMissionPackages(
       packageRef,
       merge,
       gameplaySources: options.gameplaySources,
-      severityPolicy: packageRef.severityPolicy ?? defaultSeverityPolicy,
+      severityPolicy: mergeRuntimeNavMissionDiagnosticsSeverityPolicies(sharedSeverityPolicy, packageRef.severityPolicy),
     });
     results.push(result);
     diagnostics.push(...result.diagnostics);
@@ -210,6 +213,21 @@ export function applyRuntimeNavMissionPackageDiagnosticsSeverityPolicy(
     result.push({ ...diagnostic, severity });
   }
   return result;
+}
+
+export function mergeRuntimeNavMissionDiagnosticsSeverityPolicies(
+  base: RuntimeNavMissionDiagnosticsSeverityPolicy | null | undefined,
+  override: RuntimeNavMissionDiagnosticsSeverityPolicy | null | undefined,
+): RuntimeNavMissionDiagnosticsSeverityPolicy | null {
+  if (!base && !override) return null;
+  return {
+    codes: {
+      ...(base?.codes ?? {}),
+      ...(override?.codes ?? {}),
+    },
+    warningAsError: override?.warningAsError ?? base?.warningAsError,
+    hideInfo: override?.hideInfo ?? base?.hideInfo,
+  };
 }
 
 async function loadSingleRuntimeNavMissionPackage(options: {
