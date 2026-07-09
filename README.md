@@ -1,42 +1,45 @@
-# Splat World Engine — Mission Diagnostics Editor Preset Picker
+# Splat World Engine — Mission Diagnostics Policy Override Editor
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.51 在 0.50 的 Mission diagnostics policy presets 之上，给 Mission editor / debug HUD 增加一个轻量 preset picker：editor 区域可以直接从内置 presets 选择策略，并生成对应的 `severityPolicy` scaffold，后续再继续扩展 custom overrides UI。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.52 在 0.51 的 Mission diagnostics editor preset picker 之上，给 Mission editor / debug HUD 增加 custom code override UI：editor 区域可以选择 preset，再针对已知 diagnostic code 单独覆盖 severity，并生成合并后的 `severityPolicy` scaffold。
 
 ```text
 NavMissionDebugPanel
   └── Package diagnostics
       ├── Diagnostics preset <select>
-      ├── preset description
-      └── generated severityPolicy preview
+      ├── known diagnostic code <select>
+      ├── severity <select>
+      ├── custom override list
+      └── generated merged severityPolicy preview
+
+NavMissionDiagnosticsCodeRegistry
+  └── RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES
 
 NavMissionDiagnosticsPolicyPresets
   ├── RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS
-  ├── RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESET_IDS
-  ├── isRuntimeNavMissionDiagnosticsPolicyPresetId(id)
-  ├── getRuntimeNavMissionDiagnosticsPolicyPreset(id)
   └── createRuntimeNavMissionDiagnosticsPolicyFromPreset(id)
 ```
 
-## Runtime/Builder 0.51 能力
+## Runtime/Builder 0.52 能力
 
-- 在 `src/large/NavMissionDebugPanel.ts` 的 `Package diagnostics` 区域新增 Mission diagnostics editor preset picker UI。
-- picker 使用 `RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS` 渲染选项。
-- 支持内置 presets：
-  - `default`：使用内置 severity，不隐藏 info
-  - `quiet`：隐藏 info diagnostics
-  - `strict`：把所有 warning 当作 error
-  - `gameplay-strict`：把 gameplay source 相关 warning 提升为 error
-  - `authoring-strict`：把 package authoring 引用问题提升为 error，并隐藏 info
-- 选择 preset 后使用 `createRuntimeNavMissionDiagnosticsPolicyFromPreset(id)` 生成对应 policy。
-- UI 保持 scaffold 简单：一个 `<select>`、说明文本、当前 preset description、生成后的 `severityPolicy` 预览。
-- package version 更新为 `0.51.0`。
-- Runtime label 更新为 `runtime 0.51`。
+- 在 `src/large/NavMissionDebugPanel.ts` 的 `Package diagnostics` editor 区域新增 custom code override UI。
+- override code 列表使用 `RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES` 渲染。
+- severity 支持：
+  - `info`
+  - `warning`
+  - `error`
+- 支持 `Set override`：给某个已知 diagnostic code 覆盖 severity。
+- 支持 `Remove`：移除单个 code override。
+- 支持 `Reset`：清空当前 custom overrides。
+- policy preview 会把 preset policy 和 custom overrides 合并后展示。
+- package version 更新为 `0.52.0`。
+- Runtime label 更新为 `runtime 0.52`。
 
 ## Checklist
 
 - [x] Mission diagnostics policy editor presets
 - [x] Mission diagnostics editor preset picker UI
-- [ ] Mission diagnostics policy editor custom overrides UI
+- [x] Mission diagnostics policy editor custom overrides UI
+- [ ] Mission diagnostics policy editor apply / reload workflow
 
 ## 运行 Runtime
 
@@ -57,7 +60,7 @@ http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1&missionD
 http://localhost:5173?world=/worlds/large-demo/world.json&mission=/worlds/large-demo/mission-package.json&missionDebug=1
 ```
 
-打开 Mission diagnostics preset picker：
+打开 Mission diagnostics policy editor：
 
 ```text
 http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1
@@ -75,7 +78,7 @@ http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1&mission
 http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1&missionDiagnosticsPreset=gameplay-strict
 ```
 
-基于 preset 继续覆盖某个 diagnostic code：
+基于 preset 继续通过 URL 覆盖某个 diagnostic code：
 
 ```text
 http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1&missionDiagnosticsPreset=gameplay-strict&missionDiagnosticSeverity=gameplay_source.missing_trigger:warning
@@ -95,7 +98,7 @@ npm run build
 npm run preview
 ```
 
-## Preset picker 行为
+## Policy editor 行为
 
 picker 从内置 preset 列表生成选项：
 
@@ -107,7 +110,17 @@ for (const preset of RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS) {
 }
 ```
 
-选择某个 preset 后生成 policy：
+custom override code 列表来自 known-code registry：
+
+```ts
+import { RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES } from "./large/NavMissionDiagnosticsCodeRegistry";
+
+for (const entry of RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES) {
+  console.log(entry.code, entry.defaultSeverity, entry.description);
+}
+```
+
+选择 preset 后生成 base policy：
 
 ```ts
 const policy = createRuntimeNavMissionDiagnosticsPolicyFromPreset("gameplay-strict");
@@ -119,17 +132,30 @@ const policy = createRuntimeNavMissionDiagnosticsPolicyFromPreset("gameplay-stri
 severityPolicy: <built-in defaults>
 ```
 
-`gameplay-strict` 会生成类似：
+如果选择 `gameplay-strict`，再把 `gameplay_source.missing_trigger` 改回 `warning`，editor preview 会生成类似：
 
 ```json
 {
   "severityPolicy": {
     "codes": {
-      "gameplay_source.missing_trigger": "error",
+      "gameplay_source.missing_trigger": "warning",
       "gameplay_source.missing_interaction": "error",
       "gameplay_source.missing_source_id": "error",
       "gameplay_source.trigger_event_mismatch": "error",
       "gameplay_source.interaction_event_mismatch": "error"
+    }
+  }
+}
+```
+
+如果选择 `strict`，再把某个 code 设置为 `info`，生成的 policy 会保留 preset 的 `warningAsError`，并叠加 custom code override：
+
+```json
+{
+  "severityPolicy": {
+    "warningAsError": true,
+    "codes": {
+      "runner_rule.disabled": "info"
     }
   }
 }
@@ -148,26 +174,6 @@ URL 解析顺序：
 1. preset 先生成 base policy
 2. `missionDiagnosticSeverity=code:severity` 可以覆盖 preset 的 code
 3. `missionDiagnosticsStrict=1` / `missionDiagnosticsNoInfo=1` 可以继续叠加
-
-## Known-code registry 示例
-
-列出全部已知 code：
-
-```ts
-import { RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES } from "./large/NavMissionDiagnosticsCodeRegistry";
-
-for (const entry of RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES) {
-  console.log(entry.code, entry.defaultSeverity, entry.description);
-}
-```
-
-严格解析 policy：
-
-```ts
-const policy = parseRuntimeNavMissionDiagnosticsSeverityPolicy(input, {
-  allowUnknownCodes: false
-});
-```
 
 ## Shared defaults 合并示例
 
@@ -240,9 +246,9 @@ gameplay_source.interaction_event_mismatch
 
 ## 已知边界
 
-- 0.51 是 Mission diagnostics editor preset picker scaffold，不是完整可视化 policy editor。
-- picker 目前生成 preset policy 预览，不会热重载已经完成加载的 mission package diagnostics；实际 Runtime loader policy 仍通过 URL / manifest / loader options 生效。
-- custom code override UI 还没有实现，下一步是 `Mission diagnostics policy editor custom overrides UI`。
+- 0.52 是 Mission diagnostics policy editor custom overrides scaffold，不是完整可视化 policy editor。
+- custom overrides 目前只覆盖 known-code registry 里的内置 diagnostic codes；插件自定义 code 暂时仍需要通过 JSON / URL / manifest 配置。
+- policy editor 目前生成合并后的 policy 预览，不会热重载已经完成加载的 mission package diagnostics；下一步是 `Mission diagnostics policy editor apply / reload workflow`。
 - presets 目前是内置静态列表，还没有从外部 manifest 或 editor plugin 注册自定义 preset。
 - URL 未知 preset 会被忽略，并回退到普通 URL policy 解析。
 - `missionDiagnosticsPreset=strict` 会把 warning 升级为 error，因此可能阻止 package apply。
