@@ -107,6 +107,7 @@
 .mission-debug-diagnostics-body,
 .mission-debug-diagnostics-policy-editor,
 .mission-debug-diagnostics-override-list,
+.mission-debug-diagnostics-apply,
 .mission-debug-section-body {
   display: grid;
   gap: 6px;
@@ -166,13 +167,32 @@
   gap: 6px;
 }
 
+.mission-debug-diagnostics-apply {
+  margin-top: 2px;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.mission-debug-diagnostics-apply button {
+  justify-self: start;
+  padding: 7px 9px;
+  font-size: 10px;
+}
+
+.mission-debug-diagnostics-apply-status {
+  color: rgba(255, 255, 255, 0.72);
+}
+
 .mission-debug-diagnostics-override-actions button,
 .mission-debug-diagnostics-override-row button {
   padding: 6px 8px;
   font-size: 10px;
 }
 
-.mission-debug-diagnostics-override-actions button:disabled {
+.mission-debug-diagnostics-override-actions button:disabled,
+.mission-debug-diagnostics-apply button:disabled {
   opacity: 0.46;
   pointer-events: none;
 }
