@@ -1,6 +1,6 @@
-# Splat World Engine — Mission Diagnostics Policy Override Editor
+# Splat World Engine — Mission Diagnostics Policy Apply Reload
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.52 在 0.51 的 Mission diagnostics editor preset picker 之上，给 Mission editor / debug HUD 增加 custom code override UI：editor 区域可以选择 preset，再针对已知 diagnostic code 单独覆盖 severity，并生成合并后的 `severityPolicy` scaffold。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.53 在 0.52 的 Mission diagnostics policy override editor 之上，给 Mission editor / debug HUD 增加 apply / reload workflow：editor 里生成的 `severityPolicy` 可以直接重新加载当前 mission packages，刷新 diagnostics report，并更新 `window.splatWorld.missionPackages`。
 
 ```text
 NavMissionDebugPanel
@@ -8,38 +8,40 @@ NavMissionDebugPanel
       ├── Diagnostics preset <select>
       ├── known diagnostic code <select>
       ├── severity <select>
-      ├── custom override list
-      └── generated merged severityPolicy preview
+      ├── generated merged severityPolicy preview
+      └── Apply + reload
 
-NavMissionDiagnosticsCodeRegistry
-  └── RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES
-
-NavMissionDiagnosticsPolicyPresets
-  ├── RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS
-  └── createRuntimeNavMissionDiagnosticsPolicyFromPreset(id)
+LargeWorldBootstrap
+  └── installMissionPackages(navApi, manifest, severityPolicy)
+      ├── loadRuntimeNavMissionPackages(...)
+      ├── missionDebugPanel.setMissionPackages(report)
+      └── window.splatWorld.missionPackages = report
 ```
 
-## Runtime/Builder 0.52 能力
+## Runtime/Builder 0.53 能力
 
-- 在 `src/large/NavMissionDebugPanel.ts` 的 `Package diagnostics` editor 区域新增 custom code override UI。
-- override code 列表使用 `RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES` 渲染。
-- severity 支持：
-  - `info`
-  - `warning`
-  - `error`
-- 支持 `Set override`：给某个已知 diagnostic code 覆盖 severity。
-- 支持 `Remove`：移除单个 code override。
-- 支持 `Reset`：清空当前 custom overrides。
-- policy preview 会把 preset policy 和 custom overrides 合并后展示。
-- package version 更新为 `0.52.0`。
-- Runtime label 更新为 `runtime 0.52`。
+- 在 `src/large/NavMissionDebugPanel.ts` 新增 `Apply + reload` 操作。
+- `Apply + reload` 会把当前 editor selection 里的 merged `severityPolicy` 传给 Runtime reload callback。
+- `RuntimeNavMissionDebugPanel` 新增：
+  - `setMissionPackages(report)`：外部 reload 后回填 diagnostics report
+  - `onDiagnosticsPolicyApply(selection)`：应用 editor policy 并触发 package reload
+- `LargeWorldBootstrap` 将 policy editor apply 连接到 `loadRuntimeNavMissionPackages()`。
+- reload 完成后会刷新：
+  - Mission HUD diagnostics metrics
+  - diagnostics list
+  - runtime toast / status
+  - `window.splatWorld.missionPackages`
+- `missionDiagnosticsPreset` URL 参数会作为 editor 初始 preset。
+- package version 更新为 `0.53.0`。
+- Runtime label 更新为 `runtime 0.53`。
 
 ## Checklist
 
 - [x] Mission diagnostics policy editor presets
 - [x] Mission diagnostics editor preset picker UI
 - [x] Mission diagnostics policy editor custom overrides UI
-- [ ] Mission diagnostics policy editor apply / reload workflow
+- [x] Mission diagnostics policy editor apply / reload workflow
+- [ ] Mission diagnostics policy editor shareable URL export
 
 ## 运行 Runtime
 
@@ -98,6 +100,43 @@ npm run build
 npm run preview
 ```
 
+## Apply / reload 行为
+
+Policy editor 生成的 selection 结构：
+
+```ts
+export interface RuntimeNavMissionDiagnosticsPolicyEditorSelection {
+  preset: RuntimeNavMissionDiagnosticsPolicyEditorPresetSelection;
+  overrides: Partial<Record<string, RuntimeNavMissionPackageDiagnosticSeverity>>;
+  policy: RuntimeNavMissionDiagnosticsSeverityPolicy | null;
+}
+```
+
+点击 `Apply + reload` 后，HUD 会把当前 selection 传给 bootstrap：
+
+```ts
+onDiagnosticsPolicyApply: (selection) => installMissionPackages(navApi, manifest, selection.policy)
+```
+
+bootstrap 会重新执行：
+
+```ts
+loadRuntimeNavMissionPackages({
+  nav: navApi,
+  packages,
+  severityPolicy: selection.policy,
+  gameplaySources,
+  fetcher: nativeFetch
+});
+```
+
+reload 成功后会回填 report：
+
+```ts
+missionDebugPanel?.setMissionPackages(report);
+window.splatWorld.missionPackages = report;
+```
+
 ## Policy editor 行为
 
 picker 从内置 preset 列表生成选项：
@@ -120,18 +159,6 @@ for (const entry of RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES) {
 }
 ```
 
-选择 preset 后生成 base policy：
-
-```ts
-const policy = createRuntimeNavMissionDiagnosticsPolicyFromPreset("gameplay-strict");
-```
-
-`default` preset 会生成 `null` policy，表示使用 Runtime 内置 diagnostic severity：
-
-```text
-severityPolicy: <built-in defaults>
-```
-
 如果选择 `gameplay-strict`，再把 `gameplay_source.missing_trigger` 改回 `warning`，editor preview 会生成类似：
 
 ```json
@@ -148,18 +175,7 @@ severityPolicy: <built-in defaults>
 }
 ```
 
-如果选择 `strict`，再把某个 code 设置为 `info`，生成的 policy 会保留 preset 的 `warningAsError`，并叠加 custom code override：
-
-```json
-{
-  "severityPolicy": {
-    "warningAsError": true,
-    "codes": {
-      "runner_rule.disabled": "info"
-    }
-  }
-}
-```
+点击 `Apply + reload` 后，新的 policy 会重新决定 diagnostics severity 和 package apply decision。例如 strict policy 把 warning 升级为 error 后，存在 warning 的 package 可能不再 apply。
 
 ## URL preset 合并顺序
 
@@ -246,9 +262,10 @@ gameplay_source.interaction_event_mismatch
 
 ## 已知边界
 
-- 0.52 是 Mission diagnostics policy editor custom overrides scaffold，不是完整可视化 policy editor。
+- 0.53 是 Mission diagnostics policy editor apply / reload scaffold，不是完整可视化 policy authoring suite。
+- Apply / reload 重新执行 mission package loader；它不会自动把 editor policy 写回 URL、manifest 或 package authoring 文件。
+- 如果 stricter policy 让 package diagnostics 出现 error，该 package 不会 apply；已有 runtime mission state 不会被强制清空，避免一次错误编辑破坏当前调试现场。
 - custom overrides 目前只覆盖 known-code registry 里的内置 diagnostic codes；插件自定义 code 暂时仍需要通过 JSON / URL / manifest 配置。
-- policy editor 目前生成合并后的 policy 预览，不会热重载已经完成加载的 mission package diagnostics；下一步是 `Mission diagnostics policy editor apply / reload workflow`。
 - presets 目前是内置静态列表，还没有从外部 manifest 或 editor plugin 注册自定义 preset。
 - URL 未知 preset 会被忽略，并回退到普通 URL policy 解析。
 - `missionDiagnosticsPreset=strict` 会把 warning 升级为 error，因此可能阻止 package apply。
