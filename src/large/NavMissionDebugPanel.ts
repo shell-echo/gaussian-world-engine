@@ -1,8 +1,25 @@
 import "./NavMissionDebugPanel.css";
 import type { GameplayEvent } from "../gameplay/GameplaySystem.js";
 import type { RuntimeNavGameplayApi } from "./NavGameplayApi.js";
-import type { RuntimeNavMissionPackageDiagnosticsReport, RuntimeNavMissionPackageDiagnostic } from "./NavMissionPackageLoader.js";
+import {
+  createRuntimeNavMissionDiagnosticsPolicyFromPreset,
+  getRuntimeNavMissionDiagnosticsPolicyPreset,
+  RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS,
+} from "./NavMissionDiagnosticsPolicyPresets.js";
+import type { RuntimeNavMissionDiagnosticsPolicyPresetId } from "./NavMissionDiagnosticsPolicyPresets.js";
+import type {
+  RuntimeNavMissionDiagnosticsSeverityPolicy,
+  RuntimeNavMissionPackageDiagnosticsReport,
+  RuntimeNavMissionPackageDiagnostic,
+} from "./NavMissionPackageLoader.js";
 import type { RuntimeNavMissionRunnerEvent } from "./NavMissionRunner.js";
+
+export interface RuntimeNavMissionDiagnosticsPolicyEditorPresetSelection {
+  id: RuntimeNavMissionDiagnosticsPolicyPresetId;
+  label: string;
+  description: string;
+  policy: RuntimeNavMissionDiagnosticsSeverityPolicy | null;
+}
 
 export interface RuntimeNavMissionDebugPanelOptions {
   nav: RuntimeNavGameplayApi;
@@ -10,6 +27,8 @@ export interface RuntimeNavMissionDebugPanelOptions {
   maxEvents?: number;
   maxDiagnostics?: number;
   missionPackages?: RuntimeNavMissionPackageDiagnosticsReport | null;
+  initialDiagnosticsPresetId?: string | null;
+  onDiagnosticsPolicyPresetChange?: (selection: RuntimeNavMissionDiagnosticsPolicyEditorPresetSelection) => void;
 }
 
 export class RuntimeNavMissionDebugPanel {
@@ -18,6 +37,7 @@ export class RuntimeNavMissionDebugPanel {
   private readonly stateSummary = document.createElement("div");
   private readonly graphSummary = document.createElement("div");
   private readonly runnerSummary = document.createElement("div");
+  private readonly diagnosticsPresetEditor = document.createElement("div");
   private readonly diagnosticsSummary = document.createElement("div");
   private readonly diagnosticsList = document.createElement("div");
   private readonly eventsList = document.createElement("div");
@@ -25,12 +45,14 @@ export class RuntimeNavMissionDebugPanel {
   private readonly maxEvents: number;
   private readonly maxDiagnostics: number;
   private visible: boolean;
+  private selectedDiagnosticsPresetId: RuntimeNavMissionDiagnosticsPolicyPresetId;
   private readonly events: RuntimeNavMissionRunnerEvent[] = [];
 
   constructor(private readonly options: RuntimeNavMissionDebugPanelOptions) {
     this.visible = options.initiallyVisible ?? true;
     this.maxEvents = normalizeMaxEvents(options.maxEvents);
     this.maxDiagnostics = normalizeMaxDiagnostics(options.maxDiagnostics);
+    this.selectedDiagnosticsPresetId = normalizeDiagnosticsPresetId(options.initialDiagnosticsPresetId);
     this.root.className = "mission-debug-panel panel";
     this.toggleButton.type = "button";
     this.toggleButton.className = "mission-debug-toggle";
@@ -55,6 +77,18 @@ export class RuntimeNavMissionDebugPanel {
   recordGameplayEvent(event: GameplayEvent): void {
     this.pushEvent({ ...event, source: "gameplay", type: "gameplay" });
     this.refresh();
+  }
+
+  getDiagnosticsPolicyPresetSelection(): RuntimeNavMissionDiagnosticsPolicyEditorPresetSelection {
+    const preset =
+      getRuntimeNavMissionDiagnosticsPolicyPreset(this.selectedDiagnosticsPresetId) ??
+      RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS[0];
+    return {
+      id: preset.id,
+      label: preset.label,
+      description: preset.description,
+      policy: createRuntimeNavMissionDiagnosticsPolicyFromPreset(preset.id),
+    };
   }
 
   refresh(): void {
@@ -113,13 +147,16 @@ export class RuntimeNavMissionDebugPanel {
     this.stateSummary.className = "mission-debug-metrics";
     this.graphSummary.className = "mission-debug-metrics";
     this.runnerSummary.className = "mission-debug-metrics";
+    this.diagnosticsPresetEditor.className = "mission-debug-diagnostics-preset";
     this.diagnosticsSummary.className = "mission-debug-metrics";
     this.diagnosticsList.className = "mission-debug-diagnostics";
     this.eventsList.className = "mission-debug-events";
 
     const diagnosticsBody = document.createElement("div");
     diagnosticsBody.className = "mission-debug-diagnostics-body";
-    diagnosticsBody.append(this.diagnosticsSummary, this.diagnosticsList);
+    diagnosticsBody.append(this.diagnosticsPresetEditor, this.diagnosticsSummary, this.diagnosticsList);
+
+    this.renderDiagnosticsPresetEditor();
 
     this.root.replaceChildren(
       heading,
@@ -129,6 +166,43 @@ export class RuntimeNavMissionDebugPanel {
       createSection("Package diagnostics", diagnosticsBody),
       createSection("Recent mission events", this.eventsList),
     );
+  }
+
+  private renderDiagnosticsPresetEditor(): void {
+    const selection = this.getDiagnosticsPolicyPresetSelection();
+    const label = document.createElement("label");
+    label.className = "mission-debug-diagnostics-preset-label";
+    label.textContent = "Diagnostics preset";
+
+    const select = document.createElement("select");
+    select.value = selection.id;
+    for (const preset of RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS) {
+      const option = document.createElement("option");
+      option.value = preset.id;
+      option.textContent = `${preset.label} (${preset.id})`;
+      select.append(option);
+    }
+    select.addEventListener("change", () => {
+      this.selectedDiagnosticsPresetId = normalizeDiagnosticsPresetId(select.value);
+      this.renderDiagnosticsPresetEditor();
+      const nextSelection = this.getDiagnosticsPolicyPresetSelection();
+      this.options.onDiagnosticsPolicyPresetChange?.(nextSelection);
+      console.info("Mission diagnostics preset policy", nextSelection);
+    });
+    label.append(select);
+
+    const hint = document.createElement("small");
+    hint.textContent = "Pick an editor preset to generate a severityPolicy scaffold for mission package diagnostics.";
+
+    const description = document.createElement("small");
+    description.className = "mission-debug-diagnostics-preset-description";
+    description.textContent = selection.description;
+
+    const policyPreview = document.createElement("code");
+    policyPreview.className = "mission-debug-diagnostics-preset-policy";
+    policyPreview.textContent = formatDiagnosticsPolicyPreview(selection.policy);
+
+    this.diagnosticsPresetEditor.replaceChildren(label, hint, description, policyPreview);
   }
 
   private renderDiagnostics(report: RuntimeNavMissionPackageDiagnosticsReport | null): void {
@@ -306,4 +380,14 @@ function normalizeMaxEvents(value: number | undefined): number {
 function normalizeMaxDiagnostics(value: number | undefined): number {
   if (!value || !Number.isFinite(value)) return 6;
   return Math.max(1, Math.min(32, Math.floor(value)));
+}
+
+function normalizeDiagnosticsPresetId(value: string | null | undefined): RuntimeNavMissionDiagnosticsPolicyPresetId {
+  const preset = getRuntimeNavMissionDiagnosticsPolicyPreset(value ?? "");
+  return preset?.id ?? "default";
+}
+
+function formatDiagnosticsPolicyPreview(policy: RuntimeNavMissionDiagnosticsSeverityPolicy | null): string {
+  if (!policy) return "severityPolicy: <built-in defaults>";
+  return JSON.stringify({ severityPolicy: policy }, null, 2);
 }
