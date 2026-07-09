@@ -1,42 +1,44 @@
-# Splat World Engine — Mission Diagnostics Known-Code Registry
+# Splat World Engine — Mission Diagnostics Policy Presets
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.49 在 0.48 的 policy authoring schema 之上新增 Mission diagnostics known-code registry：诊断 code 不再只是散落在 loader 里的字符串，Runtime / editor / authoring schema 可以共享同一份 code 元数据。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.50 在 0.49 的 known-code registry 之上新增 Mission diagnostics policy editor presets：editor、URL 调试和 manifest authoring 可以复用同一组预设策略，而不是每次手写完整 `severityPolicy`。
 
 ```text
-NavMissionDiagnosticsCodeRegistry
-  ├── RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES
-  ├── RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODES
-  ├── isRuntimeNavMissionKnownDiagnosticCode(code)
-  └── getRuntimeNavMissionKnownDiagnosticCodeEntry(code)
+NavMissionDiagnosticsPolicyPresets
+  ├── RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS
+  ├── RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESET_IDS
+  ├── isRuntimeNavMissionDiagnosticsPolicyPresetId(id)
+  ├── getRuntimeNavMissionDiagnosticsPolicyPreset(id)
+  └── createRuntimeNavMissionDiagnosticsPolicyFromPreset(id)
 
-NavMissionDiagnosticsPolicySchema
-  ├── allowUnknownCodes=true   // 默认兼容未来扩展
-  └── allowUnknownCodes=false  // 严格 authoring / editor 校验
+URL
+  └── missionDiagnosticsPreset=quiet|strict|gameplay-strict|authoring-strict
 ```
 
-## Runtime/Builder 0.49 能力
+## Runtime/Builder 0.50 能力
 
-- 新增 `src/large/NavMissionDiagnosticsCodeRegistry.ts`
-- registry 覆盖当前全部 mission package diagnostics：
-  - `package.*`
-  - `mission.*`
-  - `objective.*`
-  - `runner_rule.*`
-  - `gameplay_source.*`
-- 每个 code entry 包含：
-  - `code`
-  - `category`
-  - `defaultSeverity`
-  - `description`
+- 新增 `src/large/NavMissionDiagnosticsPolicyPresets.ts`
+- 新增内置 presets：
+  - `default`：使用内置 severity，不隐藏 info
+  - `quiet`：隐藏 info diagnostics
+  - `strict`：把所有 warning 当作 error
+  - `gameplay-strict`：把 gameplay source 相关 warning 提升为 error
+  - `authoring-strict`：把 package authoring 引用问题提升为 error，并隐藏 info
 - 新增 helper：
-  - `isRuntimeNavMissionKnownDiagnosticCode(code)`
-  - `getRuntimeNavMissionKnownDiagnosticCodeEntry(code)`
-- policy schema 新增 `RuntimeNavMissionDiagnosticsSeverityPolicyParseOptions`
-- `parseRuntimeNavMissionDiagnosticsSeverityPolicy(input, { allowUnknownCodes: false })` 可以严格拒绝未知 code
-- `parseRuntimeNavMissionDiagnosticSeverityOverride(input, { allowUnknownCodes: false })` 可以严格拒绝未知 URL override code
-- 默认仍允许未知 code，避免后续插件或扩展 diagnostics 被旧 Runtime 误拒绝
-- package version 更新为 `0.49.0`
-- Runtime label 更新为 `runtime 0.49`
+  - `isRuntimeNavMissionDiagnosticsPolicyPresetId(id)`
+  - `getRuntimeNavMissionDiagnosticsPolicyPreset(id)`
+  - `createRuntimeNavMissionDiagnosticsPolicyFromPreset(id)`
+  - `cloneRuntimeNavMissionDiagnosticsSeverityPolicy(policy)`
+- Runtime URL 新增：
+  - `missionDiagnosticsPreset=quiet`
+  - `missionDiagnosticsPreset=strict`
+  - `missionDiagnosticsPreset=gameplay-strict`
+  - `missionDiagnosticsPreset=authoring-strict`
+- URL 解析顺序：
+  - preset 先生成 base policy
+  - `missionDiagnosticSeverity=code:severity` 可以覆盖 preset 的 code
+  - `missionDiagnosticsStrict=1` / `missionDiagnosticsNoInfo=1` 可以继续叠加
+- package version 更新为 `0.50.0`
+- Runtime label 更新为 `runtime 0.50`
 
 ## 运行 Runtime
 
@@ -57,22 +59,22 @@ http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1&missionD
 http://localhost:5173?world=/worlds/large-demo/world.json&mission=/worlds/large-demo/mission-package.json&missionDebug=1
 ```
 
-把某个 diagnostic code 提升为 error：
+使用 quiet preset：
 
 ```text
-http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1&missionDiagnosticSeverity=gameplay_source.missing_trigger:error
+http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1&missionDiagnosticsPreset=quiet
 ```
 
-严格 diagnostics：把所有 warning 视为 error：
+使用 gameplay-strict preset：
 
 ```text
-http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1&missionDiagnosticsStrict=1
+http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1&missionDiagnosticsPreset=gameplay-strict
 ```
 
-隐藏 info diagnostics：
+基于 preset 继续覆盖某个 diagnostic code：
 
 ```text
-http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1&missionDiagnosticsNoInfo=1
+http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1&missionDiagnosticsPreset=gameplay-strict&missionDiagnosticSeverity=gameplay_source.missing_trigger:warning
 ```
 
 查看完整 diagnostics report：
@@ -89,6 +91,30 @@ npm run build
 npm run preview
 ```
 
+## Preset 示例
+
+列出全部 presets：
+
+```ts
+import { RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS } from "./large/NavMissionDiagnosticsPolicyPresets";
+
+for (const preset of RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS) {
+  console.log(preset.id, preset.label, preset.description);
+}
+```
+
+从 preset 创建 policy：
+
+```ts
+const policy = createRuntimeNavMissionDiagnosticsPolicyFromPreset("gameplay-strict");
+```
+
+查找单个 preset：
+
+```ts
+const preset = getRuntimeNavMissionDiagnosticsPolicyPreset("authoring-strict");
+```
+
 ## Known-code registry 示例
 
 列出全部已知 code：
@@ -101,29 +127,12 @@ for (const entry of RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES) {
 }
 ```
 
-校验一个 code 是否已注册：
-
-```ts
-if (isRuntimeNavMissionKnownDiagnosticCode("gameplay_source.missing_trigger")) {
-  // safe for strict editor policy authoring
-}
-```
-
 严格解析 policy：
 
 ```ts
 const policy = parseRuntimeNavMissionDiagnosticsSeverityPolicy(input, {
   allowUnknownCodes: false
 });
-```
-
-严格解析 URL override：
-
-```ts
-const override = parseRuntimeNavMissionDiagnosticSeverityOverride(
-  "gameplay_source.missing_trigger:error",
-  { allowUnknownCodes: false }
-);
 ```
 
 ## Shared defaults 合并示例
@@ -197,12 +206,14 @@ gameplay_source.interaction_event_mismatch
 
 ## 已知边界
 
-- 0.49 是 known-code registry scaffold，不是完整可视化 policy editor。
+- 0.50 是 policy preset scaffold，不是完整可视化 policy editor UI。
+- presets 目前是内置静态列表，还没有从外部 manifest 或 editor plugin 注册自定义 preset。
+- URL 未知 preset 会被忽略，并回退到普通 URL policy 解析。
+- `missionDiagnosticsPreset=strict` 会把 warning 升级为 error，因此可能阻止 package apply。
+- `missionDiagnosticsPreset=quiet` 会移除 info diagnostics，因此 info summary 不会出现在 report / HUD 中。
 - registry 目前覆盖 Runtime 内置 diagnostics；插件或扩展 diagnostics 仍可以通过默认 `allowUnknownCodes=true` 使用自定义 code。
 - strict authoring 只校验 code 是否注册，不校验某个 code 是否适合被提升或降级。
 - large world manifest 顶层共享字段还没有独立 schema；当前 manifest 侧仍通过 `missionPackages[]` entry 做局部配置。
-- `missionDiagnosticsStrict=1` 会把 warning 升级为 error，因此可能阻止 package apply。
-- `missionDiagnosticsNoInfo=1` 会移除 info diagnostics，因此 info summary 不会出现在 report / HUD 中。
 - package 目前只支持 JSON authoring document，不支持压缩包、签名、版本依赖解析或远程 registry。
 - authoring document 仍只保存任务设计内容，不保存 player / agent / world object runtime state。
 - package 可以包含 runner rules，但仍没有专门的可视化规则编辑器。
@@ -257,7 +268,8 @@ gameplay_source.interaction_event_mismatch
 - [x] Mission diagnostics policy top-level shared defaults
 - [x] Mission diagnostics policy authoring schema
 - [x] Mission diagnostics known-code registry
-- [ ] Mission diagnostics policy editor presets
+- [x] Mission diagnostics policy editor presets
+- [ ] Mission diagnostics editor preset picker UI
 
 ## 依赖与许可证
 
