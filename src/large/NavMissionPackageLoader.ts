@@ -1,5 +1,6 @@
 import type { ColliderData } from "../types/world.js";
 import type { RuntimeNavGameplayApi } from "./NavGameplayApi.js";
+import { createRuntimeNavMissionDiagnosticsPolicyFromPreset } from "./NavMissionDiagnosticsPolicyPresets.js";
 import {
   parseRuntimeNavMissionDiagnosticSeverityOverride,
   parseRuntimeNavMissionDiagnosticsSeverityPolicy,
@@ -315,16 +316,18 @@ function validateGameplayEventName(rule: RuntimeNavMissionRunnerRule, expectedEv
 function readRuntimeNavMissionPackageUrlSeverityPolicy(): RuntimeNavMissionDiagnosticsSeverityPolicy | null {
   if (typeof window === "undefined") return null;
   const url = new URL(window.location.href);
-  const policy: RuntimeNavMissionDiagnosticsSeverityPolicy = {};
+  let policy = createRuntimeNavMissionDiagnosticsPolicyFromPreset(url.searchParams.get("missionDiagnosticsPreset"));
+  const urlPolicy: RuntimeNavMissionDiagnosticsSeverityPolicy = {};
   for (const value of url.searchParams.getAll("missionDiagnosticSeverity")) {
     const override = parseRuntimeNavMissionDiagnosticSeverityOverride(value);
     if (override) {
       const [code, severity] = override;
-      policy.codes = { ...(policy.codes ?? {}), [code]: severity };
+      urlPolicy.codes = { ...(urlPolicy.codes ?? {}), [code]: severity };
     }
   }
-  if (url.searchParams.has("missionDiagnosticsStrict")) policy.warningAsError = true;
-  if (url.searchParams.has("missionDiagnosticsNoInfo")) policy.hideInfo = true;
+  if (url.searchParams.has("missionDiagnosticsStrict")) urlPolicy.warningAsError = true;
+  if (url.searchParams.has("missionDiagnosticsNoInfo")) urlPolicy.hideInfo = true;
+  policy = mergeRuntimeNavMissionDiagnosticsSeverityPolicies(policy, urlPolicy);
   return parseRuntimeNavMissionDiagnosticsSeverityPolicy(policy);
 }
 
