@@ -1,5 +1,9 @@
 import type { ColliderData } from "../types/world.js";
 import type { RuntimeNavGameplayApi } from "./NavGameplayApi.js";
+import {
+  parseRuntimeNavMissionDiagnosticSeverityOverride,
+  parseRuntimeNavMissionDiagnosticsSeverityPolicy,
+} from "./NavMissionDiagnosticsPolicySchema.js";
 import type {
   RuntimeNavMissionAuthoringApplyOptions,
   RuntimeNavMissionAuthoringApplyResult,
@@ -145,7 +149,7 @@ export function normalizeRuntimeNavMissionPackageReferences(
       return {
         url: new URL(item.url, baseUrl).href,
         merge: item.merge,
-        severityPolicy: item.severityPolicy,
+        severityPolicy: parseRuntimeNavMissionDiagnosticsSeverityPolicy(item.severityPolicy),
       };
     }),
   );
@@ -204,12 +208,13 @@ export function applyRuntimeNavMissionPackageDiagnosticsSeverityPolicy(
   diagnostics: readonly RuntimeNavMissionPackageDiagnostic[],
   policy: RuntimeNavMissionDiagnosticsSeverityPolicy | null | undefined,
 ): RuntimeNavMissionPackageDiagnostic[] {
-  if (!policy) return diagnostics.map((diagnostic) => ({ ...diagnostic }));
+  const normalizedPolicy = parseRuntimeNavMissionDiagnosticsSeverityPolicy(policy);
+  if (!normalizedPolicy) return diagnostics.map((diagnostic) => ({ ...diagnostic }));
   const result: RuntimeNavMissionPackageDiagnostic[] = [];
   for (const diagnostic of diagnostics) {
-    let severity = policy.codes?.[diagnostic.code] ?? diagnostic.severity;
-    if (policy.warningAsError && severity === "warning") severity = "error";
-    if (policy.hideInfo && severity === "info") continue;
+    let severity = normalizedPolicy.codes?.[diagnostic.code] ?? diagnostic.severity;
+    if (normalizedPolicy.warningAsError && severity === "warning") severity = "error";
+    if (normalizedPolicy.hideInfo && severity === "info") continue;
     result.push({ ...diagnostic, severity });
   }
   return result;
@@ -219,14 +224,17 @@ export function mergeRuntimeNavMissionDiagnosticsSeverityPolicies(
   base: RuntimeNavMissionDiagnosticsSeverityPolicy | null | undefined,
   override: RuntimeNavMissionDiagnosticsSeverityPolicy | null | undefined,
 ): RuntimeNavMissionDiagnosticsSeverityPolicy | null {
-  if (!base && !override) return null;
+  const normalizedBase = parseRuntimeNavMissionDiagnosticsSeverityPolicy(base);
+  const normalizedOverride = parseRuntimeNavMissionDiagnosticsSeverityPolicy(override);
+  if (!normalizedBase && !normalizedOverride) return null;
+  const codes = {
+    ...(normalizedBase?.codes ?? {}),
+    ...(normalizedOverride?.codes ?? {}),
+  };
   return {
-    codes: {
-      ...(base?.codes ?? {}),
-      ...(override?.codes ?? {}),
-    },
-    warningAsError: override?.warningAsError ?? base?.warningAsError,
-    hideInfo: override?.hideInfo ?? base?.hideInfo,
+    ...(Object.keys(codes).length > 0 ? { codes } : {}),
+    warningAsError: normalizedOverride?.warningAsError ?? normalizedBase?.warningAsError,
+    hideInfo: normalizedOverride?.hideInfo ?? normalizedBase?.hideInfo,
   };
 }
 
@@ -268,7 +276,7 @@ function normalizePackages(packages: RuntimeNavMissionPackageReference[]): Runti
     const url = packageRef.url.trim();
     if (!url || seen.has(url)) continue;
     seen.add(url);
-    result.push({ url, merge: packageRef.merge, severityPolicy: packageRef.severityPolicy });
+    result.push({ url, merge: packageRef.merge, severityPolicy: parseRuntimeNavMissionDiagnosticsSeverityPolicy(packageRef.severityPolicy) });
   }
   return result;
 }
@@ -309,16 +317,15 @@ function readRuntimeNavMissionPackageUrlSeverityPolicy(): RuntimeNavMissionDiagn
   const url = new URL(window.location.href);
   const policy: RuntimeNavMissionDiagnosticsSeverityPolicy = {};
   for (const value of url.searchParams.getAll("missionDiagnosticSeverity")) {
-    const [code, severity] = value.split(":");
-    if (code && isMissionDiagnosticSeverity(severity)) policy.codes = { ...(policy.codes ?? {}), [code]: severity };
+    const override = parseRuntimeNavMissionDiagnosticSeverityOverride(value);
+    if (override) {
+      const [code, severity] = override;
+      policy.codes = { ...(policy.codes ?? {}), [code]: severity };
+    }
   }
   if (url.searchParams.has("missionDiagnosticsStrict")) policy.warningAsError = true;
   if (url.searchParams.has("missionDiagnosticsNoInfo")) policy.hideInfo = true;
-  return policy.codes || policy.warningAsError || policy.hideInfo ? policy : null;
-}
-
-function isMissionDiagnosticSeverity(value: string | undefined): value is RuntimeNavMissionPackageDiagnosticSeverity {
-  return value === "info" || value === "warning" || value === "error";
+  return parseRuntimeNavMissionDiagnosticsSeverityPolicy(policy);
 }
 
 function isGameplayEventFilter(event: RuntimeNavMissionRunnerRule["event"]): boolean {

@@ -1,31 +1,39 @@
-# Splat World Engine — Mission Diagnostics Shared Defaults
+# Splat World Engine — Mission Diagnostics Policy Schema
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.47 在 0.46 的 URL / package-entry diagnostics config 之上新增 shared defaults 合并规则：URL / loader policy 作为共享默认值，单个 package entry 的 `severityPolicy` 只覆盖它明确声明的字段，不再整包替换默认 policy。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.48 在 0.47 的 shared defaults 合并规则之上新增 Mission diagnostics policy authoring schema：severity policy 现在有独立的 parse / assert / URL override parser，Runtime、manifest entry、editor authoring 后续都可以复用同一套校验入口。
 
 ```text
-RuntimeNavMissionPackageLoader
-  ├── URL severity policy
-  ├── loader severityPolicy
-  ├── package entry severityPolicy
-  └── mergeRuntimeNavMissionDiagnosticsSeverityPolicies(base, override)
+NavMissionDiagnosticsPolicySchema
+  ├── RUNTIME_NAV_MISSION_DIAGNOSTIC_SEVERITIES
+  ├── parseRuntimeNavMissionDiagnosticsSeverityPolicy(input)
+  ├── assertRuntimeNavMissionDiagnosticsSeverityPolicy(input)
+  ├── parseRuntimeNavMissionDiagnosticSeverityOverride(input)
+  └── isRuntimeNavMissionPackageDiagnosticSeverity(value)
 
-Effective policy per package
-  ├── URL policy
-  ├── + loader shared defaults
-  └── + package entry override
+RuntimeNavMissionPackageLoader
+  ├── URL severity policy parser
+  ├── loader severityPolicy parser
+  ├── package entry severityPolicy parser
+  └── shared defaults merge
 ```
 
-## Runtime/Builder 0.47 能力
+## Runtime/Builder 0.48 能力
 
-- 新增 helper：
-  - `mergeRuntimeNavMissionDiagnosticsSeverityPolicies(base, override)`
-- URL policy 和 loader `severityPolicy` 会先合并为 shared defaults
-- 每个 package entry 的 `severityPolicy` 会再叠加到 shared defaults 上
-- `codes` 会按 key 合并，package entry 的同名 code 覆盖 shared defaults
-- `warningAsError` / `hideInfo` 使用 override 优先级
-- package entry 不再因为声明一个字段而丢掉其它 shared defaults
-- package version 更新为 `0.47.0`
-- Runtime label 更新为 `runtime 0.47`
+- 新增 `src/large/NavMissionDiagnosticsPolicySchema.ts`
+- 新增 authoring/schema API：
+  - `parseRuntimeNavMissionDiagnosticsSeverityPolicy(input)`
+  - `assertRuntimeNavMissionDiagnosticsSeverityPolicy(input)`
+  - `parseRuntimeNavMissionDiagnosticSeverityOverride(input)`
+  - `isRuntimeNavMissionPackageDiagnosticSeverity(value)`
+- `codes` 会被 normalize：
+  - code 会 trim
+  - empty code 会抛错
+  - severity 只能是 `info` / `warning` / `error`
+- `warningAsError` / `hideInfo` 必须是 boolean
+- `loadRuntimeNavMissionPackages(...)` 的 URL policy、loader policy、package entry policy 都会走同一个 parser
+- 无效 policy 会明确抛错，不再悄悄被忽略
+- package version 更新为 `0.48.0`
+- Runtime label 更新为 `runtime 0.48`
 
 ## 运行 Runtime
 
@@ -78,6 +86,34 @@ npm run build
 npm run preview
 ```
 
+## Authoring schema 示例
+
+校验并 normalize policy：
+
+```ts
+const policy = parseRuntimeNavMissionDiagnosticsSeverityPolicy({
+  codes: {
+    "gameplay_source.missing_trigger": "error"
+  },
+  warningAsError: true,
+  hideInfo: false
+});
+```
+
+校验 URL override：
+
+```ts
+const override = parseRuntimeNavMissionDiagnosticSeverityOverride(
+  "gameplay_source.missing_trigger:error"
+);
+```
+
+用于 assert：
+
+```ts
+assertRuntimeNavMissionDiagnosticsSeverityPolicy(input);
+```
+
 ## Shared defaults 合并示例
 
 URL 作为 shared defaults：
@@ -105,52 +141,6 @@ URL 作为 shared defaults：
 ```
 
 最终这个 package 会继承 URL 的 `warningAsError`，同时把 `gameplay_source.missing_trigger` 从 URL default 的 `error` 覆盖回 `warning`。
-
-## Severity policy API
-
-可以直接合并两个 policy：
-
-```ts
-const effective = mergeRuntimeNavMissionDiagnosticsSeverityPolicies(sharedPolicy, packagePolicy);
-```
-
-也可以直接通过 loader API 传入 shared defaults：
-
-```ts
-await loadRuntimeNavMissionPackages({
-  nav,
-  packages,
-  gameplaySources,
-  severityPolicy: {
-    codes: {
-      "gameplay_source.missing_trigger": "error"
-    },
-    warningAsError: true,
-    hideInfo: true
-  }
-});
-```
-
-单个 package entry 可以局部覆盖：
-
-```ts
-await loadRuntimeNavMissionPackages({
-  nav,
-  packages: [
-    {
-      url: "./mission-extra.json",
-      severityPolicy: {
-        codes: {
-          "gameplay_source.missing_trigger": "warning"
-        }
-      }
-    }
-  ],
-  severityPolicy: {
-    warningAsError: true
-  }
-});
-```
 
 ## Mission diagnostics HUD panel
 
@@ -194,8 +184,8 @@ package.load_failed
 
 ## 已知边界
 
-- 0.47 是 shared defaults merge scaffold，不是完整 policy authoring UI。
-- shared defaults 现在来自 URL policy 和 loader `severityPolicy`。
+- 0.48 是 policy schema scaffold，不是完整可视化 policy editor。
+- schema 目前只校验 severity policy 结构，不校验 diagnostic code 是否属于固定枚举。
 - large world manifest 顶层共享字段还没有独立 schema；当前 manifest 侧仍通过 `missionPackages[]` entry 做局部配置。
 - `missionDiagnosticsStrict=1` 会把 warning 升级为 error，因此可能阻止 package apply。
 - `missionDiagnosticsNoInfo=1` 会移除 info diagnostics，因此 info summary 不会出现在 report / HUD 中。
@@ -251,7 +241,8 @@ package.load_failed
 - [x] Mission package diagnostics severity policy
 - [x] Mission diagnostics policy URL / manifest hook
 - [x] Mission diagnostics policy top-level shared defaults
-- [ ] Mission diagnostics policy authoring schema
+- [x] Mission diagnostics policy authoring schema
+- [ ] Mission diagnostics known-code registry
 
 ## 依赖与许可证
 
