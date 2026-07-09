@@ -2,6 +2,10 @@ import "./NavMissionDebugPanel.css";
 import type { GameplayEvent } from "../gameplay/GameplaySystem.js";
 import type { RuntimeNavGameplayApi } from "./NavGameplayApi.js";
 import {
+  getRuntimeNavMissionKnownDiagnosticCodeEntry,
+  RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES,
+} from "./NavMissionDiagnosticsCodeRegistry.js";
+import {
   createRuntimeNavMissionDiagnosticsPolicyFromPreset,
   getRuntimeNavMissionDiagnosticsPolicyPreset,
   RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS,
@@ -9,15 +13,28 @@ import {
 import type { RuntimeNavMissionDiagnosticsPolicyPresetId } from "./NavMissionDiagnosticsPolicyPresets.js";
 import type {
   RuntimeNavMissionDiagnosticsSeverityPolicy,
+  RuntimeNavMissionPackageDiagnosticSeverity,
   RuntimeNavMissionPackageDiagnosticsReport,
   RuntimeNavMissionPackageDiagnostic,
 } from "./NavMissionPackageLoader.js";
 import type { RuntimeNavMissionRunnerEvent } from "./NavMissionRunner.js";
 
+const RUNTIME_NAV_MISSION_DIAGNOSTIC_SEVERITIES: readonly RuntimeNavMissionPackageDiagnosticSeverity[] = [
+  "info",
+  "warning",
+  "error",
+];
+
 export interface RuntimeNavMissionDiagnosticsPolicyEditorPresetSelection {
   id: RuntimeNavMissionDiagnosticsPolicyPresetId;
   label: string;
   description: string;
+  policy: RuntimeNavMissionDiagnosticsSeverityPolicy | null;
+}
+
+export interface RuntimeNavMissionDiagnosticsPolicyEditorSelection {
+  preset: RuntimeNavMissionDiagnosticsPolicyEditorPresetSelection;
+  overrides: Partial<Record<string, RuntimeNavMissionPackageDiagnosticSeverity>>;
   policy: RuntimeNavMissionDiagnosticsSeverityPolicy | null;
 }
 
@@ -29,6 +46,7 @@ export interface RuntimeNavMissionDebugPanelOptions {
   missionPackages?: RuntimeNavMissionPackageDiagnosticsReport | null;
   initialDiagnosticsPresetId?: string | null;
   onDiagnosticsPolicyPresetChange?: (selection: RuntimeNavMissionDiagnosticsPolicyEditorPresetSelection) => void;
+  onDiagnosticsPolicyChange?: (selection: RuntimeNavMissionDiagnosticsPolicyEditorSelection) => void;
 }
 
 export class RuntimeNavMissionDebugPanel {
@@ -37,7 +55,7 @@ export class RuntimeNavMissionDebugPanel {
   private readonly stateSummary = document.createElement("div");
   private readonly graphSummary = document.createElement("div");
   private readonly runnerSummary = document.createElement("div");
-  private readonly diagnosticsPresetEditor = document.createElement("div");
+  private readonly diagnosticsPolicyEditor = document.createElement("div");
   private readonly diagnosticsSummary = document.createElement("div");
   private readonly diagnosticsList = document.createElement("div");
   private readonly eventsList = document.createElement("div");
@@ -46,6 +64,7 @@ export class RuntimeNavMissionDebugPanel {
   private readonly maxDiagnostics: number;
   private visible: boolean;
   private selectedDiagnosticsPresetId: RuntimeNavMissionDiagnosticsPolicyPresetId;
+  private readonly customDiagnosticSeverityOverrides = new Map<string, RuntimeNavMissionPackageDiagnosticSeverity>();
   private readonly events: RuntimeNavMissionRunnerEvent[] = [];
 
   constructor(private readonly options: RuntimeNavMissionDebugPanelOptions) {
@@ -96,6 +115,15 @@ export class RuntimeNavMissionDebugPanel {
       label: preset.label,
       description: preset.description,
       policy: createRuntimeNavMissionDiagnosticsPolicyFromPreset(preset.id),
+    };
+  }
+
+  getDiagnosticsPolicyEditorSelection(): RuntimeNavMissionDiagnosticsPolicyEditorSelection {
+    const preset = this.getDiagnosticsPolicyPresetSelection();
+    return {
+      preset,
+      overrides: createDiagnosticsPolicyOverrideRecord(this.customDiagnosticSeverityOverrides),
+      policy: mergeDiagnosticsPolicy(preset.policy, this.customDiagnosticSeverityOverrides),
     };
   }
 
@@ -155,16 +183,16 @@ export class RuntimeNavMissionDebugPanel {
     this.stateSummary.className = "mission-debug-metrics";
     this.graphSummary.className = "mission-debug-metrics";
     this.runnerSummary.className = "mission-debug-metrics";
-    this.diagnosticsPresetEditor.className = "mission-debug-diagnostics-preset";
+    this.diagnosticsPolicyEditor.className = "mission-debug-diagnostics-policy-editor";
     this.diagnosticsSummary.className = "mission-debug-metrics";
     this.diagnosticsList.className = "mission-debug-diagnostics";
     this.eventsList.className = "mission-debug-events";
 
     const diagnosticsBody = document.createElement("div");
     diagnosticsBody.className = "mission-debug-diagnostics-body";
-    diagnosticsBody.append(this.diagnosticsPresetEditor, this.diagnosticsSummary, this.diagnosticsList);
+    diagnosticsBody.append(this.diagnosticsPolicyEditor, this.diagnosticsSummary, this.diagnosticsList);
 
-    this.renderDiagnosticsPresetEditor();
+    this.renderDiagnosticsPolicyEditor();
 
     this.root.replaceChildren(
       heading,
@@ -176,41 +204,158 @@ export class RuntimeNavMissionDebugPanel {
     );
   }
 
-  private renderDiagnosticsPresetEditor(): void {
-    const selection = this.getDiagnosticsPolicyPresetSelection();
-    const label = document.createElement("label");
-    label.className = "mission-debug-diagnostics-preset-label";
-    label.textContent = "Diagnostics preset";
+  private renderDiagnosticsPolicyEditor(): void {
+    const editorSelection = this.getDiagnosticsPolicyEditorSelection();
+    const presetSelection = editorSelection.preset;
+    const presetLabel = document.createElement("label");
+    presetLabel.className = "mission-debug-diagnostics-policy-label";
+    presetLabel.textContent = "Diagnostics preset";
 
-    const select = document.createElement("select");
-    select.value = selection.id;
+    const presetSelect = document.createElement("select");
+    presetSelect.value = presetSelection.id;
     for (const preset of RUNTIME_NAV_MISSION_DIAGNOSTICS_POLICY_PRESETS) {
       const option = document.createElement("option");
       option.value = preset.id;
       option.textContent = `${preset.label} (${preset.id})`;
-      select.append(option);
+      presetSelect.append(option);
     }
-    select.addEventListener("change", () => {
-      this.selectedDiagnosticsPresetId = normalizeDiagnosticsPresetId(select.value);
-      this.renderDiagnosticsPresetEditor();
-      const nextSelection = this.getDiagnosticsPolicyPresetSelection();
-      this.options.onDiagnosticsPolicyPresetChange?.(nextSelection);
-      console.info("Mission diagnostics preset policy", nextSelection);
+    presetSelect.addEventListener("change", () => {
+      this.selectedDiagnosticsPresetId = normalizeDiagnosticsPresetId(presetSelect.value);
+      this.renderDiagnosticsPolicyEditor();
+      const nextPresetSelection = this.getDiagnosticsPolicyPresetSelection();
+      this.options.onDiagnosticsPolicyPresetChange?.(nextPresetSelection);
+      this.emitDiagnosticsPolicyChange();
+      console.info("Mission diagnostics policy editor selection", this.getDiagnosticsPolicyEditorSelection());
     });
-    label.append(select);
+    presetLabel.append(presetSelect);
 
-    const hint = document.createElement("small");
-    hint.textContent = "Pick an editor preset to generate a severityPolicy scaffold for mission package diagnostics.";
+    const presetHint = document.createElement("small");
+    presetHint.textContent = "Pick an editor preset, then override individual known diagnostic codes as needed.";
 
-    const description = document.createElement("small");
-    description.className = "mission-debug-diagnostics-preset-description";
-    description.textContent = selection.description;
+    const presetDescription = document.createElement("small");
+    presetDescription.className = "mission-debug-diagnostics-policy-description";
+    presetDescription.textContent = presetSelection.description;
+
+    const overrideTitle = document.createElement("small");
+    overrideTitle.className = "mission-debug-diagnostics-override-title";
+    overrideTitle.textContent = "Custom code overrides";
+
+    const overrideForm = this.createDiagnosticsPolicyOverrideForm();
+    const overrideList = this.createDiagnosticsPolicyOverrideList();
+
+    const policyPreviewTitle = document.createElement("small");
+    policyPreviewTitle.className = "mission-debug-diagnostics-override-title";
+    policyPreviewTitle.textContent = "Generated severityPolicy";
 
     const policyPreview = document.createElement("code");
-    policyPreview.className = "mission-debug-diagnostics-preset-policy";
-    policyPreview.textContent = formatDiagnosticsPolicyPreview(selection.policy);
+    policyPreview.className = "mission-debug-diagnostics-policy-preview";
+    policyPreview.textContent = formatDiagnosticsPolicyPreview(editorSelection.policy);
 
-    this.diagnosticsPresetEditor.replaceChildren(label, hint, description, policyPreview);
+    this.diagnosticsPolicyEditor.replaceChildren(
+      presetLabel,
+      presetHint,
+      presetDescription,
+      overrideTitle,
+      overrideForm,
+      overrideList,
+      policyPreviewTitle,
+      policyPreview,
+    );
+  }
+
+  private createDiagnosticsPolicyOverrideForm(): HTMLElement {
+    const form = document.createElement("div");
+    form.className = "mission-debug-diagnostics-override-form";
+
+    const codeLabel = document.createElement("label");
+    codeLabel.textContent = "Code";
+    const codeSelect = document.createElement("select");
+    for (const entry of RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES) {
+      const option = document.createElement("option");
+      option.value = entry.code;
+      option.textContent = `${entry.code} · ${entry.defaultSeverity}`;
+      option.title = `${entry.category} · ${entry.description}`;
+      codeSelect.append(option);
+    }
+    codeLabel.append(codeSelect);
+
+    const severityLabel = document.createElement("label");
+    severityLabel.textContent = "Severity";
+    const severitySelect = document.createElement("select");
+    for (const severity of RUNTIME_NAV_MISSION_DIAGNOSTIC_SEVERITIES) {
+      const option = document.createElement("option");
+      option.value = severity;
+      option.textContent = severity;
+      severitySelect.append(option);
+    }
+    severityLabel.append(severitySelect);
+
+    const syncSeverityFromCode = (): void => {
+      const entry = getRuntimeNavMissionKnownDiagnosticCodeEntry(codeSelect.value);
+      severitySelect.value = this.customDiagnosticSeverityOverrides.get(codeSelect.value) ?? entry?.defaultSeverity ?? "warning";
+    };
+    codeSelect.addEventListener("change", syncSeverityFromCode);
+    syncSeverityFromCode();
+
+    const setButton = createButton("Set override", () => {
+      const code = codeSelect.value.trim();
+      if (!code) return;
+      this.customDiagnosticSeverityOverrides.set(code, normalizeDiagnosticSeverity(severitySelect.value));
+      this.renderDiagnosticsPolicyEditor();
+      this.emitDiagnosticsPolicyChange();
+      console.info("Mission diagnostics policy editor selection", this.getDiagnosticsPolicyEditorSelection());
+    });
+    const resetButton = createButton("Reset", () => {
+      this.customDiagnosticSeverityOverrides.clear();
+      this.renderDiagnosticsPolicyEditor();
+      this.emitDiagnosticsPolicyChange();
+      console.info("Mission diagnostics policy editor selection", this.getDiagnosticsPolicyEditorSelection());
+    });
+    resetButton.disabled = this.customDiagnosticSeverityOverrides.size === 0;
+
+    const actions = document.createElement("div");
+    actions.className = "mission-debug-diagnostics-override-actions";
+    actions.append(setButton, resetButton);
+
+    form.append(codeLabel, severityLabel, actions);
+    return form;
+  }
+
+  private createDiagnosticsPolicyOverrideList(): HTMLElement {
+    const list = document.createElement("div");
+    list.className = "mission-debug-diagnostics-override-list";
+    if (this.customDiagnosticSeverityOverrides.size === 0) {
+      const empty = document.createElement("small");
+      empty.textContent = "No custom code overrides. The generated policy currently follows the selected preset.";
+      list.append(empty);
+      return list;
+    }
+
+    const overrides = [...this.customDiagnosticSeverityOverrides.entries()].sort(([left], [right]) => left.localeCompare(right));
+    for (const [code, severity] of overrides) {
+      const entry = getRuntimeNavMissionKnownDiagnosticCodeEntry(code);
+      const row = document.createElement("div");
+      row.className = "mission-debug-diagnostics-override-row";
+      const title = document.createElement("b");
+      title.textContent = `${code} → ${severity}`;
+      const detail = document.createElement("small");
+      detail.textContent = entry
+        ? `Default ${entry.defaultSeverity} · ${entry.description}`
+        : "Custom diagnostic code override.";
+      const removeButton = createButton("Remove", () => {
+        this.customDiagnosticSeverityOverrides.delete(code);
+        this.renderDiagnosticsPolicyEditor();
+        this.emitDiagnosticsPolicyChange();
+        console.info("Mission diagnostics policy editor selection", this.getDiagnosticsPolicyEditorSelection());
+      });
+      row.append(title, detail, removeButton);
+      list.append(row);
+    }
+    return list;
+  }
+
+  private emitDiagnosticsPolicyChange(): void {
+    this.options.onDiagnosticsPolicyChange?.(this.getDiagnosticsPolicyEditorSelection());
   }
 
   private renderDiagnostics(report: RuntimeNavMissionPackageDiagnosticsReport | null): void {
@@ -393,6 +538,36 @@ function normalizeMaxDiagnostics(value: number | undefined): number {
 function normalizeDiagnosticsPresetId(value: string | null | undefined): RuntimeNavMissionDiagnosticsPolicyPresetId {
   const preset = getRuntimeNavMissionDiagnosticsPolicyPreset(value ?? "");
   return preset?.id ?? "default";
+}
+
+function normalizeDiagnosticSeverity(value: string): RuntimeNavMissionPackageDiagnosticSeverity {
+  return RUNTIME_NAV_MISSION_DIAGNOSTIC_SEVERITIES.includes(value as RuntimeNavMissionPackageDiagnosticSeverity)
+    ? value as RuntimeNavMissionPackageDiagnosticSeverity
+    : "warning";
+}
+
+function createDiagnosticsPolicyOverrideRecord(
+  overrides: Map<string, RuntimeNavMissionPackageDiagnosticSeverity>,
+): Partial<Record<string, RuntimeNavMissionPackageDiagnosticSeverity>> {
+  const codes: Partial<Record<string, RuntimeNavMissionPackageDiagnosticSeverity>> = {};
+  for (const [code, severity] of overrides) codes[code] = severity;
+  return codes;
+}
+
+function mergeDiagnosticsPolicy(
+  presetPolicy: RuntimeNavMissionDiagnosticsSeverityPolicy | null,
+  overrides: Map<string, RuntimeNavMissionPackageDiagnosticSeverity>,
+): RuntimeNavMissionDiagnosticsSeverityPolicy | null {
+  const policy: RuntimeNavMissionDiagnosticsSeverityPolicy = {};
+  if (presetPolicy?.codes) policy.codes = { ...presetPolicy.codes };
+  if (presetPolicy?.warningAsError !== undefined) policy.warningAsError = presetPolicy.warningAsError;
+  if (presetPolicy?.hideInfo !== undefined) policy.hideInfo = presetPolicy.hideInfo;
+
+  const overrideCodes = createDiagnosticsPolicyOverrideRecord(overrides);
+  if (Object.keys(overrideCodes).length > 0) policy.codes = { ...(policy.codes ?? {}), ...overrideCodes };
+
+  const hasCodes = policy.codes ? Object.keys(policy.codes).length > 0 : false;
+  return hasCodes || policy.warningAsError !== undefined || policy.hideInfo !== undefined ? policy : null;
 }
 
 function formatDiagnosticsPolicyPreview(policy: RuntimeNavMissionDiagnosticsSeverityPolicy | null): string {
