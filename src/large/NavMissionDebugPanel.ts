@@ -72,6 +72,7 @@ export class RuntimeNavMissionDebugPanel {
   private applyingDiagnosticsPolicy = false;
   private diagnosticsPolicyApplyMessage = "";
   private diagnosticsPolicyShareMessage = "";
+  private diagnosticsPolicyManifestMessage = "";
   private readonly events: RuntimeNavMissionRunnerEvent[] = [];
 
   constructor(private readonly options: RuntimeNavMissionDebugPanelOptions) {
@@ -266,6 +267,7 @@ export class RuntimeNavMissionDebugPanel {
     policyPreview.textContent = formatDiagnosticsPolicyPreview(editorSelection.policy);
 
     const shareControls = this.createDiagnosticsPolicyShareControls(editorSelection);
+    const manifestControls = this.createDiagnosticsPolicyManifestControls(editorSelection);
     const applyControls = this.createDiagnosticsPolicyApplyControls();
 
     this.diagnosticsPolicyEditor.replaceChildren(
@@ -278,6 +280,7 @@ export class RuntimeNavMissionDebugPanel {
       policyPreviewTitle,
       policyPreview,
       shareControls,
+      manifestControls,
       applyControls,
     );
   }
@@ -422,6 +425,50 @@ export class RuntimeNavMissionDebugPanel {
     this.renderDiagnosticsPolicyEditor();
   }
 
+  private createDiagnosticsPolicyManifestControls(selection: RuntimeNavMissionDiagnosticsPolicyEditorSelection): HTMLElement {
+    const container = document.createElement("div");
+    container.className = "mission-debug-diagnostics-manifest";
+    const manifestSnippet = createDiagnosticsPolicyManifestSnippet(selection);
+
+    const title = document.createElement("small");
+    title.className = "mission-debug-diagnostics-override-title";
+    title.textContent = "Manifest snippet";
+
+    const hint = document.createElement("small");
+    hint.textContent = "Copy this scaffold into a large world manifest missionPackages[] entry and replace the placeholder URL.";
+
+    const preview = document.createElement("code");
+    preview.className = "mission-debug-diagnostics-manifest-snippet";
+    preview.textContent = manifestSnippet;
+
+    const copyButton = createButton("Copy manifest", () => {
+      void this.copyDiagnosticsPolicyManifestSnippet(manifestSnippet);
+    });
+    const actions = document.createElement("div");
+    actions.className = "mission-debug-diagnostics-manifest-actions";
+    actions.append(copyButton);
+
+    container.append(title, hint, preview, actions);
+    if (this.diagnosticsPolicyManifestMessage) {
+      const status = document.createElement("small");
+      status.className = "mission-debug-diagnostics-manifest-status";
+      status.textContent = this.diagnosticsPolicyManifestMessage;
+      container.append(status);
+    }
+    return container;
+  }
+
+  private async copyDiagnosticsPolicyManifestSnippet(manifestSnippet: string): Promise<void> {
+    try {
+      await navigator.clipboard?.writeText(manifestSnippet);
+      this.diagnosticsPolicyManifestMessage = "Manifest snippet copied.";
+    } catch (error) {
+      console.warn("Mission diagnostics policy manifest copy failed.", error);
+      this.diagnosticsPolicyManifestMessage = "Copy failed. Select the manifest snippet manually.";
+    }
+    this.renderDiagnosticsPolicyEditor();
+  }
+
   private createDiagnosticsPolicyApplyControls(): HTMLElement {
     const container = document.createElement("div");
     container.className = "mission-debug-diagnostics-apply";
@@ -471,6 +518,7 @@ export class RuntimeNavMissionDebugPanel {
   private clearDiagnosticsPolicyFeedback(): void {
     this.diagnosticsPolicyApplyMessage = "";
     this.diagnosticsPolicyShareMessage = "";
+    this.diagnosticsPolicyManifestMessage = "";
   }
 
   private emitDiagnosticsPolicyChange(): void {
@@ -708,6 +756,19 @@ function clearDiagnosticsPolicySearchParams(searchParams: URLSearchParams): void
   searchParams.delete("missionDiagnosticSeverity");
   searchParams.delete("missionDiagnosticsStrict");
   searchParams.delete("missionDiagnosticsNoInfo");
+}
+
+function createDiagnosticsPolicyManifestSnippet(selection: RuntimeNavMissionDiagnosticsPolicyEditorSelection): string {
+  const packageEntry: {
+    url: string;
+    merge: boolean;
+    severityPolicy?: RuntimeNavMissionDiagnosticsSeverityPolicy;
+  } = {
+    url: "./mission-package.json",
+    merge: true,
+  };
+  if (selection.policy) packageEntry.severityPolicy = selection.policy;
+  return JSON.stringify({ missionPackages: [packageEntry] }, null, 2);
 }
 
 function formatDiagnosticsPolicyPreview(policy: RuntimeNavMissionDiagnosticsSeverityPolicy | null): string {
