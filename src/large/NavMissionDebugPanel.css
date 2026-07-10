@@ -108,6 +108,7 @@
 .mission-debug-diagnostics-policy-editor,
 .mission-debug-diagnostics-override-list,
 .mission-debug-diagnostics-apply,
+.mission-debug-diagnostics-share,
 .mission-debug-section-body {
   display: grid;
   gap: 6px;
@@ -167,7 +168,8 @@
   gap: 6px;
 }
 
-.mission-debug-diagnostics-apply {
+.mission-debug-diagnostics-apply,
+.mission-debug-diagnostics-share {
   margin-top: 2px;
   padding: 7px 8px;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -175,13 +177,38 @@
   background: rgba(255, 255, 255, 0.035);
 }
 
+.mission-debug-diagnostics-share-url {
+  display: block;
+  max-height: 74px;
+  overflow: auto;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.mission-debug-diagnostics-share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .mission-debug-diagnostics-apply button {
   justify-self: start;
+}
+
+.mission-debug-diagnostics-apply button,
+.mission-debug-diagnostics-share-actions button {
   padding: 7px 9px;
   font-size: 10px;
 }
 
-.mission-debug-diagnostics-apply-status {
+.mission-debug-diagnostics-apply-status,
+.mission-debug-diagnostics-share-status {
   color: rgba(255, 255, 255, 0.72);
 }
 
