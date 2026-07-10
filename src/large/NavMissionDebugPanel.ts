@@ -71,6 +71,7 @@ export class RuntimeNavMissionDebugPanel {
   private readonly customDiagnosticSeverityOverrides = new Map<string, RuntimeNavMissionPackageDiagnosticSeverity>();
   private applyingDiagnosticsPolicy = false;
   private diagnosticsPolicyApplyMessage = "";
+  private diagnosticsPolicyShareMessage = "";
   private readonly events: RuntimeNavMissionRunnerEvent[] = [];
 
   constructor(private readonly options: RuntimeNavMissionDebugPanelOptions) {
@@ -233,7 +234,7 @@ export class RuntimeNavMissionDebugPanel {
     }
     presetSelect.addEventListener("change", () => {
       this.selectedDiagnosticsPresetId = normalizeDiagnosticsPresetId(presetSelect.value);
-      this.diagnosticsPolicyApplyMessage = "";
+      this.clearDiagnosticsPolicyFeedback();
       this.renderDiagnosticsPolicyEditor();
       const nextPresetSelection = this.getDiagnosticsPolicyPresetSelection();
       this.options.onDiagnosticsPolicyPresetChange?.(nextPresetSelection);
@@ -264,6 +265,7 @@ export class RuntimeNavMissionDebugPanel {
     policyPreview.className = "mission-debug-diagnostics-policy-preview";
     policyPreview.textContent = formatDiagnosticsPolicyPreview(editorSelection.policy);
 
+    const shareControls = this.createDiagnosticsPolicyShareControls(editorSelection);
     const applyControls = this.createDiagnosticsPolicyApplyControls();
 
     this.diagnosticsPolicyEditor.replaceChildren(
@@ -275,6 +277,7 @@ export class RuntimeNavMissionDebugPanel {
       overrideList,
       policyPreviewTitle,
       policyPreview,
+      shareControls,
       applyControls,
     );
   }
@@ -317,14 +320,14 @@ export class RuntimeNavMissionDebugPanel {
       const code = codeSelect.value.trim();
       if (!code) return;
       this.customDiagnosticSeverityOverrides.set(code, normalizeDiagnosticSeverity(severitySelect.value));
-      this.diagnosticsPolicyApplyMessage = "";
+      this.clearDiagnosticsPolicyFeedback();
       this.renderDiagnosticsPolicyEditor();
       this.emitDiagnosticsPolicyChange();
       console.info("Mission diagnostics policy editor selection", this.getDiagnosticsPolicyEditorSelection());
     });
     const resetButton = createButton("Reset", () => {
       this.customDiagnosticSeverityOverrides.clear();
-      this.diagnosticsPolicyApplyMessage = "";
+      this.clearDiagnosticsPolicyFeedback();
       this.renderDiagnosticsPolicyEditor();
       this.emitDiagnosticsPolicyChange();
       console.info("Mission diagnostics policy editor selection", this.getDiagnosticsPolicyEditorSelection());
@@ -362,7 +365,7 @@ export class RuntimeNavMissionDebugPanel {
         : "Custom diagnostic code override.";
       const removeButton = createButton("Remove", () => {
         this.customDiagnosticSeverityOverrides.delete(code);
-        this.diagnosticsPolicyApplyMessage = "";
+        this.clearDiagnosticsPolicyFeedback();
         this.renderDiagnosticsPolicyEditor();
         this.emitDiagnosticsPolicyChange();
         console.info("Mission diagnostics policy editor selection", this.getDiagnosticsPolicyEditorSelection());
@@ -371,6 +374,52 @@ export class RuntimeNavMissionDebugPanel {
       list.append(row);
     }
     return list;
+  }
+
+  private createDiagnosticsPolicyShareControls(selection: RuntimeNavMissionDiagnosticsPolicyEditorSelection): HTMLElement {
+    const container = document.createElement("div");
+    container.className = "mission-debug-diagnostics-share";
+    const shareUrl = createDiagnosticsPolicyShareUrl(window.location.href, selection);
+
+    const title = document.createElement("small");
+    title.className = "mission-debug-diagnostics-override-title";
+    title.textContent = "Shareable URL";
+
+    const urlPreview = document.createElement("code");
+    urlPreview.className = "mission-debug-diagnostics-share-url";
+    urlPreview.textContent = shareUrl;
+
+    const copyButton = createButton("Copy URL", () => {
+      void this.copyDiagnosticsPolicyShareUrl(shareUrl);
+    });
+    const updateButton = createButton("Update address", () => {
+      window.history.replaceState(window.history.state, document.title, shareUrl);
+      this.diagnosticsPolicyShareMessage = "Address bar updated with the current policy.";
+      this.renderDiagnosticsPolicyEditor();
+    });
+    const actions = document.createElement("div");
+    actions.className = "mission-debug-diagnostics-share-actions";
+    actions.append(copyButton, updateButton);
+
+    container.append(title, urlPreview, actions);
+    if (this.diagnosticsPolicyShareMessage) {
+      const status = document.createElement("small");
+      status.className = "mission-debug-diagnostics-share-status";
+      status.textContent = this.diagnosticsPolicyShareMessage;
+      container.append(status);
+    }
+    return container;
+  }
+
+  private async copyDiagnosticsPolicyShareUrl(shareUrl: string): Promise<void> {
+    try {
+      await navigator.clipboard?.writeText(shareUrl);
+      this.diagnosticsPolicyShareMessage = "Shareable URL copied.";
+    } catch (error) {
+      console.warn("Mission diagnostics policy URL copy failed.", error);
+      this.diagnosticsPolicyShareMessage = "Copy failed. Select the URL preview manually.";
+    }
+    this.renderDiagnosticsPolicyEditor();
   }
 
   private createDiagnosticsPolicyApplyControls(): HTMLElement {
@@ -417,6 +466,11 @@ export class RuntimeNavMissionDebugPanel {
       this.renderDiagnosticsPolicyEditor();
       this.refresh();
     }
+  }
+
+  private clearDiagnosticsPolicyFeedback(): void {
+    this.diagnosticsPolicyApplyMessage = "";
+    this.diagnosticsPolicyShareMessage = "";
   }
 
   private emitDiagnosticsPolicyChange(): void {
@@ -633,6 +687,27 @@ function mergeDiagnosticsPolicy(
 
   const hasCodes = policy.codes ? Object.keys(policy.codes).length > 0 : false;
   return hasCodes || policy.warningAsError !== undefined || policy.hideInfo !== undefined ? policy : null;
+}
+
+function createDiagnosticsPolicyShareUrl(
+  sourceUrl: string,
+  selection: RuntimeNavMissionDiagnosticsPolicyEditorSelection,
+): string {
+  const url = new URL(sourceUrl);
+  clearDiagnosticsPolicySearchParams(url.searchParams);
+  if (selection.preset.id !== "default") url.searchParams.set("missionDiagnosticsPreset", selection.preset.id);
+  const overrides = Object.entries(selection.overrides)
+    .filter((entry): entry is [string, RuntimeNavMissionPackageDiagnosticSeverity] => Boolean(entry[0]) && Boolean(entry[1]))
+    .sort(([left], [right]) => left.localeCompare(right));
+  for (const [code, severity] of overrides) url.searchParams.append("missionDiagnosticSeverity", `${code}:${severity}`);
+  return url.href;
+}
+
+function clearDiagnosticsPolicySearchParams(searchParams: URLSearchParams): void {
+  searchParams.delete("missionDiagnosticsPreset");
+  searchParams.delete("missionDiagnosticSeverity");
+  searchParams.delete("missionDiagnosticsStrict");
+  searchParams.delete("missionDiagnosticsNoInfo");
 }
 
 function formatDiagnosticsPolicyPreview(policy: RuntimeNavMissionDiagnosticsSeverityPolicy | null): string {
