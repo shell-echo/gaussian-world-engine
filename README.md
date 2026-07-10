@@ -1,6 +1,6 @@
-# Splat World Engine — Mission Diagnostics Policy Manifest Export
+# Splat World Engine — Mission Diagnostics Policy Manifest Import
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.55 在 0.54 的 Mission diagnostics policy shareable URL export 之上，给 Mission editor / debug HUD 增加 manifest export scaffold：editor 里当前合并后的 `severityPolicy` 可以导出成可复制的 `missionPackages[]` JSON snippet，方便写回 large world manifest。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.56 在 0.55 的 Mission diagnostics policy manifest export scaffold 之上，给 Mission editor / debug HUD 增加 manifest import / apply workflow：可以粘贴 large world manifest 或 `missionPackages[]` snippet，解析其中第一个 `severityPolicy`，导入 editor，并可直接 `Import + apply` 触发 package reload。
 
 ```text
 NavMissionDebugPanel
@@ -13,28 +13,35 @@ NavMissionDebugPanel
       │   ├── Copy URL
       │   └── Update address
       ├── Manifest snippet
-      │   └── Copy manifest
+      │   ├── Copy manifest
+      │   ├── paste/import textarea
+      │   ├── Import policy
+      │   └── Import + apply
       └── Apply + reload
 
-Manifest policy scaffold
-  └── missionPackages[]
-      └── severityPolicy
+Manifest import workflow
+  └── large world manifest / missionPackages[] JSON
+      └── first severityPolicy
+          ├── import into editor preview
+          └── optional reload via existing onDiagnosticsPolicyApply
 ```
 
-## Runtime/Builder 0.55 能力
+## Runtime/Builder 0.56 能力
 
-- 在 `src/large/NavMissionDebugPanel.ts` 新增 manifest export scaffold UI。
-- 根据当前 editor selection 生成 large world manifest snippet：
-  - 默认包含 `missionPackages[]`
-  - 默认 placeholder URL 为 `./mission-package.json`
-  - 默认 `merge: true`
-  - 如果当前 policy 非空，会写入 `severityPolicy`
-  - 如果当前 policy 为空，则省略 `severityPolicy`，表示使用 Runtime 内置 diagnostics severity
-- 支持 `Copy manifest`：把当前 manifest snippet 复制到 clipboard。
-- 继续保留 0.54 的 `Shareable URL` / `Copy URL` / `Update address`。
-- manifest export 是 scaffold，不会自动写回 manifest 文件。
-- package version 更新为 `0.55.0`。
-- Runtime label 更新为 `runtime 0.55`。
+- 在 `src/large/NavMissionDebugPanel.ts` 新增 manifest import / apply UI。
+- Manifest snippet 区域新增粘贴 textarea。
+- 支持 `Import policy`：
+  - 解析粘贴的 JSON
+  - 支持顶层 `severityPolicy`
+  - 支持 `missionPackages[].severityPolicy`
+  - 使用第一个找到的 `severityPolicy`
+  - 将 policy 导入 editor preview
+- 支持 `Import + apply`：导入 policy 后复用现有 `Apply + reload` callback 重新加载 mission packages。
+- 导入 policy 会保留 `codes`、`warningAsError`、`hideInfo`。
+- 导入后，如果继续手动修改 preset / overrides，会退出 manifest imported exact-policy 模式。
+- 继续保留 0.55 的 `Copy manifest` export scaffold。
+- package version 更新为 `0.56.0`。
+- Runtime label 更新为 `runtime 0.56`。
 
 ## Checklist
 
@@ -44,7 +51,8 @@ Manifest policy scaffold
 - [x] Mission diagnostics policy editor apply / reload workflow
 - [x] Mission diagnostics policy editor shareable URL export
 - [x] Mission diagnostics policy manifest export scaffold
-- [ ] Mission diagnostics policy manifest import / apply workflow
+- [x] Mission diagnostics policy manifest import / apply workflow
+- [ ] Mission diagnostics policy manifest package target picker
 
 ## 运行 Runtime
 
@@ -103,9 +111,9 @@ npm run build
 npm run preview
 ```
 
-## Manifest export 行为
+## Manifest import / apply 行为
 
-Policy editor 生成的 selection 结构：
+Policy editor 生成的 selection 结构仍然是：
 
 ```ts
 export interface RuntimeNavMissionDiagnosticsPolicyEditorSelection {
@@ -114,6 +122,54 @@ export interface RuntimeNavMissionDiagnosticsPolicyEditorSelection {
   policy: RuntimeNavMissionDiagnosticsSeverityPolicy | null;
 }
 ```
+
+Manifest import 可以读取顶层 `severityPolicy`：
+
+```json
+{
+  "severityPolicy": {
+    "warningAsError": true,
+    "hideInfo": true,
+    "codes": {
+      "gameplay_source.missing_trigger": "error"
+    }
+  }
+}
+```
+
+也可以读取 large world manifest 中的第一个 package-level `severityPolicy`：
+
+```json
+{
+  "missionPackages": [
+    {
+      "url": "./mission-package.json",
+      "merge": true,
+      "severityPolicy": {
+        "codes": {
+          "gameplay_source.missing_trigger": "warning",
+          "gameplay_source.missing_interaction": "error"
+        }
+      }
+    }
+  ]
+}
+```
+
+`Import policy` 只导入到当前 HUD editor，不会 reload package；`Import + apply` 会先导入，再执行现有 reload callback：
+
+```ts
+onDiagnosticsPolicyApply: (selection) => installMissionPackages(navApi, manifest, selection.policy)
+```
+
+reload 成功后会回填 report：
+
+```ts
+missionDebugPanel?.setMissionPackages(report);
+window.splatWorld.missionPackages = report;
+```
+
+## Manifest export 行为
 
 Manifest snippet export 使用 selection 的 merged `policy` 生成 manifest scaffold：
 
@@ -168,33 +224,6 @@ http://localhost:5173?world=/worlds/large-demo/world.json&missionDebug=1&mission
 ```
 
 `Copy URL` 会把这个链接写入 clipboard；`Update address` 会用 `history.replaceState` 更新地址栏。刷新页面后，loader 会重新按 URL policy 解析顺序加载 diagnostics policy。
-
-## Apply / reload 行为
-
-点击 `Apply + reload` 后，HUD 会把当前 selection 传给 bootstrap：
-
-```ts
-onDiagnosticsPolicyApply: (selection) => installMissionPackages(navApi, manifest, selection.policy)
-```
-
-bootstrap 会重新执行：
-
-```ts
-loadRuntimeNavMissionPackages({
-  nav: navApi,
-  packages,
-  severityPolicy: selection.policy,
-  gameplaySources,
-  fetcher: nativeFetch
-});
-```
-
-reload 成功后会回填 report：
-
-```ts
-missionDebugPanel?.setMissionPackages(report);
-window.splatWorld.missionPackages = report;
-```
 
 ## Policy editor 行为
 
@@ -295,11 +324,15 @@ gameplay_source.interaction_event_mismatch
 
 ## 已知边界
 
-- 0.55 是 Mission diagnostics policy manifest export scaffold，不是完整 manifest authoring / save workflow。
-- Manifest snippet 只导出当前 merged `severityPolicy`，不会自动写回 manifest 文件、package authoring 文件或远程 registry。
+- 0.56 是 Mission diagnostics policy manifest import / apply workflow，不是完整 manifest authoring / save workflow。
+- Manifest import 只读取第一个找到的 `severityPolicy`；还没有选择具体 package entry 的 UI。
+- Import policy 只导入到当前 HUD editor，不会写回 manifest 文件、package authoring 文件或远程 registry。
+- Import + apply 会 reload 当前 runtime mission packages，但不会保存 policy。
+- 导入的 `warningAsError` / `hideInfo` 可以保留在 editor policy 和 apply workflow 中，但 shareable URL 仍只导出 preset 和 code overrides。
+- 手动修改 preset / custom overrides 会退出 manifest imported exact-policy 模式。
 - Manifest snippet 使用 placeholder `./mission-package.json`；真实项目需要手动替换为实际 package URL。
 - `default` preset 且没有 custom overrides 时 snippet 会省略 `severityPolicy`，表示使用 Runtime 内置 diagnostics severity。
-- Copy manifest 依赖浏览器 clipboard API；不可用时可以手动选择 manifest snippet。
+- Copy manifest / Copy URL 依赖浏览器 clipboard API；不可用时可以手动选择 preview 文本。
 - Shareable URL export 只导出 editor preset 和 custom overrides；不会写回 manifest、package authoring 文件或远程 registry。
 - Apply / reload 重新执行 mission package loader；它不会自动把 editor policy 写回 URL，除非点击 `Update address`。
 - 如果 stricter policy 让 package diagnostics 出现 error，该 package 不会 apply；已有 runtime mission state 不会被强制清空，避免一次错误编辑破坏当前调试现场。
