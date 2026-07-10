@@ -47,6 +47,9 @@ export interface RuntimeNavMissionDebugPanelOptions {
   initialDiagnosticsPresetId?: string | null;
   onDiagnosticsPolicyPresetChange?: (selection: RuntimeNavMissionDiagnosticsPolicyEditorPresetSelection) => void;
   onDiagnosticsPolicyChange?: (selection: RuntimeNavMissionDiagnosticsPolicyEditorSelection) => void;
+  onDiagnosticsPolicyApply?: (
+    selection: RuntimeNavMissionDiagnosticsPolicyEditorSelection,
+  ) => RuntimeNavMissionPackageDiagnosticsReport | null | Promise<RuntimeNavMissionPackageDiagnosticsReport | null>;
 }
 
 export class RuntimeNavMissionDebugPanel {
@@ -63,12 +66,16 @@ export class RuntimeNavMissionDebugPanel {
   private readonly maxEvents: number;
   private readonly maxDiagnostics: number;
   private visible: boolean;
+  private missionPackages: RuntimeNavMissionPackageDiagnosticsReport | null;
   private selectedDiagnosticsPresetId: RuntimeNavMissionDiagnosticsPolicyPresetId;
   private readonly customDiagnosticSeverityOverrides = new Map<string, RuntimeNavMissionPackageDiagnosticSeverity>();
+  private applyingDiagnosticsPolicy = false;
+  private diagnosticsPolicyApplyMessage = "";
   private readonly events: RuntimeNavMissionRunnerEvent[] = [];
 
   constructor(private readonly options: RuntimeNavMissionDebugPanelOptions) {
     this.visible = options.initiallyVisible ?? true;
+    this.missionPackages = options.missionPackages ?? null;
     this.maxEvents = normalizeMaxEvents(options.maxEvents);
     this.maxDiagnostics = normalizeMaxDiagnostics(options.maxDiagnostics);
     this.selectedDiagnosticsPresetId = normalizeDiagnosticsPresetId(options.initialDiagnosticsPresetId);
@@ -95,6 +102,11 @@ export class RuntimeNavMissionDebugPanel {
 
   recordGameplayEvent(event: GameplayEvent): void {
     this.pushEvent({ ...event, source: "gameplay", type: "gameplay" });
+    this.refresh();
+  }
+
+  setMissionPackages(report: RuntimeNavMissionPackageDiagnosticsReport | null): void {
+    this.missionPackages = report;
     this.refresh();
   }
 
@@ -149,7 +161,7 @@ export class RuntimeNavMissionDebugPanel {
       createMetric("Game", runner.handledGameplayEvents),
       createMetric("Fired", runner.firedRules),
     );
-    this.renderDiagnostics(this.options.missionPackages ?? null);
+    this.renderDiagnostics(this.missionPackages);
     this.renderEvents();
     this.renderObjectiveRows(graph.objectives.slice(0, 6));
   }
@@ -221,6 +233,7 @@ export class RuntimeNavMissionDebugPanel {
     }
     presetSelect.addEventListener("change", () => {
       this.selectedDiagnosticsPresetId = normalizeDiagnosticsPresetId(presetSelect.value);
+      this.diagnosticsPolicyApplyMessage = "";
       this.renderDiagnosticsPolicyEditor();
       const nextPresetSelection = this.getDiagnosticsPolicyPresetSelection();
       this.options.onDiagnosticsPolicyPresetChange?.(nextPresetSelection);
@@ -251,6 +264,8 @@ export class RuntimeNavMissionDebugPanel {
     policyPreview.className = "mission-debug-diagnostics-policy-preview";
     policyPreview.textContent = formatDiagnosticsPolicyPreview(editorSelection.policy);
 
+    const applyControls = this.createDiagnosticsPolicyApplyControls();
+
     this.diagnosticsPolicyEditor.replaceChildren(
       presetLabel,
       presetHint,
@@ -260,6 +275,7 @@ export class RuntimeNavMissionDebugPanel {
       overrideList,
       policyPreviewTitle,
       policyPreview,
+      applyControls,
     );
   }
 
@@ -301,12 +317,14 @@ export class RuntimeNavMissionDebugPanel {
       const code = codeSelect.value.trim();
       if (!code) return;
       this.customDiagnosticSeverityOverrides.set(code, normalizeDiagnosticSeverity(severitySelect.value));
+      this.diagnosticsPolicyApplyMessage = "";
       this.renderDiagnosticsPolicyEditor();
       this.emitDiagnosticsPolicyChange();
       console.info("Mission diagnostics policy editor selection", this.getDiagnosticsPolicyEditorSelection());
     });
     const resetButton = createButton("Reset", () => {
       this.customDiagnosticSeverityOverrides.clear();
+      this.diagnosticsPolicyApplyMessage = "";
       this.renderDiagnosticsPolicyEditor();
       this.emitDiagnosticsPolicyChange();
       console.info("Mission diagnostics policy editor selection", this.getDiagnosticsPolicyEditorSelection());
@@ -344,6 +362,7 @@ export class RuntimeNavMissionDebugPanel {
         : "Custom diagnostic code override.";
       const removeButton = createButton("Remove", () => {
         this.customDiagnosticSeverityOverrides.delete(code);
+        this.diagnosticsPolicyApplyMessage = "";
         this.renderDiagnosticsPolicyEditor();
         this.emitDiagnosticsPolicyChange();
         console.info("Mission diagnostics policy editor selection", this.getDiagnosticsPolicyEditorSelection());
@@ -352,6 +371,52 @@ export class RuntimeNavMissionDebugPanel {
       list.append(row);
     }
     return list;
+  }
+
+  private createDiagnosticsPolicyApplyControls(): HTMLElement {
+    const container = document.createElement("div");
+    container.className = "mission-debug-diagnostics-apply";
+    const applyButton = createButton(this.applyingDiagnosticsPolicy ? "Applying..." : "Apply + reload", () => {
+      void this.applyDiagnosticsPolicy();
+    });
+    applyButton.disabled = this.applyingDiagnosticsPolicy || !this.options.onDiagnosticsPolicyApply;
+
+    const hint = document.createElement("small");
+    hint.textContent = this.options.onDiagnosticsPolicyApply
+      ? "Apply the generated policy and reload mission packages to refresh diagnostics and package apply decisions."
+      : "No mission package reload callback is available in this runtime.";
+
+    container.append(applyButton, hint);
+    if (this.diagnosticsPolicyApplyMessage) {
+      const status = document.createElement("small");
+      status.className = "mission-debug-diagnostics-apply-status";
+      status.textContent = this.diagnosticsPolicyApplyMessage;
+      container.append(status);
+    }
+    return container;
+  }
+
+  private async applyDiagnosticsPolicy(): Promise<void> {
+    const apply = this.options.onDiagnosticsPolicyApply;
+    if (!apply || this.applyingDiagnosticsPolicy) return;
+    this.applyingDiagnosticsPolicy = true;
+    this.diagnosticsPolicyApplyMessage = "Reloading mission packages with generated policy...";
+    this.renderDiagnosticsPolicyEditor();
+    try {
+      const selection = this.getDiagnosticsPolicyEditorSelection();
+      const report = await apply(selection);
+      this.missionPackages = report;
+      this.diagnosticsPolicyApplyMessage = report ? formatMissionPackageApplyMessage(report) : "No mission packages were available to reload.";
+      console.info("Mission diagnostics policy applied", { selection, report });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.diagnosticsPolicyApplyMessage = `Apply failed: ${message}`;
+      console.warn("Mission diagnostics policy apply failed.", error);
+    } finally {
+      this.applyingDiagnosticsPolicy = false;
+      this.renderDiagnosticsPolicyEditor();
+      this.refresh();
+    }
   }
 
   private emitDiagnosticsPolicyChange(): void {
@@ -573,4 +638,10 @@ function mergeDiagnosticsPolicy(
 function formatDiagnosticsPolicyPreview(policy: RuntimeNavMissionDiagnosticsSeverityPolicy | null): string {
   if (!policy) return "severityPolicy: <built-in defaults>";
   return JSON.stringify({ severityPolicy: policy }, null, 2);
+}
+
+function formatMissionPackageApplyMessage(report: RuntimeNavMissionPackageDiagnosticsReport): string {
+  return report.errors > 0
+    ? `Reloaded ${report.loadedPackages}/${report.packageCount} package(s) · ${report.errors} error(s) · ${report.warnings} warning(s)`
+    : `Reloaded ${report.loadedPackages}/${report.packageCount} package(s) · ${report.warnings} warning(s)`;
 }
