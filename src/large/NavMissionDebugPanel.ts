@@ -270,9 +270,6 @@ export class RuntimeNavMissionDebugPanel {
     overrideTitle.className = "mission-debug-diagnostics-override-title";
     overrideTitle.textContent = "Custom code overrides";
 
-    const overrideForm = this.createDiagnosticsPolicyOverrideForm();
-    const overrideList = this.createDiagnosticsPolicyOverrideList();
-
     const policyPreviewTitle = document.createElement("small");
     policyPreviewTitle.className = "mission-debug-diagnostics-override-title";
     policyPreviewTitle.textContent = this.diagnosticsPolicyUsesManifestImport
@@ -283,22 +280,18 @@ export class RuntimeNavMissionDebugPanel {
     policyPreview.className = "mission-debug-diagnostics-policy-preview";
     policyPreview.textContent = formatDiagnosticsPolicyPreview(editorSelection.policy);
 
-    const shareControls = this.createDiagnosticsPolicyShareControls(editorSelection);
-    const manifestControls = this.createDiagnosticsPolicyManifestControls(editorSelection);
-    const applyControls = this.createDiagnosticsPolicyApplyControls();
-
     this.diagnosticsPolicyEditor.replaceChildren(
       presetLabel,
       presetHint,
       presetDescription,
       overrideTitle,
-      overrideForm,
-      overrideList,
+      this.createDiagnosticsPolicyOverrideForm(),
+      this.createDiagnosticsPolicyOverrideList(),
       policyPreviewTitle,
       policyPreview,
-      shareControls,
-      manifestControls,
-      applyControls,
+      this.createDiagnosticsPolicyShareControls(editorSelection),
+      this.createDiagnosticsPolicyManifestControls(editorSelection),
+      this.createDiagnosticsPolicyApplyControls(),
     );
   }
 
@@ -359,7 +352,6 @@ export class RuntimeNavMissionDebugPanel {
     const actions = document.createElement("div");
     actions.className = "mission-debug-diagnostics-override-actions";
     actions.append(setButton, resetButton);
-
     form.append(codeLabel, severityLabel, actions);
     return form;
   }
@@ -456,24 +448,22 @@ export class RuntimeNavMissionDebugPanel {
       this.selectedDiagnosticsManifestPackageIndex,
       targetOptions,
     );
-    const manifestSnippet = createDiagnosticsPolicyManifestSnippet(
-      selection,
-      this.selectedDiagnosticsManifestPackageIndex,
-      sourceManifestText,
-    );
+    const packageIndex = this.selectedDiagnosticsManifestPackageIndex;
+    const manifestSnippet = createDiagnosticsPolicyManifestSnippet(selection, packageIndex, sourceManifestText);
+    const patchPreview = createDiagnosticsPolicyManifestPatchPreview(selection, packageIndex, sourceManifestText);
 
     const title = document.createElement("small");
     title.className = "mission-debug-diagnostics-override-title";
     title.textContent = "Manifest snippet";
 
     const hint = document.createElement("small");
-    hint.textContent = "Pick a missionPackages[] target, copy a focused snippet, or import/apply that target policy.";
+    hint.textContent = "Pick a missionPackages[] target, copy a focused snippet, or preview the package entry patch before applying it manually.";
 
     const targetLabel = document.createElement("label");
     targetLabel.className = "mission-debug-diagnostics-policy-label";
     targetLabel.textContent = "missionPackages[] target";
     const targetSelect = document.createElement("select");
-    targetSelect.value = String(this.selectedDiagnosticsManifestPackageIndex);
+    targetSelect.value = String(packageIndex);
     for (const target of targetOptions) {
       const option = document.createElement("option");
       option.value = String(target.index);
@@ -483,14 +473,24 @@ export class RuntimeNavMissionDebugPanel {
     }
     targetSelect.addEventListener("change", () => {
       this.selectedDiagnosticsManifestPackageIndex = normalizeManifestPackageIndex(targetSelect.value);
-      this.diagnosticsPolicyManifestMessage = `Selected manifest package target #${this.selectedDiagnosticsManifestPackageIndex}.`;
+      this.diagnosticsPolicyManifestMessage = `Selected manifest target ${formatManifestPackageTarget(this.selectedDiagnosticsManifestPackageIndex)}.`;
       this.renderDiagnosticsPolicyEditor();
     });
     targetLabel.append(targetSelect);
 
+    const snippetTitle = document.createElement("small");
+    snippetTitle.className = "mission-debug-diagnostics-override-title";
+    snippetTitle.textContent = "Focused manifest snippet";
     const preview = document.createElement("code");
     preview.className = "mission-debug-diagnostics-manifest-snippet";
     preview.textContent = manifestSnippet;
+
+    const patchTitle = document.createElement("small");
+    patchTitle.className = "mission-debug-diagnostics-override-title";
+    patchTitle.textContent = "Patch preview";
+    const patch = document.createElement("code");
+    patch.className = "mission-debug-diagnostics-manifest-snippet";
+    patch.textContent = patchPreview;
 
     const importInput = document.createElement("textarea");
     importInput.className = "mission-debug-diagnostics-manifest-input";
@@ -512,19 +512,22 @@ export class RuntimeNavMissionDebugPanel {
     const copyButton = createButton("Copy manifest", () => {
       void this.copyDiagnosticsPolicyManifestSnippet(manifestSnippet);
     });
+    const copyPatchButton = createButton("Copy patch", () => {
+      void this.copyDiagnosticsPolicyManifestPatch(patchPreview);
+    });
     const importButton = createButton("Import policy", () => {
-      this.importDiagnosticsPolicyManifest(importInput.value, this.selectedDiagnosticsManifestPackageIndex, true);
+      this.importDiagnosticsPolicyManifest(importInput.value, packageIndex, true);
     });
     const importApplyButton = createButton("Import + apply", () => {
-      void this.importAndApplyDiagnosticsPolicyManifest(importInput.value, this.selectedDiagnosticsManifestPackageIndex);
+      void this.importAndApplyDiagnosticsPolicyManifest(importInput.value, packageIndex);
     });
     importApplyButton.disabled = !this.options.onDiagnosticsPolicyApply || this.applyingDiagnosticsPolicy;
 
     const actions = document.createElement("div");
     actions.className = "mission-debug-diagnostics-manifest-actions";
-    actions.append(copyButton, importButton, importApplyButton);
+    actions.append(copyButton, copyPatchButton, importButton, importApplyButton);
 
-    container.append(title, hint, targetLabel, preview, importInput, actions);
+    container.append(title, hint, targetLabel, snippetTitle, preview, patchTitle, patch, importInput, actions);
     if (this.diagnosticsPolicyManifestMessage) {
       const status = document.createElement("small");
       status.className = "mission-debug-diagnostics-manifest-status";
@@ -537,10 +540,21 @@ export class RuntimeNavMissionDebugPanel {
   private async copyDiagnosticsPolicyManifestSnippet(manifestSnippet: string): Promise<void> {
     try {
       await navigator.clipboard?.writeText(manifestSnippet);
-      this.diagnosticsPolicyManifestMessage = `Manifest target #${this.selectedDiagnosticsManifestPackageIndex} snippet copied.`;
+      this.diagnosticsPolicyManifestMessage = `Manifest target ${formatManifestPackageTarget(this.selectedDiagnosticsManifestPackageIndex)} snippet copied.`;
     } catch (error) {
       console.warn("Mission diagnostics policy manifest copy failed.", error);
       this.diagnosticsPolicyManifestMessage = "Copy failed. Select the manifest snippet manually.";
+    }
+    this.renderDiagnosticsPolicyEditor();
+  }
+
+  private async copyDiagnosticsPolicyManifestPatch(patchPreview: string): Promise<void> {
+    try {
+      await navigator.clipboard?.writeText(patchPreview);
+      this.diagnosticsPolicyManifestMessage = `Manifest target ${formatManifestPackageTarget(this.selectedDiagnosticsManifestPackageIndex)} patch preview copied.`;
+    } catch (error) {
+      console.warn("Mission diagnostics policy manifest patch copy failed.", error);
+      this.diagnosticsPolicyManifestMessage = "Copy failed. Select the patch preview manually.";
     }
     this.renderDiagnosticsPolicyEditor();
   }
@@ -549,7 +563,7 @@ export class RuntimeNavMissionDebugPanel {
     try {
       const policy = readDiagnosticsPolicyFromManifestText(manifestText, packageIndex);
       if (policy === undefined) {
-        this.diagnosticsPolicyManifestMessage = `No missionPackages[${packageIndex}] severityPolicy target found in manifest JSON.`;
+        this.diagnosticsPolicyManifestMessage = `No ${formatManifestPackageTarget(packageIndex)} severityPolicy target found in manifest JSON.`;
         if (render) this.renderDiagnosticsPolicyEditor();
         return false;
       }
@@ -567,8 +581,8 @@ export class RuntimeNavMissionDebugPanel {
       this.diagnosticsPolicyUsesManifestImport = true;
       this.diagnosticsPolicyManifestInputValue = manifestText;
       this.diagnosticsPolicyManifestMessage = policy
-        ? `Imported missionPackages[${packageIndex}].severityPolicy into the editor.`
-        : `Imported missionPackages[${packageIndex}] built-in diagnostics policy.`;
+        ? `Imported ${formatManifestPackageTarget(packageIndex)} severityPolicy into the editor.`
+        : `Imported ${formatManifestPackageTarget(packageIndex)} built-in diagnostics policy.`;
       this.diagnosticsPolicyApplyMessage = "";
       this.diagnosticsPolicyShareMessage = "";
       this.emitDiagnosticsPolicyChange();
@@ -842,8 +856,13 @@ function normalizeDiagnosticSeverity(value: string): RuntimeNavMissionPackageDia
 }
 
 function normalizeManifestPackageIndex(value: string): number {
+  if (value === "root") return -1;
   const index = Number.parseInt(value, 10);
   return Number.isFinite(index) ? Math.max(0, index) : 0;
+}
+
+function formatManifestPackageTarget(packageIndex: number): string {
+  return packageIndex === -1 ? "top-level severityPolicy" : `missionPackages[${packageIndex}]`;
 }
 
 function createDiagnosticsPolicyOverrideRecord(
@@ -896,18 +915,54 @@ function createDiagnosticsPolicyManifestSnippet(
   packageIndex: number,
   sourceText: string,
 ): string {
+  if (packageIndex === -1) {
+    return JSON.stringify(selection.policy ? { severityPolicy: selection.policy } : {}, null, 2);
+  }
+  const packageEntry = createPatchedDiagnosticsPolicyManifestPackageEntry(selection.policy, packageIndex, sourceText);
+  return JSON.stringify({ missionPackages: [packageEntry] }, null, 2);
+}
+
+function createDiagnosticsPolicyManifestPatchPreview(
+  selection: RuntimeNavMissionDiagnosticsPolicyEditorSelection,
+  packageIndex: number,
+  sourceText: string,
+): string {
+  const beforePolicy = readDiagnosticsPolicyFromManifestValue(parseManifestJson(sourceText), packageIndex);
+  const afterPolicy = selection.policy;
+  const operation = afterPolicy ? (beforePolicy === undefined ? "add" : "replace") : beforePolicy === undefined ? "noop" : "remove";
+  const preview: {
+    target: string;
+    operation: string;
+    before?: RuntimeNavMissionDiagnosticsSeverityPolicy | null;
+    after?: RuntimeNavMissionDiagnosticsSeverityPolicy | null;
+    package?: Record<string, unknown>;
+  } = {
+    target: formatManifestPackageTarget(packageIndex),
+    operation,
+  };
+  if (beforePolicy !== undefined) preview.before = beforePolicy;
+  if (operation !== "noop") preview.after = afterPolicy;
+  if (packageIndex >= 0) preview.package = createPatchedDiagnosticsPolicyManifestPackageEntry(afterPolicy, packageIndex, sourceText);
+  return JSON.stringify(preview, null, 2);
+}
+
+function createPatchedDiagnosticsPolicyManifestPackageEntry(
+  policy: RuntimeNavMissionDiagnosticsSeverityPolicy | null,
+  packageIndex: number,
+  sourceText: string,
+): Record<string, unknown> {
   const packageEntry = readDiagnosticsPolicyManifestPackageEntry(sourceText, packageIndex) ?? {
     url: "./mission-package.json",
     merge: true,
   };
   if (typeof packageEntry["url"] !== "string" || !packageEntry["url"]) packageEntry["url"] = "./mission-package.json";
   if (typeof packageEntry["merge"] !== "boolean") packageEntry["merge"] = true;
-  if (selection.policy) {
-    packageEntry["severityPolicy"] = selection.policy;
+  if (policy) {
+    packageEntry["severityPolicy"] = policy;
   } else {
     delete packageEntry["severityPolicy"];
   }
-  return JSON.stringify({ missionPackages: [packageEntry] }, null, 2);
+  return packageEntry;
 }
 
 function readDiagnosticsPolicyManifestPackageEntry(text: string, packageIndex: number): Record<string, unknown> | null {
@@ -923,22 +978,33 @@ function readDiagnosticsPolicyManifestPackageEntry(text: string, packageIndex: n
 function readDiagnosticsPolicyManifestPackageTargets(text: string): RuntimeNavMissionDiagnosticsManifestPackageTarget[] {
   const parsed = parseManifestJson(text);
   if (!isRecord(parsed)) return [createDefaultManifestPackageTarget()];
-  const missionPackages = parsed["missionPackages"];
-  if (!Array.isArray(missionPackages) || missionPackages.length === 0) return [createDefaultManifestPackageTarget()];
 
   const targets: RuntimeNavMissionDiagnosticsManifestPackageTarget[] = [];
-  missionPackages.forEach((missionPackage, index) => {
-    if (!isRecord(missionPackage)) return;
-    const rawUrl = missionPackage["url"];
-    const url = typeof rawUrl === "string" && rawUrl.trim() ? rawUrl : `missionPackages[${index}]`;
-    const policy = readDiagnosticsSeverityPolicy(missionPackage["severityPolicy"]);
+  const directPolicy = readDiagnosticsSeverityPolicy(parsed["severityPolicy"]);
+  if (directPolicy !== undefined) {
     targets.push({
-      index,
-      label: `#${index} · ${url} · ${policy === undefined ? "built-in" : "severityPolicy"}`,
-      url,
-      hasSeverityPolicy: policy !== undefined,
+      index: -1,
+      label: `top-level severityPolicy · ${directPolicy ? "severityPolicy" : "built-in"}`,
+      url: "severityPolicy",
+      hasSeverityPolicy: directPolicy !== undefined,
     });
-  });
+  }
+
+  const missionPackages = parsed["missionPackages"];
+  if (Array.isArray(missionPackages)) {
+    missionPackages.forEach((missionPackage, index) => {
+      if (!isRecord(missionPackage)) return;
+      const rawUrl = missionPackage["url"];
+      const url = typeof rawUrl === "string" && rawUrl.trim() ? rawUrl : `missionPackages[${index}]`;
+      const policy = readDiagnosticsSeverityPolicy(missionPackage["severityPolicy"]);
+      targets.push({
+        index,
+        label: `#${index} · ${url} · ${policy === undefined ? "built-in" : "severityPolicy"}`,
+        url,
+        hasSeverityPolicy: policy !== undefined,
+      });
+    });
+  }
   return targets.length > 0 ? targets : [createDefaultManifestPackageTarget()];
 }
 
@@ -982,8 +1048,7 @@ function readDiagnosticsPolicyFromManifestValue(
 ): RuntimeNavMissionDiagnosticsSeverityPolicy | null | undefined {
   if (!isRecord(value)) return undefined;
 
-  const directPolicy = readDiagnosticsSeverityPolicy(value["severityPolicy"]);
-  if (directPolicy !== undefined) return directPolicy;
+  if (packageIndex === -1) return readDiagnosticsSeverityPolicy(value["severityPolicy"]);
 
   const missionPackages = value["missionPackages"];
   if (!Array.isArray(missionPackages)) return undefined;
