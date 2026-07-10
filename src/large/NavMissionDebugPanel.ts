@@ -511,8 +511,12 @@ export class RuntimeNavMissionDebugPanel {
       }
       this.selectedDiagnosticsPresetId = "default";
       this.customDiagnosticSeverityOverrides.clear();
-      for (const [code, severity] of Object.entries(policy?.codes ?? {})) {
-        this.customDiagnosticSeverityOverrides.set(code, severity);
+      const importedCodes = policy?.codes;
+      if (importedCodes) {
+        for (const [code, severity] of Object.entries(importedCodes)) {
+          if (!severity) continue;
+          this.customDiagnosticSeverityOverrides.set(code, severity);
+        }
       }
       this.importedDiagnosticsPolicy = policy;
       this.diagnosticsPolicyUsesManifestImport = true;
@@ -879,8 +883,10 @@ function readDiagnosticsSeverityPolicy(value: unknown): RuntimeNavMissionDiagnos
   const policy: RuntimeNavMissionDiagnosticsSeverityPolicy = {};
   const codes = readDiagnosticsSeverityPolicyCodes(value["codes"]);
   if (codes) policy.codes = codes;
-  if (typeof value["warningAsError"] === "boolean") policy.warningAsError = value["warningAsError"];
-  if (typeof value["hideInfo"] === "boolean") policy.hideInfo = value["hideInfo"];
+  const warningAsError = value["warningAsError"];
+  if (typeof warningAsError === "boolean") policy.warningAsError = warningAsError;
+  const hideInfo = value["hideInfo"];
+  if (typeof hideInfo === "boolean") policy.hideInfo = hideInfo;
 
   const hasCodes = policy.codes ? Object.keys(policy.codes).length > 0 : false;
   return hasCodes || policy.warningAsError !== undefined || policy.hideInfo !== undefined ? policy : null;
