@@ -194,6 +194,21 @@
   white-space: pre-wrap;
 }
 
+.mission-debug-diagnostics-manifest-input {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  color: rgba(255, 255, 255, 0.68);
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
 .mission-debug-diagnostics-share-actions,
 .mission-debug-diagnostics-manifest-actions {
   display: flex;
@@ -225,7 +240,8 @@
 }
 
 .mission-debug-diagnostics-override-actions button:disabled,
-.mission-debug-diagnostics-apply button:disabled {
+.mission-debug-diagnostics-apply button:disabled,
+.mission-debug-diagnostics-manifest-actions button:disabled {
   opacity: 0.46;
   pointer-events: none;
 }
