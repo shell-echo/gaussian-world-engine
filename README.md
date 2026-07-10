@@ -1,6 +1,6 @@
-# Splat World Engine — Mission Diagnostics Policy Shareable URL Export
+# Splat World Engine — Mission Diagnostics Policy Manifest Export
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.54 在 0.53 的 Mission diagnostics policy apply / reload workflow 之上，给 Mission editor / debug HUD 增加 shareable URL export：editor 里当前选择的 preset 和 custom code overrides 可以导出成 URL 参数，方便复制、分享和复现 diagnostics policy。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.55 在 0.54 的 Mission diagnostics policy shareable URL export 之上，给 Mission editor / debug HUD 增加 manifest export scaffold：editor 里当前合并后的 `severityPolicy` 可以导出成可复制的 `missionPackages[]` JSON snippet，方便写回 large world manifest。
 
 ```text
 NavMissionDebugPanel
@@ -12,29 +12,29 @@ NavMissionDebugPanel
       ├── Shareable URL
       │   ├── Copy URL
       │   └── Update address
+      ├── Manifest snippet
+      │   └── Copy manifest
       └── Apply + reload
 
-Shareable policy URL
-  ├── missionDiagnosticsPreset=<preset>
-  └── missionDiagnosticSeverity=<code>:<severity>
+Manifest policy scaffold
+  └── missionPackages[]
+      └── severityPolicy
 ```
 
-## Runtime/Builder 0.54 能力
+## Runtime/Builder 0.55 能力
 
-- 在 `src/large/NavMissionDebugPanel.ts` 新增 shareable URL export UI。
-- 根据当前 editor selection 生成 URL：
-  - 非 `default` preset 写入 `missionDiagnosticsPreset=<preset>`
-  - custom overrides 写入重复的 `missionDiagnosticSeverity=<code>:<severity>`
-- 生成 URL 前会清理旧的 diagnostics policy 参数：
-  - `missionDiagnosticsPreset`
-  - `missionDiagnosticSeverity`
-  - `missionDiagnosticsStrict`
-  - `missionDiagnosticsNoInfo`
-- 支持 `Copy URL`：把当前 policy URL 复制到剪贴板。
-- 支持 `Update address`：用当前 policy URL 更新浏览器地址栏，方便继续复制或刷新复现。
-- share URL 不写入 manifest / package authoring 文件，只编码当前 editor policy。
-- package version 更新为 `0.54.0`。
-- Runtime label 更新为 `runtime 0.54`。
+- 在 `src/large/NavMissionDebugPanel.ts` 新增 manifest export scaffold UI。
+- 根据当前 editor selection 生成 large world manifest snippet：
+  - 默认包含 `missionPackages[]`
+  - 默认 placeholder URL 为 `./mission-package.json`
+  - 默认 `merge: true`
+  - 如果当前 policy 非空，会写入 `severityPolicy`
+  - 如果当前 policy 为空，则省略 `severityPolicy`，表示使用 Runtime 内置 diagnostics severity
+- 支持 `Copy manifest`：把当前 manifest snippet 复制到 clipboard。
+- 继续保留 0.54 的 `Shareable URL` / `Copy URL` / `Update address`。
+- manifest export 是 scaffold，不会自动写回 manifest 文件。
+- package version 更新为 `0.55.0`。
+- Runtime label 更新为 `runtime 0.55`。
 
 ## Checklist
 
@@ -43,7 +43,8 @@ Shareable policy URL
 - [x] Mission diagnostics policy editor custom overrides UI
 - [x] Mission diagnostics policy editor apply / reload workflow
 - [x] Mission diagnostics policy editor shareable URL export
-- [ ] Mission diagnostics policy manifest export scaffold
+- [x] Mission diagnostics policy manifest export scaffold
+- [ ] Mission diagnostics policy manifest import / apply workflow
 
 ## 运行 Runtime
 
@@ -102,7 +103,7 @@ npm run build
 npm run preview
 ```
 
-## Shareable URL 行为
+## Manifest export 行为
 
 Policy editor 生成的 selection 结构：
 
@@ -113,6 +114,45 @@ export interface RuntimeNavMissionDiagnosticsPolicyEditorSelection {
   policy: RuntimeNavMissionDiagnosticsSeverityPolicy | null;
 }
 ```
+
+Manifest snippet export 使用 selection 的 merged `policy` 生成 manifest scaffold：
+
+```json
+{
+  "missionPackages": [
+    {
+      "url": "./mission-package.json",
+      "merge": true,
+      "severityPolicy": {
+        "codes": {
+          "gameplay_source.missing_trigger": "warning",
+          "gameplay_source.missing_interaction": "error",
+          "gameplay_source.missing_source_id": "error",
+          "gameplay_source.trigger_event_mismatch": "error",
+          "gameplay_source.interaction_event_mismatch": "error"
+        }
+      }
+    }
+  ]
+}
+```
+
+如果当前 editor policy 是 built-in defaults，snippet 会省略 `severityPolicy`：
+
+```json
+{
+  "missionPackages": [
+    {
+      "url": "./mission-package.json",
+      "merge": true
+    }
+  ]
+}
+```
+
+这个 snippet 是复制用 scaffold：需要把 `url` 替换成真实 mission package 地址，再合并到 large world manifest。
+
+## Shareable URL 行为
 
 Shareable URL export 使用 selection 的 `preset.id` 和 `overrides` 生成 URL 参数：
 
@@ -255,10 +295,12 @@ gameplay_source.interaction_event_mismatch
 
 ## 已知边界
 
-- 0.54 是 Mission diagnostics policy editor shareable URL export scaffold，不是完整 manifest authoring / save workflow。
+- 0.55 是 Mission diagnostics policy manifest export scaffold，不是完整 manifest authoring / save workflow。
+- Manifest snippet 只导出当前 merged `severityPolicy`，不会自动写回 manifest 文件、package authoring 文件或远程 registry。
+- Manifest snippet 使用 placeholder `./mission-package.json`；真实项目需要手动替换为实际 package URL。
+- `default` preset 且没有 custom overrides 时 snippet 会省略 `severityPolicy`，表示使用 Runtime 内置 diagnostics severity。
+- Copy manifest 依赖浏览器 clipboard API；不可用时可以手动选择 manifest snippet。
 - Shareable URL export 只导出 editor preset 和 custom overrides；不会写回 manifest、package authoring 文件或远程 registry。
-- `default` preset 不会写入 `missionDiagnosticsPreset`，因此没有 custom overrides 时 URL 会回到内置 diagnostics policy。
-- Copy URL 依赖浏览器 clipboard API；不可用时可以手动选择 preview URL。
 - Apply / reload 重新执行 mission package loader；它不会自动把 editor policy 写回 URL，除非点击 `Update address`。
 - 如果 stricter policy 让 package diagnostics 出现 error，该 package 不会 apply；已有 runtime mission state 不会被强制清空，避免一次错误编辑破坏当前调试现场。
 - custom overrides 目前只覆盖 known-code registry 里的内置 diagnostic codes；插件自定义 code 暂时仍需要通过 JSON / URL / manifest 配置。
