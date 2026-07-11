@@ -1,6 +1,6 @@
-# Splat World Engine — Mission Diagnostics Policy Patch Preview
+# Splat World Engine — Mission Diagnostics Policy Patch Copy / Apply Polish
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.58 在 0.57 的 Mission diagnostics policy manifest package target picker 之上，给 Mission editor / debug HUD 增加 manifest package patch preview：可以针对选中的 `missionPackages[]` target 预览即将写入或移除的 `severityPolicy` patch，并复制 patch 供人工写回 manifest。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.59 在 0.58 的 Mission diagnostics policy manifest package patch preview 之上，继续打磨 patch copy / apply workflow：HUD 现在不仅能复制 focused snippet 和 JSON patch，还能复制完整 patched manifest，并把 patch 本地应用回 textarea 供继续导入、审阅和人工保存。
 
 ```text
 NavMissionDebugPanel
@@ -13,51 +13,49 @@ NavMissionDebugPanel
       │   ├── Copy URL
       │   └── Update address
       ├── Manifest snippet
-      │   ├── missionPackages[] target <select>
+      │   ├── manifest target <select>
       │   ├── focused manifest snippet preview
       │   ├── Patch preview
       │   ├── paste/import textarea
       │   ├── Copy manifest
       │   ├── Copy patch
+      │   ├── Copy patched manifest
+      │   ├── Apply patch to textarea
       │   ├── Import policy
       │   └── Import + apply
       └── Apply + reload
 
-Manifest package patch preview
-  └── selected package target
-      ├── operation: add / replace / remove / noop
-      ├── before severityPolicy
-      ├── after severityPolicy
-      └── patched package entry preview
+Manifest patch polish
+  └── selected manifest target
+      ├── focused snippet
+      ├── reviewable JSON patch
+      ├── full patched manifest JSON
+      └── local textarea apply for manual authoring
 ```
 
-## Runtime/Builder 0.58 能力
+## Runtime/Builder 0.59 能力
 
-- 在 `src/large/NavMissionDebugPanel.ts` 新增 manifest package patch preview。
-- Manifest snippet 区域现在会同时展示：
-  - selected `missionPackages[] target`
-  - focused manifest snippet
-  - patch preview
-- patch preview 会根据当前 editor policy 和选中 target 生成：
+- 在 `src/large/NavMissionDebugPanel.ts` 打磨 manifest patch copy / apply workflow。
+- Patch preview 现在包含：
   - `target`
   - `operation`
+  - JSON pointer `path`
   - `before`
   - `after`
-  - patched `package`
-- `operation` 语义：
-  - `add`：目标原本没有 `severityPolicy`，当前 editor policy 非空
-  - `replace`：目标已有 `severityPolicy`，当前 editor policy 非空
-  - `remove`：目标已有 `severityPolicy`，当前 editor policy 为空
-  - `noop`：目标没有 `severityPolicy`，当前 editor policy 也为空
-- 新增 `Copy patch`：把 patch preview 复制到 clipboard。
+  - reviewable `jsonPatch`
+  - patched package entry
+  - full patched manifest preview object
+- 新增 `Copy patched manifest`：复制完整 patched manifest JSON，而不是只复制 focused snippet。
+- 新增 `Apply patch to textarea`：把当前 patch 本地应用到 textarea，方便继续审阅、导入或手动保存。
+- `Copy patch` 现在复制更接近 JSON Patch 结构的审阅对象，便于人工 code review。
 - 继续保留：
   - shareable URL export
   - manifest export scaffold
   - manifest import / apply workflow
   - package target picker
   - direct `Apply + reload`
-- package version 更新为 `0.58.0`。
-- Runtime label 更新为 `runtime 0.58`。
+- package version 更新为 `0.59.0`。
+- Runtime label 更新为 `runtime 0.59`。
 
 ## Checklist
 
@@ -70,7 +68,8 @@ Manifest package patch preview
 - [x] Mission diagnostics policy manifest import / apply workflow
 - [x] Mission diagnostics policy manifest package target picker
 - [x] Mission diagnostics policy manifest package patch preview
-- [ ] Mission diagnostics policy manifest package patch copy/apply polish
+- [x] Mission diagnostics policy manifest package patch copy/apply polish
+- [ ] Mission diagnostics policy manifest save / authoring workflow
 
 ## 运行 Runtime
 
@@ -123,7 +122,7 @@ npm run build
 npm run preview
 ```
 
-## Manifest package patch preview 行为
+## Manifest patch copy / apply 行为
 
 可以粘贴一个包含多个 `missionPackages[]` entry 的 large world manifest：
 
@@ -160,6 +159,7 @@ HUD 会生成 target 选项：
 {
   "target": "missionPackages[1]",
   "operation": "replace",
+  "path": "/missionPackages/1/severityPolicy",
   "before": {
     "codes": {
       "gameplay_source.missing_trigger": "warning"
@@ -171,30 +171,33 @@ HUD 会生成 target 选项：
       "gameplay_source.missing_interaction": "error"
     }
   },
-  "package": {
-    "url": "./mission-package-b.json",
-    "merge": true,
-    "severityPolicy": {
-      "codes": {
-        "gameplay_source.missing_trigger": "warning",
-        "gameplay_source.missing_interaction": "error"
+  "jsonPatch": [
+    {
+      "op": "replace",
+      "path": "/missionPackages/1/severityPolicy",
+      "value": {
+        "codes": {
+          "gameplay_source.missing_trigger": "warning",
+          "gameplay_source.missing_interaction": "error"
+        }
       }
     }
-  }
+  ]
 }
 ```
 
-如果当前 editor policy 是 built-in defaults，而目标 package 已有 `severityPolicy`，patch preview 会显示 `operation: "remove"`，并在 patched package entry 中移除 `severityPolicy`。
+`Copy patch` 复制审阅用 patch preview；`Copy patched manifest` 复制完整 patched manifest JSON；`Apply patch to textarea` 会把 patch 本地应用到 textarea，但不会写回文件系统或远程 registry。
 
 ## Manifest package target picker 行为
 
-`missionPackages[] target` 下拉会从粘贴 JSON 中解析：
+`manifest target` 下拉会从粘贴 JSON 中解析：
 
+- 顶层 `severityPolicy`
 - package index
 - package `url`
 - 当前 target 是否包含 `severityPolicy`
 
-`Copy manifest` 会输出 focused snippet，只包含选中的 package entry。`Copy patch` 会输出 patch preview，便于人工审阅要写回 manifest 的变化。
+`Copy manifest` 会输出 focused snippet，只包含当前选中的 manifest target。`Copy patch` 和 `Copy patched manifest` 用于人工审阅和手动保存。
 
 ## Manifest import / apply 行为
 
@@ -307,12 +310,12 @@ gameplay_source.interaction_event_mismatch
 
 ## 已知边界
 
-- 0.58 是 Mission diagnostics policy manifest package patch preview，不是完整 manifest authoring / save workflow。
-- Patch preview 只生成审阅用 JSON；不会直接写回 manifest 文件、package authoring 文件或远程 registry。
-- `Copy patch` 依赖浏览器 clipboard API；不可用时可以手动选择 patch preview 文本。
-- `Copy manifest` 输出的是 focused snippet，不是完整 large world manifest。
+- 0.59 是 Mission diagnostics policy manifest package patch copy / apply polish，不是完整 manifest save workflow。
+- `Apply patch to textarea` 只修改 HUD textarea 中的 JSON，不会写回 manifest 文件、package authoring 文件或远程 registry。
+- `Copy patched manifest` 输出完整 patched manifest JSON，但仍需要人工保存。
+- `Copy patch` / `Copy patched manifest` 依赖浏览器 clipboard API；不可用时可以手动选择 preview 文本。
 - 如果粘贴 JSON 无效或没有 `missionPackages[]`，target picker 会回退到默认 `./mission-package.json` scaffold。
-- 顶层 `severityPolicy` 仍可导入；package patch preview 主要面向 `missionPackages[]` entry。
+- 顶层 `severityPolicy` 可以参与 patch preview；package save / authoring workflow 是下一步。
 - Import + apply 会 reload 当前 runtime mission packages，但不会保存 policy。
 - 导入的 `warningAsError` / `hideInfo` 可以保留在 editor policy 和 apply workflow 中，但 shareable URL 仍只导出 preset 和 code overrides。
 - 手动修改 preset / custom overrides 会退出 manifest imported exact-policy 模式。
