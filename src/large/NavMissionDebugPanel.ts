@@ -5,6 +5,7 @@ import {
   getRuntimeNavMissionKnownDiagnosticCodeEntry,
   RUNTIME_NAV_MISSION_KNOWN_DIAGNOSTIC_CODE_ENTRIES,
 } from "./NavMissionDiagnosticsCodeRegistry.js";
+import { createRuntimeNavMissionDiagnosticsManifestHudDownloadButton } from "./NavMissionDiagnosticsManifestHudDownload.js";
 import {
   createRuntimeNavMissionDiagnosticsPolicyFromPreset,
   getRuntimeNavMissionDiagnosticsPolicyPreset,
@@ -513,6 +514,18 @@ export class RuntimeNavMissionDebugPanel {
     const copyPatchedManifestButton = createButton("Copy patched manifest", () => {
       void this.copyDiagnosticsPolicyPatchedManifest(patchedManifestText);
     });
+    const downloadButton = createRuntimeNavMissionDiagnosticsManifestHudDownloadButton({
+      sourceManifestText,
+      packageIndex,
+      policy: selection.policy,
+      onArtifact: (artifact) => {
+        console.info("Mission diagnostics manifest downloaded", artifact);
+      },
+      onStatus: (message) => {
+        this.diagnosticsPolicyManifestMessage = message;
+        this.renderDiagnosticsPolicyEditor();
+      },
+    });
     const applyPatchButton = createButton("Apply patch to textarea", () => {
       this.applyDiagnosticsPolicyManifestPatch(patchedManifestText, packageIndex);
     });
@@ -526,7 +539,15 @@ export class RuntimeNavMissionDebugPanel {
 
     const actions = document.createElement("div");
     actions.className = "mission-debug-diagnostics-manifest-actions";
-    actions.append(copyButton, copyPatchButton, copyPatchedManifestButton, applyPatchButton, importButton, importApplyButton);
+    actions.append(
+      copyButton,
+      copyPatchButton,
+      copyPatchedManifestButton,
+      downloadButton,
+      applyPatchButton,
+      importButton,
+      importApplyButton,
+    );
 
     container.append(
       title,
