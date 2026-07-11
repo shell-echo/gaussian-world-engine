@@ -1,32 +1,40 @@
-# Splat World Engine — Mission Diagnostics Policy Manifest Save / Authoring
+# Splat World Engine — Mission Diagnostics Policy HUD Download Action
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.60 在 0.59 的 manifest patch copy/apply polish 之上，新增 Mission diagnostics policy manifest authoring save helper：可以把当前 manifest、目标 package 和 editor policy 组合成可保存的 authoring artifact，并提供浏览器下载入口。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.61 在 0.60 的 manifest save / authoring workflow helper 之上，新增 Mission diagnostics policy manifest HUD download action：把 authoring artifact 封装成 HUD 可挂载的 `Download manifest` 按钮逻辑，方便后续直接接入 `NavMissionDebugPanel` 的 manifest actions 区域。
 
 ```text
-Mission diagnostics manifest authoring
+Mission diagnostics manifest HUD download
   ├── source large world manifest JSON
-  ├── selected target
-  │   ├── top-level severityPolicy
-  │   └── missionPackages[index].severityPolicy
+  ├── selected manifest target
   ├── editor severityPolicy
-  ├── JSON Patch-style operations
-  ├── full patched manifest JSON
-  └── downloadable authoring artifact
+  ├── authoring artifact
+  │   ├── filename
+  │   ├── target
+  │   ├── operation
+  │   ├── jsonPatch
+  │   └── manifestText
+  └── HUD download action
+      ├── create button
+      ├── download artifact
+      ├── emit artifact callback
+      └── emit status callback
 ```
 
-## Runtime/Builder 0.60 能力
+## Runtime/Builder 0.61 能力
 
-- 新增 `src/large/NavMissionDiagnosticsManifestAuthoring.ts`。
-- 新增 `createRuntimeNavMissionDiagnosticsManifestAuthoringArtifact(input)`：
-  - 解析 source manifest JSON。
-  - 根据 `packageIndex` 定位顶层 `severityPolicy` 或 `missionPackages[index].severityPolicy`。
-  - 根据当前 editor `policy` 生成 `add` / `replace` / `remove` / `noop` 操作。
-  - 输出 reviewable `jsonPatch`。
-  - 输出完整 patched manifest JSON。
-  - 输出适合保存的文件名。
-- 新增 `downloadRuntimeNavMissionDiagnosticsManifestArtifact(artifact)`：
-  - 使用浏览器 `Blob` + object URL 下载 authoring JSON。
-  - 下载文件名格式为 `*.diagnostics-policy.manifest.json`。
+- 新增 `src/large/NavMissionDiagnosticsManifestHudDownload.ts`。
+- 新增 `createRuntimeNavMissionDiagnosticsManifestHudDownloadArtifact(input)`：
+  - 复用 0.60 的 manifest authoring artifact helper。
+  - 支持顶层 `severityPolicy` 和 `missionPackages[index].severityPolicy` target。
+  - 输出可保存的完整 patched manifest artifact。
+- 新增 `createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(input)`：
+  - 输出 `filename`、`target`、`operation`、`jsonPatchCount`、`bytes`。
+  - 适合 HUD 预览下载结果。
+- 新增 `createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(options)`：
+  - 创建可挂载到 HUD 的 `Download manifest` button。
+  - 点击后生成 artifact 并触发浏览器下载。
+  - 支持 `onArtifact` 和 `onStatus` callback。
+  - 下载失败时回传错误状态。
 - 继续保留：
   - shareable URL export
   - manifest export scaffold
@@ -34,8 +42,9 @@ Mission diagnostics manifest authoring
   - package target picker
   - patch preview
   - patch copy / apply polish
-- package version 更新为 `0.60.0`。
-- Runtime label 更新为 `runtime 0.60`。
+  - manifest save / authoring workflow helper
+- package version 更新为 `0.61.0`。
+- Runtime label 更新为 `runtime 0.61`。
 
 ## Checklist
 
@@ -50,7 +59,8 @@ Mission diagnostics manifest authoring
 - [x] Mission diagnostics policy manifest package patch preview
 - [x] Mission diagnostics policy manifest package patch copy/apply polish
 - [x] Mission diagnostics policy manifest save / authoring workflow
-- [ ] Mission diagnostics policy manifest HUD download integration
+- [x] Mission diagnostics policy manifest HUD download integration
+- [ ] Mission diagnostics policy manifest HUD panel wiring
 
 ## 运行 Runtime
 
@@ -85,17 +95,14 @@ npm run build
 npm run preview
 ```
 
-## Authoring save helper
+## HUD download action 用法
 
-0.60 的 authoring save workflow 以可复用 helper 形式落地：
+0.61 把 manifest save helper 包装成 HUD action，可以直接创建按钮：
 
 ```ts
-import {
-  createRuntimeNavMissionDiagnosticsManifestAuthoringArtifact,
-  downloadRuntimeNavMissionDiagnosticsManifestArtifact,
-} from "./large/NavMissionDiagnosticsManifestAuthoring";
+import { createRuntimeNavMissionDiagnosticsManifestHudDownloadButton } from "./large/NavMissionDiagnosticsManifestHudDownload";
 
-const artifact = createRuntimeNavMissionDiagnosticsManifestAuthoringArtifact({
+const button = createRuntimeNavMissionDiagnosticsManifestHudDownloadButton({
   sourceManifestText: JSON.stringify({
     missionPackages: [
       {
@@ -111,89 +118,52 @@ const artifact = createRuntimeNavMissionDiagnosticsManifestAuthoringArtifact({
       "gameplay_source.missing_interaction": "error",
     },
   },
+  onStatus: (message) => console.info(message),
 });
 
-downloadRuntimeNavMissionDiagnosticsManifestArtifact(artifact);
+container.append(button);
 ```
 
-生成的 artifact 结构：
+也可以先生成 summary，用于 HUD 小提示：
 
 ```ts
-export interface RuntimeNavMissionDiagnosticsManifestAuthoringArtifact {
-  filename: string;
-  target: string;
-  operation: "add" | "replace" | "remove" | "noop";
-  jsonPatch: RuntimeNavMissionDiagnosticsManifestJsonPatchOperation[];
-  manifestText: string;
-}
+import { createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary } from "./large/NavMissionDiagnosticsManifestHudDownload";
+
+const summary = createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary({
+  sourceManifestText,
+  packageIndex,
+  policy,
+});
+
+console.log(summary.filename, summary.operation, summary.bytes);
 ```
 
-## Save operation 语义
+## 回调行为
 
-当目标 manifest 没有 `severityPolicy`，当前 editor policy 非空：
+`createRuntimeNavMissionDiagnosticsManifestHudDownloadButton` 支持两个回调：
 
-```text
-operation: add
-path: /missionPackages/0/severityPolicy
+```ts
+onArtifact?: (artifact) => void;
+onStatus?: (message) => void;
 ```
 
-当目标 manifest 已有 `severityPolicy`，当前 editor policy 非空：
+下载成功时：
 
 ```text
-operation: replace
-path: /missionPackages/0/severityPolicy
+Downloaded mission-package.diagnostics-policy.manifest.json for missionPackages[0].
 ```
 
-当目标 manifest 已有 `severityPolicy`，当前 editor policy 为空：
+下载失败时：
 
 ```text
-operation: remove
-path: /missionPackages/0/severityPolicy
-```
-
-当目标 manifest 没有 `severityPolicy`，当前 editor policy 也为空：
-
-```text
-operation: noop
-jsonPatch: []
-```
-
-顶层 policy 使用路径：
-
-```text
-/severityPolicy
-```
-
-package-level policy 使用路径：
-
-```text
-/missionPackages/{index}/severityPolicy
-```
-
-## 文件名规则
-
-如果目标是 package entry，文件名从 package `url` 推导：
-
-```text
-./mission-package.json
-→ mission-package.diagnostics-policy.manifest.json
-```
-
-如果目标是顶层 `severityPolicy`，文件名为：
-
-```text
-large-world-manifest.diagnostics-policy.manifest.json
+Download failed: <error message>
 ```
 
 ## 已知边界
 
-- 0.60 是 authoring save helper，不是远程 registry 写入能力。
-- 浏览器下载使用 `Blob` + object URL；不会自动写回项目源码文件。
-- HUD 目前已有 patch preview / copy / apply-to-textarea workflow；直接 HUD download button 是下一步。
-- helper 会在 source manifest JSON 无效或为空时回退到默认 `missionPackages[0]` scaffold。
-- package entry 缺少 `url` 或 `merge` 时会补默认值，保证保存 artifact 可读。
-- Import + apply 仍只 reload 当前 runtime mission packages，不会保存 policy。
-- shareable URL 仍只导出 preset 和 code overrides，不完整表达 manifest authoring artifact。
-- presets 目前是内置静态列表，还没有从外部 manifest 或 editor plugin 注册自定义 preset。
-- package 目前只支持 JSON authoring document，不支持压缩包、签名、版本依赖解析或远程 registry。
+- 0.61 提供 HUD download action 和可挂载按钮工厂；`NavMissionDebugPanel` 主面板接线会在下一步完成。
+- 下载仍是浏览器侧 authoring artifact，不会直接写回仓库、package authoring 文件或远程 registry。
+- `Download manifest` 依赖浏览器 `Blob`、object URL 和 anchor download 行为。
+- 如果 source manifest JSON 无效，底层 authoring helper 会抛出错误，并通过 `onStatus` 返回失败信息。
+- 文件名仍使用 `*.diagnostics-policy.manifest.json`。
 - authoring document 仍只保存任务设计内容，不保存 player / agent / world object runtime state。
