@@ -49,12 +49,50 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(
   };
 }
 
+export function formatRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(
+  summary: RuntimeNavMissionDiagnosticsManifestHudDownloadSummary,
+): string {
+  const patchLabel = `${summary.jsonPatchCount} JSON patch${summary.jsonPatchCount === 1 ? "" : "es"}`;
+  return `${summary.filename} · ${summary.target} · ${summary.operation} · ${patchLabel} · ${formatByteSize(summary.bytes)}`;
+}
+
 export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
   options: RuntimeNavMissionDiagnosticsManifestHudDownloadButtonOptions,
 ): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
-  button.textContent = options.label ?? "Download manifest";
+  button.style.display = "grid";
+  button.style.gap = "2px";
+  button.style.maxWidth = "100%";
+  button.style.textAlign = "left";
+
+  const label = document.createElement("span");
+  label.textContent = options.label ?? "Download manifest";
+
+  const preview = document.createElement("small");
+  preview.style.display = "block";
+  preview.style.maxWidth = "240px";
+  preview.style.fontSize = "9px";
+  preview.style.fontWeight = "500";
+  preview.style.lineHeight = "1.25";
+  preview.style.opacity = "0.66";
+  preview.style.overflowWrap = "anywhere";
+
+  try {
+    const summary = createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(options);
+    const summaryText = formatRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(summary);
+    preview.textContent = summaryText;
+    button.title = summaryText;
+    button.setAttribute("aria-label", `${label.textContent}. ${summaryText}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const summaryText = `Preview unavailable · ${message}`;
+    preview.textContent = summaryText;
+    button.title = summaryText;
+    button.setAttribute("aria-label", `${label.textContent}. ${summaryText}`);
+  }
+
+  button.append(label, preview);
   button.addEventListener("click", () => {
     try {
       const artifact = createRuntimeNavMissionDiagnosticsManifestHudDownloadArtifact(options);
@@ -68,4 +106,16 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
     }
   });
   return button;
+}
+
+function formatByteSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kilobytes = bytes / 1024;
+  if (kilobytes < 1024) return `${formatByteValue(kilobytes)} KB`;
+  const megabytes = kilobytes / 1024;
+  return `${formatByteValue(megabytes)} MB`;
+}
+
+function formatByteValue(value: number): string {
+  return value >= 10 ? value.toFixed(0) : value.toFixed(1);
 }
