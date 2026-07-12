@@ -1,40 +1,41 @@
-# Splat World Engine — Mission Diagnostics Policy HUD Panel Wiring
+# Splat World Engine — Mission Diagnostics Policy Manifest Download Summary Preview
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.62 将 0.61 的 Mission diagnostics policy manifest HUD download action 接入 `NavMissionDebugPanel`：Mission HUD 现在可以直接使用当前 manifest 文本、所选 package target 和 editor policy 下载完整 patched manifest artifact。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.63 在 0.62 的 Mission diagnostics policy manifest HUD panel wiring 之上，为 `Download manifest` action 增加常驻 summary preview，让 author 在下载前即可确认输出文件名、目标、patch operation、JSON Patch 数量与 artifact 大小。
 
 ```text
-Mission diagnostics manifest HUD panel wiring
-  ├── source manifest textarea
+Mission diagnostics manifest download summary preview
+  ├── source manifest text
   ├── selected manifest target
   ├── current editor severityPolicy
-  ├── manifest actions
-  │   ├── copy focused manifest
-  │   ├── copy JSON patch
-  │   ├── copy patched manifest
-  │   ├── download patched manifest
-  │   ├── apply patch to textarea
-  │   ├── import policy
-  │   └── import + apply
-  └── HUD status feedback
-      ├── downloaded filename + target
-      └── download failure message
+  ├── authoring artifact summary
+  │   ├── filename
+  │   ├── target
+  │   ├── operation
+  │   ├── JSON Patch count
+  │   └── formatted byte size
+  └── HUD download button
+      ├── visible summary preview
+      ├── accessible label + tooltip
+      ├── browser download
+      └── success / failure status callback
 ```
 
-## Runtime/Builder 0.62 能力
+## Runtime/Builder 0.63 能力
 
-- 在 `src/large/NavMissionDebugPanel.ts` 中接入 `createRuntimeNavMissionDiagnosticsManifestHudDownloadButton`。
-- 在 manifest actions 区域新增 `Download manifest` 按钮。
-- 下载 action 使用当前：
-  - source manifest textarea 内容
-  - selected manifest package target
-  - editor 生成的 `severityPolicy`
-- 点击按钮后：
-  - 生成完整 patched manifest authoring artifact
-  - 通过浏览器下载 artifact
-  - 通过现有 manifest status 区域显示成功或失败信息
-  - 通过 `onArtifact` 输出 artifact diagnostics 到 console
-- 继续支持顶层 `severityPolicy` 和 `missionPackages[index].severityPolicy` target。
-- 继续保留：
+- 扩展 `src/large/NavMissionDiagnosticsManifestHudDownload.ts`。
+- 新增 `formatRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(summary)`：
+  - 输出适合 HUD 展示的单行 summary。
+  - 包含 `filename`、`target`、`operation`、JSON Patch 数量和格式化后的 artifact size。
+- `createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(options)` 现在会：
+  - 创建原有 `Download manifest` action。
+  - 在按钮内显示当前 artifact summary preview。
+  - 将 summary 同步写入 button tooltip 和 accessible label。
+  - source manifest 无法解析时显示 `Preview unavailable · <message>`。
+  - 点击后仍使用当前 input 生成并下载完整 patched manifest artifact。
+  - 下载成功或失败时继续通过 `onStatus` 更新 Mission HUD status。
+- 继续支持：
+  - top-level `severityPolicy`
+  - `missionPackages[index].severityPolicy`
   - editor presets 与 custom overrides
   - apply / reload workflow
   - shareable URL export
@@ -43,9 +44,9 @@ Mission diagnostics manifest HUD panel wiring
   - patch preview
   - patch copy / apply workflow
   - manifest save / authoring workflow
-  - reusable HUD download action
-- package version 更新为 `0.62.0`。
-- Runtime label 更新为 `runtime 0.62`。
+  - HUD download action 与 panel wiring
+- package version 更新为 `0.63.0`。
+- Runtime label 更新为 `runtime 0.63`。
 
 ## Checklist
 
@@ -62,7 +63,8 @@ Mission diagnostics manifest HUD panel wiring
 - [x] Mission diagnostics policy manifest save / authoring workflow
 - [x] Mission diagnostics policy manifest HUD download integration
 - [x] Mission diagnostics policy manifest HUD panel wiring
-- [ ] Mission diagnostics policy manifest download summary preview
+- [x] Mission diagnostics policy manifest download summary preview
+- [ ] Mission diagnostics policy manifest authoring validation
 
 ## 运行 Runtime
 
@@ -97,43 +99,39 @@ npm run build
 npm run preview
 ```
 
-## HUD 下载流程
+## Download summary preview
 
-在 Mission HUD 的 manifest editor 中：
-
-1. 将 large world manifest JSON 粘贴到 manifest textarea。
-2. 通过 `manifest target` 选择顶层 policy 或目标 `missionPackages[index]`。
-3. 使用 preset 和 custom overrides 生成当前 editor policy。
-4. 点击 `Download manifest`。
-5. 浏览器下载完整 patched manifest artifact。
-
-成功状态示例：
-
-```text
-Downloaded mission-package.diagnostics-policy.manifest.json for missionPackages[0].
-```
-
-失败状态示例：
-
-```text
-Download failed: <error message>
-```
-
-下载成功时，panel 还会通过 `onArtifact` 将 artifact 输出到 console，方便检查：
+`createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(input)` 继续返回结构化 summary：
 
 ```ts
 {
   filename,
   target,
   operation,
-  jsonPatch,
-  manifestText,
+  jsonPatchCount,
+  bytes,
 }
 ```
 
-## Panel wiring
+0.63 新增格式化 helper：
 
-`NavMissionDebugPanel` 使用当前 render cycle 中的值创建 download button：
+```ts
+const summary = createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary({
+  sourceManifestText,
+  packageIndex,
+  policy,
+});
+
+const preview = formatRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(summary);
+```
+
+输出示例：
+
+```text
+mission-package.diagnostics-policy.manifest.json · missionPackages[0] · add · 1 JSON patch · 1.4 KB
+```
+
+Mission HUD 已经通过 0.62 的 panel wiring 使用 button factory，因此无需在 `NavMissionDebugPanel` 再维护一套 summary UI：
 
 ```ts
 const downloadButton = createRuntimeNavMissionDiagnosticsManifestHudDownloadButton({
@@ -150,14 +148,29 @@ const downloadButton = createRuntimeNavMissionDiagnosticsManifestHudDownloadButt
 });
 ```
 
-该 wiring 复用已有 manifest status UI，不创建独立的下载状态容器。
+button factory 会自动把 summary preview 放在 action label 下方，并保持原有 click、artifact callback 和 status callback 行为。
+
+## Preview failure behavior
+
+source manifest JSON 无效时，summary creation 会失败。0.63 不会让 Mission HUD render cycle 抛出错误，而是在 button 内显示：
+
+```text
+Preview unavailable · <error message>
+```
+
+用户点击按钮后，原有 download action 仍会尝试生成 artifact，并通过 manifest status 区域显示：
+
+```text
+Download failed: <error message>
+```
+
+这使 preview failure 与 download failure 保持可见，同时为下一步完整 authoring validation workflow 保留清晰边界。
 
 ## 已知边界
 
 - 下载是浏览器侧 authoring artifact，不会直接写回仓库、package authoring 文件或远程 registry。
 - `Download manifest` 依赖浏览器 `Blob`、object URL 和 anchor download 行为。
-- 如果 source manifest JSON 无效，底层 authoring helper 会抛出错误，并在现有 manifest status 区域显示失败信息。
-- source manifest 为空时，authoring helper 会生成包含默认 mission package entry 的 manifest。
+- summary preview 在 button 创建时根据当前 render cycle 的 input 生成；manifest textarea change、target change 或 policy change 后会随 HUD rerender 更新。
+- preview 当前提供 artifact metadata，不执行 schema-level manifest validation。
 - 文件名使用 `*.diagnostics-policy.manifest.json`。
-- 当前 panel 只显示下载结果状态；artifact summary preview 是下一项 checklist。
 - authoring document 只保存任务设计内容，不保存 player / agent / world object runtime state。
