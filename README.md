@@ -1,52 +1,57 @@
-# Splat World Engine — Mission Diagnostics Policy Manifest Download Summary Preview
+# Splat World Engine — Mission Diagnostics Policy Manifest Authoring Validation
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.63 在 0.62 的 Mission diagnostics policy manifest HUD panel wiring 之上，为 `Download manifest` action 增加常驻 summary preview，让 author 在下载前即可确认输出文件名、目标、patch operation、JSON Patch 数量与 artifact 大小。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.64 在 0.63 的 manifest download summary preview 之上，新增结构化 Mission diagnostics policy manifest authoring validation：在生成 JSON Patch、patched manifest 或浏览器下载 artifact 前验证 source manifest、selected target 与 editor policy，避免静默覆盖结构异常的 authoring 数据。
 
 ```text
-Mission diagnostics manifest download summary preview
-  ├── source manifest text
-  ├── selected manifest target
-  ├── current editor severityPolicy
-  ├── authoring artifact summary
-  │   ├── filename
-  │   ├── target
-  │   ├── operation
-  │   ├── JSON Patch count
-  │   └── formatted byte size
-  └── HUD download button
-      ├── visible summary preview
-      ├── accessible label + tooltip
-      ├── browser download
-      └── success / failure status callback
+Mission diagnostics manifest authoring validation
+  ├── source manifest JSON
+  │   ├── valid JSON
+  │   └── object root
+  ├── selected target
+  │   ├── packageIndex >= -1
+  │   ├── missionPackages array
+  │   └── object package entry
+  ├── severityPolicy
+  │   ├── known fields only
+  │   ├── valid diagnostic severities
+  │   └── boolean policy flags
+  ├── validation result
+  │   ├── blocking errors
+  │   └── normalization warnings
+  └── authoring action
+      ├── validated summary preview
+      ├── JSON Patch generation
+      └── patched manifest download
 ```
 
-## Runtime/Builder 0.63 能力
+## Runtime/Builder 0.64 能力
 
-- 扩展 `src/large/NavMissionDiagnosticsManifestHudDownload.ts`。
-- 新增 `formatRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(summary)`：
-  - 输出适合 HUD 展示的单行 summary。
-  - 包含 `filename`、`target`、`operation`、JSON Patch 数量和格式化后的 artifact size。
-- `createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(options)` 现在会：
-  - 创建原有 `Download manifest` action。
-  - 在按钮内显示当前 artifact summary preview。
-  - 将 summary 同步写入 button tooltip 和 accessible label。
-  - source manifest 无法解析时显示 `Preview unavailable · <message>`。
-  - 点击后仍使用当前 input 生成并下载完整 patched manifest artifact。
-  - 下载成功或失败时继续通过 `onStatus` 更新 Mission HUD status。
-- 继续支持：
-  - top-level `severityPolicy`
-  - `missionPackages[index].severityPolicy`
-  - editor presets 与 custom overrides
-  - apply / reload workflow
-  - shareable URL export
-  - manifest export / import workflow
-  - package target picker
-  - patch preview
-  - patch copy / apply workflow
-  - manifest save / authoring workflow
-  - HUD download action 与 panel wiring
-- package version 更新为 `0.63.0`。
-- Runtime label 更新为 `runtime 0.63`。
+- 新增 `src/large/NavMissionDiagnosticsManifestAuthoringValidation.ts`。
+- 新增 `validateRuntimeNavMissionDiagnosticsManifestAuthoringInput(input)`：
+  - 返回 `valid`、`errors`、`warnings` 和结构化 `issues`。
+  - 每个 issue 包含 `severity`、`code`、`path` 和 `message`。
+- 新增 `assertRuntimeNavMissionDiagnosticsManifestAuthoringInput(input)`：
+  - validation 存在 blocking error 时抛出可读错误。
+  - 已接入 `createRuntimeNavMissionDiagnosticsManifestAuthoringArtifact`，因此 patch、summary 和 download 使用同一 validation gate。
+- 新增 `formatRuntimeNavMissionDiagnosticsManifestAuthoringValidation(result)`：
+  - 输出适合 HUD status / summary 的 compact validation 文本。
+- authoring validation 会阻止：
+  - 无效 JSON。
+  - 非 object manifest root。
+  - 非法 `packageIndex`。
+  - 非 array `missionPackages`。
+  - 非 object selected package entry。
+  - 非 object、空对象或包含未知字段的 `severityPolicy`。
+  - 非法 diagnostic severity。
+  - 非 boolean `warningAsError` / `hideInfo`。
+- authoring validation 会警告但允许安全归一化：
+  - 缺失 `missionPackages`。
+  - 缺失或 null selected package entry。
+  - 缺失或无效 package `url`。
+  - 缺失或无效 package `merge`。
+- HUD download summary 现在同时显示 validation 状态。
+- package version 更新为 `0.64.0`。
+- Runtime label 更新为 `runtime 0.64`。
 
 ## Checklist
 
@@ -64,7 +69,8 @@ Mission diagnostics manifest download summary preview
 - [x] Mission diagnostics policy manifest HUD download integration
 - [x] Mission diagnostics policy manifest HUD panel wiring
 - [x] Mission diagnostics policy manifest download summary preview
-- [ ] Mission diagnostics policy manifest authoring validation
+- [x] Mission diagnostics policy manifest authoring validation
+- [ ] Mission diagnostics policy manifest validation HUD issue details
 
 ## 运行 Runtime
 
@@ -77,12 +83,6 @@ npm run dev
 
 ```text
 http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1&missionDebug=1
-```
-
-通过 URL 加载额外 mission package：
-
-```text
-http://localhost:5173?world=/worlds/large-demo/world.json&mission=/worlds/large-demo/mission-package.json&missionDebug=1
 ```
 
 打开 Mission diagnostics policy editor：
@@ -99,9 +99,64 @@ npm run build
 npm run preview
 ```
 
-## Download summary preview
+## Validation API
 
-`createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(input)` 继续返回结构化 summary：
+```ts
+import {
+  assertRuntimeNavMissionDiagnosticsManifestAuthoringInput,
+  formatRuntimeNavMissionDiagnosticsManifestAuthoringValidation,
+  validateRuntimeNavMissionDiagnosticsManifestAuthoringInput,
+} from "./large/NavMissionDiagnosticsManifestAuthoringValidation";
+
+const input = {
+  sourceManifestText,
+  packageIndex,
+  policy,
+};
+
+const validation = validateRuntimeNavMissionDiagnosticsManifestAuthoringInput(input);
+console.log(formatRuntimeNavMissionDiagnosticsManifestAuthoringValidation(validation));
+
+assertRuntimeNavMissionDiagnosticsManifestAuthoringInput(input);
+```
+
+结构化 result：
+
+```ts
+{
+  valid: false,
+  errors: 1,
+  warnings: 0,
+  issues: [
+    {
+      severity: "error",
+      code: "mission_packages.not_array",
+      path: "$.missionPackages",
+      message: "missionPackages must be an array.",
+    },
+  ],
+}
+```
+
+## Error 与 warning 边界
+
+Blocking error 表示继续 authoring 可能丢失或错误解释 source manifest 数据。例如：
+
+```text
+Validation failed · 1 error · mission_packages.not_array: missionPackages must be an array.
+```
+
+Warning 表示现有 authoring helper 可以安全创建或归一化缺失字段。例如：
+
+```text
+Validation passed · 2 warnings
+```
+
+Warnings 不阻止 artifact generation，但会被保留在 download summary 的 `validation` result 中。
+
+## HUD download integration
+
+`createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(input)` 现在返回：
 
 ```ts
 {
@@ -110,67 +165,27 @@ npm run preview
   operation,
   jsonPatchCount,
   bytes,
+  validation,
 }
 ```
 
-0.63 新增格式化 helper：
-
-```ts
-const summary = createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary({
-  sourceManifestText,
-  packageIndex,
-  policy,
-});
-
-const preview = formatRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(summary);
-```
-
-输出示例：
+有效输入的 summary 示例：
 
 ```text
-mission-package.diagnostics-policy.manifest.json · missionPackages[0] · add · 1 JSON patch · 1.4 KB
+mission-package.diagnostics-policy.manifest.json · missionPackages[0] · add · 1 JSON patch · 1.4 KB · Validation passed
 ```
 
-Mission HUD 已经通过 0.62 的 panel wiring 使用 button factory，因此无需在 `NavMissionDebugPanel` 再维护一套 summary UI：
-
-```ts
-const downloadButton = createRuntimeNavMissionDiagnosticsManifestHudDownloadButton({
-  sourceManifestText,
-  packageIndex,
-  policy: selection.policy,
-  onArtifact: (artifact) => {
-    console.info("Mission diagnostics manifest downloaded", artifact);
-  },
-  onStatus: (message) => {
-    this.diagnosticsPolicyManifestMessage = message;
-    this.renderDiagnosticsPolicyEditor();
-  },
-});
-```
-
-button factory 会自动把 summary preview 放在 action label 下方，并保持原有 click、artifact callback 和 status callback 行为。
-
-## Preview failure behavior
-
-source manifest JSON 无效时，summary creation 会失败。0.63 不会让 Mission HUD render cycle 抛出错误，而是在 button 内显示：
+无效输入不会创建 authoring artifact。HUD button preview 会显示 compact validation error；用户点击 download action 时，原有 manifest status 区域会显示：
 
 ```text
-Preview unavailable · <error message>
+Download failed: Validation failed · <error count> · <first issue>
 ```
-
-用户点击按钮后，原有 download action 仍会尝试生成 artifact，并通过 manifest status 区域显示：
-
-```text
-Download failed: <error message>
-```
-
-这使 preview failure 与 download failure 保持可见，同时为下一步完整 authoring validation workflow 保留清晰边界。
 
 ## 已知边界
 
+- 当前 validation 聚焦 diagnostics policy authoring 所需的 manifest target 与 policy shape，不替代完整 large world manifest schema validation。
+- 当前 HUD 只显示 compact validation summary；逐条 issue details 是下一项 checklist。
+- Warnings 允许 authoring helper补充默认 package URL 与 merge flag。
 - 下载是浏览器侧 authoring artifact，不会直接写回仓库、package authoring 文件或远程 registry。
-- `Download manifest` 依赖浏览器 `Blob`、object URL 和 anchor download 行为。
-- summary preview 在 button 创建时根据当前 render cycle 的 input 生成；manifest textarea change、target change 或 policy change 后会随 HUD rerender 更新。
-- preview 当前提供 artifact metadata，不执行 schema-level manifest validation。
-- 文件名使用 `*.diagnostics-policy.manifest.json`。
+- 文件名继续使用 `*.diagnostics-policy.manifest.json`。
 - authoring document 只保存任务设计内容，不保存 player / agent / world object runtime state。
