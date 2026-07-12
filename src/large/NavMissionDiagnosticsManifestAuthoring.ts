@@ -1,3 +1,4 @@
+import { assertRuntimeNavMissionDiagnosticsManifestAuthoringInput } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 import type { RuntimeNavMissionDiagnosticsSeverityPolicy } from "./NavMissionPackageLoader.js";
 
 export interface RuntimeNavMissionDiagnosticsManifestAuthoringInput {
@@ -28,6 +29,7 @@ export type RuntimeNavMissionDiagnosticsManifestJsonPatchOperation =
 export function createRuntimeNavMissionDiagnosticsManifestAuthoringArtifact(
   input: RuntimeNavMissionDiagnosticsManifestAuthoringInput,
 ): RuntimeNavMissionDiagnosticsManifestAuthoringArtifact {
+  assertRuntimeNavMissionDiagnosticsManifestAuthoringInput(input);
   const sourceManifest = readManifestAuthoringRecord(input.sourceManifestText);
   const beforePolicy = readDiagnosticsPolicyTarget(sourceManifest, input.packageIndex);
   const path = createDiagnosticsPolicyJsonPointerPath(input.packageIndex);
