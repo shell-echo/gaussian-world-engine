@@ -8,6 +8,7 @@ import {
   validateRuntimeNavMissionDiagnosticsManifestAuthoringInput,
 } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 import type { RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
+import { createRuntimeNavMissionDiagnosticsManifestHudValidationDetails } from "./NavMissionDiagnosticsManifestHudValidationDetails.js";
 import type { RuntimeNavMissionDiagnosticsSeverityPolicy } from "./NavMissionPackageLoader.js";
 
 export interface RuntimeNavMissionDiagnosticsManifestHudDownloadInput {
@@ -89,6 +90,7 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
   preview.style.overflowWrap = "anywhere";
 
   const validation = validateRuntimeNavMissionDiagnosticsManifestAuthoringInput(options);
+  const validationDetails = createRuntimeNavMissionDiagnosticsManifestHudValidationDetails(validation);
   if (!validation.valid) {
     const validationText = formatRuntimeNavMissionDiagnosticsManifestAuthoringValidation(validation);
     preview.textContent = validationText;
@@ -111,6 +113,11 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
   }
 
   button.append(label, preview);
+  queueMicrotask(() => {
+    const actions = button.parentElement;
+    if (!button.isConnected || !actions || validationDetails.isConnected) return;
+    actions.append(validationDetails);
+  });
   button.addEventListener("click", () => {
     try {
       const artifact = createRuntimeNavMissionDiagnosticsManifestHudDownloadArtifact(options);
