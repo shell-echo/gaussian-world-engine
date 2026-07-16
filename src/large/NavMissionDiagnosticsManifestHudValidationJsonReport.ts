@@ -10,8 +10,9 @@ export const RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_JSON_REPORT_SCH
 const DEFAULT_VALIDATION_JSON_REPORT_FILENAME = "mission-diagnostics-policy-manifest.validation-report.json";
 
 export interface RuntimeNavMissionDiagnosticsManifestHudValidationJsonReportTarget {
-  scope: "manifest" | "mission-package";
+  scope: "manifest" | "mission-package" | "invalid";
   packageIndex: number | null;
+  requestedPackageIndex: number | string;
   path: string;
 }
 
@@ -46,25 +47,38 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationJsonReportButt
 }
 
 export function createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportFilename(packageIndex: number): string {
-  return packageIndex < 0
-    ? "large-world-manifest.diagnostics-policy.validation-report.json"
-    : `mission-package-${packageIndex}.diagnostics-policy.validation-report.json`;
+  if (packageIndex === -1) return "large-world-manifest.diagnostics-policy.validation-report.json";
+  if (Number.isInteger(packageIndex) && packageIndex >= 0) {
+    return `mission-package-${packageIndex}.diagnostics-policy.validation-report.json`;
+  }
+  return "mission-diagnostics-policy-manifest.invalid-target.validation-report.json";
 }
 
 export function createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportTarget(
   packageIndex: number,
 ): RuntimeNavMissionDiagnosticsManifestHudValidationJsonReportTarget {
-  if (packageIndex < 0) {
+  const requestedPackageIndex = Number.isFinite(packageIndex) ? packageIndex : String(packageIndex);
+  if (packageIndex === -1) {
     return {
       scope: "manifest",
       packageIndex: null,
+      requestedPackageIndex,
       path: "$.severityPolicy",
     };
   }
+  if (Number.isInteger(packageIndex) && packageIndex >= 0) {
+    return {
+      scope: "mission-package",
+      packageIndex,
+      requestedPackageIndex,
+      path: `$.missionPackages[${packageIndex}].severityPolicy`,
+    };
+  }
   return {
-    scope: "mission-package",
-    packageIndex,
-    path: `$.missionPackages[${packageIndex}].severityPolicy`,
+    scope: "invalid",
+    packageIndex: null,
+    requestedPackageIndex,
+    path: "$.packageIndex",
   };
 }
 
