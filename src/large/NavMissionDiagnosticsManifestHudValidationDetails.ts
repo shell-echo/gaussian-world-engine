@@ -4,8 +4,21 @@ import type {
   RuntimeNavMissionDiagnosticsManifestAuthoringValidationSeverity,
 } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 
+const DEFAULT_VALIDATION_REPORT_FILENAME = "mission-diagnostics-policy-manifest.validation-report.txt";
+
+export interface RuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact {
+  filename: string;
+  mimeType: "text/plain;charset=utf-8";
+  text: string;
+  bytes: number;
+  issueCount: number;
+  errors: number;
+  warnings: number;
+}
+
 export interface RuntimeNavMissionDiagnosticsManifestHudValidationDetailsOptions {
   onStatus?: (message: string) => void;
+  reportFilename?: string;
 }
 
 export function formatRuntimeNavMissionDiagnosticsManifestHudValidationIssue(
@@ -20,6 +33,46 @@ export function formatRuntimeNavMissionDiagnosticsManifestHudValidationIssues(
   const issues = selectOrderedValidationIssues(validation.issues);
   if (issues.length === 0) return formatValidationSummary(validation);
   return [formatValidationSummary(validation), ...issues.map(formatRuntimeNavMissionDiagnosticsManifestHudValidationIssue)].join("\n\n");
+}
+
+export function createRuntimeNavMissionDiagnosticsManifestHudValidationReportFilename(packageIndex: number): string {
+  return packageIndex < 0
+    ? "large-world-manifest.diagnostics-policy.validation-report.txt"
+    : `mission-package-${packageIndex}.diagnostics-policy.validation-report.txt`;
+}
+
+export function createRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact(
+  validation: RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult,
+  filename = DEFAULT_VALIDATION_REPORT_FILENAME,
+): RuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact {
+  const text = `${formatRuntimeNavMissionDiagnosticsManifestHudValidationIssues(validation)}\n`;
+  return {
+    filename: normalizeValidationReportFilename(filename),
+    mimeType: "text/plain;charset=utf-8",
+    text,
+    bytes: new TextEncoder().encode(text).byteLength,
+    issueCount: validation.issues.length,
+    errors: validation.errors,
+    warnings: validation.warnings,
+  };
+}
+
+export function downloadRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact(
+  artifact: RuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact,
+): void {
+  const blob = new Blob([artifact.text], { type: artifact.mimeType });
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = artifact.filename;
+    anchor.rel = "noopener";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 export function createRuntimeNavMissionDiagnosticsManifestHudValidationDetails(
@@ -61,6 +114,7 @@ export function createRuntimeNavMissionDiagnosticsManifestHudValidationDetails(
     marginTop: "7px",
   });
 
+  body.append(createValidationReportActions(validation, options));
   if (validation.issues.length === 0) {
     const empty = document.createElement("small");
     empty.className = "mission-debug-diagnostics-manifest-validation-empty";
@@ -68,7 +122,6 @@ export function createRuntimeNavMissionDiagnosticsManifestHudValidationDetails(
     empty.style.color = "rgba(255, 255, 255, 0.52)";
     body.append(empty);
   } else {
-    body.append(createCopyAllActions(validation, options));
     appendIssueGroup(body, "error", validation.issues, options);
     appendIssueGroup(body, "warning", validation.issues, options);
   }
@@ -77,7 +130,7 @@ export function createRuntimeNavMissionDiagnosticsManifestHudValidationDetails(
   return details;
 }
 
-function createCopyAllActions(
+function createValidationReportActions(
   validation: RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult,
   options: RuntimeNavMissionDiagnosticsManifestHudValidationDetailsOptions,
 ): HTMLElement {
@@ -90,14 +143,40 @@ function createCopyAllActions(
   });
 
   const count = validation.issues.length;
-  const button = createCopyButton(
-    "Copy all issues",
-    formatRuntimeNavMissionDiagnosticsManifestHudValidationIssues(validation),
-    `Copied ${count} manifest validation issue${count === 1 ? "" : "s"}.`,
-    options,
-  );
-  actions.append(button);
+  if (count > 0) {
+    actions.append(
+      createCopyButton(
+        "Copy all issues",
+        formatRuntimeNavMissionDiagnosticsManifestHudValidationIssues(validation),
+        `Copied ${count} manifest validation issue${count === 1 ? "" : "s"}.`,
+        options,
+      ),
+    );
+  }
+
+  const artifact = createRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact(validation, options.reportFilename);
+  actions.append(createValidationReportDownloadButton(artifact, options));
   return actions;
+}
+
+function createValidationReportDownloadButton(
+  artifact: RuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact,
+  options: RuntimeNavMissionDiagnosticsManifestHudValidationDetailsOptions,
+): HTMLButtonElement {
+  const button = createActionButton("Download report");
+  button.title = `${artifact.filename} · ${formatByteSize(artifact.bytes)}`;
+  button.setAttribute("aria-label", `Download manifest validation report ${artifact.filename}`);
+  button.addEventListener("click", () => {
+    try {
+      downloadRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact(artifact);
+      options.onStatus?.(formatValidationReportDownloadStatus(artifact));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn("Mission diagnostics manifest validation report download failed.", error);
+      options.onStatus?.(`Validation report download failed: ${message}`);
+    }
+  });
+  return button;
 }
 
 function appendIssueGroup(
@@ -217,6 +296,14 @@ function createCopyButton(
   successMessage: string,
   options: RuntimeNavMissionDiagnosticsManifestHudValidationDetailsOptions,
 ): HTMLButtonElement {
+  const button = createActionButton(label);
+  button.addEventListener("click", () => {
+    void copyValidationText(text, successMessage, options);
+  });
+  return button;
+}
+
+function createActionButton(label: string): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = label;
@@ -224,9 +311,6 @@ function createCopyButton(
     padding: "4px 6px",
     fontSize: "9px",
     lineHeight: "1.2",
-  });
-  button.addEventListener("click", () => {
-    void copyValidationText(text, successMessage, options);
   });
   return button;
 }
@@ -269,6 +353,28 @@ function formatIssueCount(
   severity: RuntimeNavMissionDiagnosticsManifestAuthoringValidationSeverity,
 ): string {
   return `${count} ${severity}${count === 1 ? "" : "s"}`;
+}
+
+function formatValidationReportDownloadStatus(
+  artifact: RuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact,
+): string {
+  const issueLabel =
+    artifact.issueCount === 0
+      ? "no validation issues"
+      : `${artifact.issueCount} validation issue${artifact.issueCount === 1 ? "" : "s"}`;
+  return `Downloaded ${artifact.filename} with ${issueLabel}.`;
+}
+
+function normalizeValidationReportFilename(filename: string): string {
+  const normalized = filename.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!normalized) return DEFAULT_VALIDATION_REPORT_FILENAME;
+  return normalized.toLowerCase().endsWith(".txt") ? normalized : `${normalized}.txt`;
+}
+
+function formatByteSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kilobytes = bytes / 1024;
+  return `${kilobytes >= 10 ? kilobytes.toFixed(0) : kilobytes.toFixed(1)} KB`;
 }
 
 function createValidationBorder(validation: RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult): string {
