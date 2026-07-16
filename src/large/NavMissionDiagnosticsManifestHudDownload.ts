@@ -9,6 +9,7 @@ import {
 } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 import type { RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 import { createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportButton } from "./NavMissionDiagnosticsManifestHudValidationJsonReport.js";
+import { createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumButton } from "./NavMissionDiagnosticsManifestHudValidationJsonReportChecksum.js";
 import { createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportCopyButton } from "./NavMissionDiagnosticsManifestHudValidationJsonReportCopy.js";
 import {
   createRuntimeNavMissionDiagnosticsManifestHudValidationDetails,
@@ -104,6 +105,10 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
     options.packageIndex,
     { onStatus: options.onStatus },
   );
+  const validationJsonReportChecksumButton =
+    createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumButton(validation, options.packageIndex, {
+      onStatus: options.onStatus,
+    });
   const validationJsonReportDownloadButton = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportButton(
     validation,
     options.packageIndex,
@@ -134,7 +139,12 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
   queueMicrotask(() => {
     const actions = button.parentElement;
     if (!button.isConnected || !actions) return;
-    for (const element of [validationDetails, validationJsonReportCopyButton, validationJsonReportDownloadButton]) {
+    for (const element of [
+      validationDetails,
+      validationJsonReportCopyButton,
+      validationJsonReportChecksumButton,
+      validationJsonReportDownloadButton,
+    ]) {
       if (!element.isConnected) actions.append(element);
     }
   });
