@@ -9,6 +9,7 @@ import {
 } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 import type { RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 import { createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportButton } from "./NavMissionDiagnosticsManifestHudValidationJsonReport.js";
+import { createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportCopyButton } from "./NavMissionDiagnosticsManifestHudValidationJsonReportCopy.js";
 import {
   createRuntimeNavMissionDiagnosticsManifestHudValidationDetails,
   createRuntimeNavMissionDiagnosticsManifestHudValidationReportFilename,
@@ -98,7 +99,12 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
     onStatus: options.onStatus,
     reportFilename: createRuntimeNavMissionDiagnosticsManifestHudValidationReportFilename(options.packageIndex),
   });
-  const validationJsonReportButton = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportButton(
+  const validationJsonReportCopyButton = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportCopyButton(
+    validation,
+    options.packageIndex,
+    { onStatus: options.onStatus },
+  );
+  const validationJsonReportDownloadButton = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportButton(
     validation,
     options.packageIndex,
     { onStatus: options.onStatus },
@@ -127,8 +133,10 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
   button.append(label, preview);
   queueMicrotask(() => {
     const actions = button.parentElement;
-    if (!button.isConnected || !actions || validationDetails.isConnected || validationJsonReportButton.isConnected) return;
-    actions.append(validationDetails, validationJsonReportButton);
+    if (!button.isConnected || !actions) return;
+    for (const element of [validationDetails, validationJsonReportCopyButton, validationJsonReportDownloadButton]) {
+      if (!element.isConnected) actions.append(element);
+    }
   });
   button.addEventListener("click", () => {
     try {

@@ -1,56 +1,44 @@
-# Splat World Engine — Mission Diagnostics Policy Manifest Validation JSON Report
+# Splat World Engine — Mission Diagnostics Policy Manifest Validation JSON Report Copy
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.68 在 0.67 的纯文本 validation report download 之上，新增机器可消费的 JSON report：同一份 validation result 可以以稳定 schema、明确 target 和确定性 issue 顺序导出，供 CI、审查工具、问题追踪系统或后续自动修复流程读取。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.69 在 0.68 的 deterministic validation JSON report 之上，新增直接复制完整 JSON artifact 的 workflow：author 可以将与下载文件完全一致的 schema v1 JSON 粘贴到 issue、PR、聊天、CI 输入或外部诊断工具中。
 
 ```text
-Mission diagnostics manifest validation JSON report
-  ├── schema metadata
+Mission diagnostics validation JSON copy
+  ├── deterministic JSON artifact
   │   ├── schema identifier
-  │   └── schemaVersion = 1
-  ├── target metadata
-  │   ├── manifest / mission-package / invalid
-  │   ├── normalized packageIndex
-  │   ├── requestedPackageIndex
-  │   └── JSON path
-  ├── validation result
-  │   ├── valid
+  │   ├── schemaVersion = 1
+  │   ├── target metadata
   │   ├── summary counts
   │   └── ordered issues
+  ├── copy workflow
+  │   ├── exact artifact.text
+  │   ├── trailing newline preserved
+  │   ├── Clipboard API validation
+  │   └── optional onCopy callback
   └── HUD actions
-      ├── text report download
-      ├── JSON report download
-      └── issue copy workflow
+      ├── Manifest validation details
+      ├── Copy validation JSON
+      └── Download validation JSON
 ```
 
-## Runtime/Builder 0.68 能力
+## Runtime/Builder 0.69 能力
 
-- 新增 `src/large/NavMissionDiagnosticsManifestHudValidationJsonReport.ts`。
-- 新增稳定 JSON schema：
-  - identifier：`splat-world-engine/mission-diagnostics-policy-manifest-validation`
-  - `schemaVersion: 1`
-- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportTarget(packageIndex)`：
-  - 顶层 policy target：`$.severityPolicy`
-  - package policy target：`$.missionPackages[n].severityPolicy`
-  - 非法 package index：`$.packageIndex`
-- Target 同时保留：
-  - `scope`
-  - 归一化后的 `packageIndex`
-  - 原始 `requestedPackageIndex`
-  - target `path`
-- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportDocument(validation, packageIndex)`。
-- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(...)`：
-  - filename
-  - `application/json;charset=utf-8`
-  - parsed document
-  - serialized text
-  - UTF-8 byte size
-  - error / warning / issue counts
-- 新增浏览器下载 helper 与 `Download validation JSON` HUD button。
-- JSON report 在 validation passed、warnings-only、blocking-error 和非法 target 四种状态下都可下载。
-- JSON 输出不包含 source manifest、editor policy 或生成时间，保证同一输入产生稳定、可 diff 的内容。
-- issues 始终按 errors → warnings 排序，同一 severity 内保持 validator 原始顺序。
-- package version 更新为 `0.68.0`。
-- Runtime label 更新为 `runtime 0.68`。
+- 新增 `src/large/NavMissionDiagnosticsManifestHudValidationJsonReportCopy.ts`。
+- 新增 `copyRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(artifact)`：
+  - 复制完整 `artifact.text`。
+  - 保留两个空格缩进和末尾换行。
+  - Clipboard API 不可用时抛出明确错误。
+- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportCopyButton(...)`：
+  - label：`Copy validation JSON`。
+  - preview 显示 filename、schema version、issue count 与 UTF-8 byte size。
+  - accessible label 包含完整 preview。
+  - 支持 `onCopy` 和 `onStatus` 回调。
+- Copy 与 Download 使用相同的 JSON artifact factory，因此相同 validation result 和 target 会产生完全相同的 JSON 文本。
+- validation passed、warnings-only、blocking-error 与非法 package target 均可复制。
+- HUD manifest actions 现在会依次挂载 validation details、JSON copy action 和 JSON download action。
+- sibling 挂载改为逐个检查并补挂；某个节点已连接不会阻止其他 action 挂载。
+- package version 更新为 `0.69.0`。
+- Runtime label 更新为 `runtime 0.69`。
 
 ## Checklist
 
@@ -73,7 +61,8 @@ Mission diagnostics manifest validation JSON report
 - [x] Mission diagnostics policy manifest validation issue copy workflow
 - [x] Mission diagnostics policy manifest validation report download workflow
 - [x] Mission diagnostics policy manifest validation JSON report workflow
-- [ ] Mission diagnostics policy manifest validation JSON report copy workflow
+- [x] Mission diagnostics policy manifest validation JSON report copy workflow
+- [ ] Mission diagnostics policy manifest validation JSON report checksum workflow
 
 ## 运行 Runtime
 
@@ -96,22 +85,25 @@ npm run build
 npm run preview
 ```
 
-## JSON document API
+## Copy artifact API
 
 ```ts
 import {
-  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportDocument,
-  RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_JSON_REPORT_SCHEMA,
-  RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_JSON_REPORT_SCHEMA_VERSION,
+  copyRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact,
+} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReportCopy";
+import {
+  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact,
 } from "./large/NavMissionDiagnosticsManifestHudValidationJsonReport";
 
-const document = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportDocument(
+const artifact = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(
   validation,
   packageIndex,
 );
+
+await copyRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(artifact);
 ```
 
-Document 示例：
+复制内容与下载文件完全一致：
 
 ```json
 {
@@ -125,9 +117,9 @@ Document 示例：
   },
   "valid": false,
   "summary": {
-    "issueCount": 2,
+    "issueCount": 1,
     "errors": 1,
-    "warnings": 1
+    "warnings": 0
   },
   "issues": [
     {
@@ -135,87 +127,39 @@ Document 示例：
       "code": "mission_packages.not_array",
       "path": "$.missionPackages",
       "message": "missionPackages must be an array."
-    },
-    {
-      "severity": "warning",
-      "code": "mission_package.url_missing",
-      "path": "$.missionPackages[0].url",
-      "message": "url is missing and will default to ./mission-package.json."
     }
   ]
 }
 ```
 
-## JSON artifact API
+Artifact text 使用两个空格缩进，并在最后一个 `}` 后保留一个换行字符。
+
+## Copy button API
 
 ```ts
 import {
-  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact,
-  downloadRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact,
-} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReport";
+  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportCopyButton,
+} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReportCopy";
 
-const artifact = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(
+const copyButton = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportCopyButton(
   validation,
   packageIndex,
+  {
+    onCopy: (artifact) => {
+      console.log(artifact.filename, artifact.bytes);
+    },
+    onStatus: (message) => {
+      manifestStatus.textContent = message;
+    },
+  },
 );
-
-downloadRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(artifact);
 ```
 
-Artifact 结构：
-
-```ts
-{
-  filename,
-  mimeType: "application/json;charset=utf-8",
-  document,
-  text,
-  bytes,
-  issueCount,
-  errors,
-  warnings,
-}
-```
-
-Serialized JSON 使用两个空格缩进并以换行结束，方便命令行工具、版本控制与 snapshot comparison。
-
-## Target 与文件命名
-
-顶层 `severityPolicy`：
-
-```text
-scope: manifest
-packageIndex: null
-requestedPackageIndex: -1
-path: $.severityPolicy
-filename: large-world-manifest.diagnostics-policy.validation-report.json
-```
-
-Package target：
-
-```text
-scope: mission-package
-packageIndex: 0
-requestedPackageIndex: 0
-path: $.missionPackages[0].severityPolicy
-filename: mission-package-0.diagnostics-policy.validation-report.json
-```
-
-非法 target，例如 `packageIndex = -2`、`1.5` 或 `NaN`：
-
-```text
-scope: invalid
-packageIndex: null
-requestedPackageIndex: -2 | 1.5 | "NaN"
-path: $.packageIndex
-filename: mission-diagnostics-policy-manifest.invalid-target.validation-report.json
-```
-
-非有限数值会转换为字符串，避免 `JSON.stringify` 将 `NaN` 或 `Infinity` 静默序列化为 `null`。自定义 filename 会进行安全归一化，并自动补充 `.json` 后缀。
+`onCopy` 仅在 Clipboard 写入成功后调用，并接收已复制的完整 artifact。
 
 ## HUD integration
 
-`createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(options)` 会在现有 validation details 后挂载一个全宽 JSON download action：
+`createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(options)` 会复用同一个 validation result 创建 copy 与 download action：
 
 ```text
 manifest actions
@@ -224,30 +168,64 @@ manifest actions
   ├── Manifest validation details
   │   ├── Copy all issues
   │   └── Download report
+  ├── Copy validation JSON
+  │   └── filename · schema v1 · issue count · byte size
   └── Download validation JSON
       └── filename · schema v1 · issue count · byte size
 ```
 
-JSON button 使用同一个 validation result 和 `onStatus` callback。成功时：
+复制成功：
 
 ```text
-Downloaded mission-package-0.diagnostics-policy.validation-report.json with 2 validation issues.
+Copied mission-package-0.diagnostics-policy.validation-report.json with 2 validation issues.
 ```
 
-失败时：
+Validation passed：
 
 ```text
-Validation JSON report download failed: <error message>
+Copied mission-package-0.diagnostics-policy.validation-report.json with no validation issues.
 ```
 
-## 确定性与兼容边界
+复制失败：
 
-- JSON report 不写入生成时间、随机 ID 或浏览器信息。
-- 同一 validation result 与 package target 会生成相同 document text。
-- issue 对象只包含 `severity`、`code`、`path` 和 `message`。
-- JSON document 不包含 source manifest 或 editor policy，避免把完整 authoring 内容复制到诊断报告。
-- `schemaVersion` 用于未来演进；当前消费者应校验 schema identifier 与 version。
-- Blocking validation errors 仍会阻止 JSON Patch、patched manifest 与 manifest artifact，但不会阻止 text / JSON failure report 下载。
-- JSON action 使用 `type="button"`，不会触发 manifest artifact download。
-- Object URL 在 anchor download 触发后释放。
-- 当前 JSON report 支持下载；直接复制 JSON 是下一项 checklist。
+```text
+Validation JSON report copy failed: Clipboard API is unavailable.
+```
+
+## Copy 与 download 一致性
+
+对相同的 `validation` 和 `packageIndex`：
+
+```ts
+const artifact = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(
+  validation,
+  packageIndex,
+);
+```
+
+以下两个操作消费同一个字段：
+
+```text
+Copy     -> navigator.clipboard.writeText(artifact.text)
+Download -> new Blob([artifact.text], { type: artifact.mimeType })
+```
+
+因此复制内容和下载内容在以下方面保持一致：
+
+- schema identifier 与 version。
+- target scope、package index 和 JSON path。
+- valid 与 summary counts。
+- error-first issue 顺序。
+- JSON indentation。
+- trailing newline。
+
+## 交互与安全边界
+
+- Copy button 使用 `type="button"`，不会触发 manifest artifact download。
+- Clipboard workflow 依赖安全上下文中的浏览器 Clipboard API。
+- Clipboard API 不可用或拒绝写入时不会调用 `onCopy`。
+- Copy 不读取 source manifest text，也不会把 editor policy 内容附加到 report。
+- Copy 不修改 manifest textarea、selected target、editor policy 或 validation result。
+- JSON report 不包含时间戳、随机 ID 或浏览器信息，因此同一输入仍产生稳定文本。
+- Blocking validation errors 会阻止 manifest authoring artifact，但不会阻止 JSON failure report 的复制或下载。
+- 下一项将为 deterministic JSON report 增加 checksum，便于跨系统确认内容一致性。
