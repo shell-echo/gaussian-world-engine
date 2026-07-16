@@ -90,7 +90,9 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
   preview.style.overflowWrap = "anywhere";
 
   const validation = validateRuntimeNavMissionDiagnosticsManifestAuthoringInput(options);
-  const validationDetails = createRuntimeNavMissionDiagnosticsManifestHudValidationDetails(validation);
+  const validationDetails = createRuntimeNavMissionDiagnosticsManifestHudValidationDetails(validation, {
+    onStatus: options.onStatus,
+  });
   if (!validation.valid) {
     const validationText = formatRuntimeNavMissionDiagnosticsManifestAuthoringValidation(validation);
     preview.textContent = validationText;

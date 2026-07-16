@@ -4,8 +4,27 @@ import type {
   RuntimeNavMissionDiagnosticsManifestAuthoringValidationSeverity,
 } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 
+export interface RuntimeNavMissionDiagnosticsManifestHudValidationDetailsOptions {
+  onStatus?: (message: string) => void;
+}
+
+export function formatRuntimeNavMissionDiagnosticsManifestHudValidationIssue(
+  issue: RuntimeNavMissionDiagnosticsManifestAuthoringValidationIssue,
+): string {
+  return `[${issue.severity.toUpperCase()}] ${issue.code}\nPath: ${issue.path}\n${issue.message}`;
+}
+
+export function formatRuntimeNavMissionDiagnosticsManifestHudValidationIssues(
+  validation: RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult,
+): string {
+  const issues = selectOrderedValidationIssues(validation.issues);
+  if (issues.length === 0) return formatValidationSummary(validation);
+  return [formatValidationSummary(validation), ...issues.map(formatRuntimeNavMissionDiagnosticsManifestHudValidationIssue)].join("\n\n");
+}
+
 export function createRuntimeNavMissionDiagnosticsManifestHudValidationDetails(
   validation: RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult,
+  options: RuntimeNavMissionDiagnosticsManifestHudValidationDetailsOptions = {},
 ): HTMLDetailsElement {
   const details = document.createElement("details");
   details.className = "mission-debug-diagnostics-manifest-validation";
@@ -49,18 +68,43 @@ export function createRuntimeNavMissionDiagnosticsManifestHudValidationDetails(
     empty.style.color = "rgba(255, 255, 255, 0.52)";
     body.append(empty);
   } else {
-    appendIssueGroup(body, "error", validation.issues);
-    appendIssueGroup(body, "warning", validation.issues);
+    body.append(createCopyAllActions(validation, options));
+    appendIssueGroup(body, "error", validation.issues, options);
+    appendIssueGroup(body, "warning", validation.issues, options);
   }
 
   details.append(summary, body);
   return details;
 }
 
+function createCopyAllActions(
+  validation: RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult,
+  options: RuntimeNavMissionDiagnosticsManifestHudValidationDetailsOptions,
+): HTMLElement {
+  const actions = document.createElement("div");
+  actions.className = "mission-debug-diagnostics-manifest-validation-actions";
+  Object.assign(actions.style, {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "5px",
+  });
+
+  const count = validation.issues.length;
+  const button = createCopyButton(
+    "Copy all issues",
+    formatRuntimeNavMissionDiagnosticsManifestHudValidationIssues(validation),
+    `Copied ${count} manifest validation issue${count === 1 ? "" : "s"}.`,
+    options,
+  );
+  actions.append(button);
+  return actions;
+}
+
 function appendIssueGroup(
   body: HTMLElement,
   severity: RuntimeNavMissionDiagnosticsManifestAuthoringValidationSeverity,
   issues: RuntimeNavMissionDiagnosticsManifestAuthoringValidationIssue[],
+  options: RuntimeNavMissionDiagnosticsManifestHudValidationDetailsOptions,
 ): void {
   const matchingIssues = issues.filter((issue) => issue.severity === severity);
   if (matchingIssues.length === 0) return;
@@ -90,18 +134,22 @@ function appendIssueGroup(
     padding: "0",
     listStyle: "none",
   });
-  for (const issue of matchingIssues) list.append(createIssueRow(issue));
+  for (const issue of matchingIssues) list.append(createIssueRow(issue, options));
 
   group.append(title, list);
   body.append(group);
 }
 
-function createIssueRow(issue: RuntimeNavMissionDiagnosticsManifestAuthoringValidationIssue): HTMLLIElement {
+function createIssueRow(
+  issue: RuntimeNavMissionDiagnosticsManifestAuthoringValidationIssue,
+  options: RuntimeNavMissionDiagnosticsManifestHudValidationDetailsOptions,
+): HTMLLIElement {
   const row = document.createElement("li");
   row.className = `mission-debug-diagnostics-manifest-validation-issue ${issue.severity}`;
   Object.assign(row.style, {
     display: "grid",
-    gap: "3px",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    gap: "3px 7px",
     minWidth: "0",
     padding: "6px 7px",
     border: issue.severity === "error" ? "1px solid rgba(255, 93, 93, 0.28)" : "1px solid rgba(255, 200, 87, 0.24)",
@@ -138,15 +186,74 @@ function createIssueRow(issue: RuntimeNavMissionDiagnosticsManifestAuthoringVali
   const message = document.createElement("small");
   message.textContent = issue.message;
   Object.assign(message.style, {
+    gridColumn: "1",
     color: "rgba(255, 255, 255, 0.62)",
     fontSize: "9px",
     lineHeight: "1.35",
     overflowWrap: "anywhere",
   });
 
+  const copyButton = createCopyButton(
+    "Copy",
+    formatRuntimeNavMissionDiagnosticsManifestHudValidationIssue(issue),
+    `Copied manifest validation issue ${issue.code}.`,
+    options,
+  );
+  Object.assign(copyButton.style, {
+    gridColumn: "2",
+    gridRow: "1 / span 2",
+    alignSelf: "start",
+  });
+  copyButton.setAttribute("aria-label", `Copy validation issue ${issue.code} at ${issue.path}`);
+
   heading.append(code, path);
-  row.append(heading, message);
+  row.append(heading, message, copyButton);
   return row;
+}
+
+function createCopyButton(
+  label: string,
+  text: string,
+  successMessage: string,
+  options: RuntimeNavMissionDiagnosticsManifestHudValidationDetailsOptions,
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  Object.assign(button.style, {
+    padding: "4px 6px",
+    fontSize: "9px",
+    lineHeight: "1.2",
+  });
+  button.addEventListener("click", () => {
+    void copyValidationText(text, successMessage, options);
+  });
+  return button;
+}
+
+async function copyValidationText(
+  text: string,
+  successMessage: string,
+  options: RuntimeNavMissionDiagnosticsManifestHudValidationDetailsOptions,
+): Promise<void> {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard API is unavailable.");
+    await navigator.clipboard.writeText(text);
+    options.onStatus?.(successMessage);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("Mission diagnostics manifest validation issue copy failed.", error);
+    options.onStatus?.(`Copy validation issue failed: ${message}`);
+  }
+}
+
+function selectOrderedValidationIssues(
+  issues: RuntimeNavMissionDiagnosticsManifestAuthoringValidationIssue[],
+): RuntimeNavMissionDiagnosticsManifestAuthoringValidationIssue[] {
+  return [
+    ...issues.filter((issue) => issue.severity === "error"),
+    ...issues.filter((issue) => issue.severity === "warning"),
+  ];
 }
 
 function formatValidationSummary(validation: RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult): string {
