@@ -1,43 +1,48 @@
-# Splat World Engine — Mission Diagnostics Policy Manifest Validation Issue Copy Workflow
+# Splat World Engine — Mission Diagnostics Policy Manifest Validation Report Download
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.66 在 0.65 的 manifest validation HUD details 之上，为完整 validation report 和每条 validation issue 增加 clipboard workflow，方便 author 将结构化问题直接粘贴到 issue、PR、聊天或修复记录中。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.67 在 0.66 的 validation issue copy workflow 之上，将同一份确定性纯文本 report 封装为浏览器可下载 artifact，使 author 能把校验结果保存到本地、附加到 issue / PR，或纳入外部审查记录。
 
 ```text
-Mission diagnostics manifest validation issue copy
+Mission diagnostics manifest validation report download
   ├── structured validation result
   │   ├── errors
   │   ├── warnings
   │   └── ordered issues
-  ├── HUD validation details
-  │   ├── Copy all issues
-  │   └── per-issue Copy
-  ├── clipboard payload
-  │   ├── severity
-  │   ├── code
-  │   ├── JSON path
-  │   └── message
-  └── manifest status feedback
-      ├── copy success
-      └── clipboard failure
+  ├── validation report artifact
+  │   ├── filename
+  │   ├── text/plain MIME type
+  │   ├── report text
+  │   ├── byte size
+  │   └── issue counts
+  └── HUD actions
+      ├── Copy all issues
+      ├── Download report
+      └── per-issue Copy
 ```
 
-## Runtime/Builder 0.66 能力
+## Runtime/Builder 0.67 能力
 
 - 扩展 `src/large/NavMissionDiagnosticsManifestHudValidationDetails.ts`。
-- 新增 `formatRuntimeNavMissionDiagnosticsManifestHudValidationIssue(issue)`：
-  - 生成单条 issue 的可粘贴纯文本。
-  - 包含 severity、code、JSON path 与 message。
-- 新增 `formatRuntimeNavMissionDiagnosticsManifestHudValidationIssues(validation)`：
-  - 生成完整 validation report。
-  - errors 排在 warnings 前面。
-  - 同一 severity 内保持 validator 的原始顺序。
-- validation details 在存在 issues 时新增 `Copy all issues`。
-- 每条 issue 新增独立 `Copy` 按钮和 accessible label。
-- Clipboard API 不可用或写入失败时不会静默成功。
-- copy result 通过已有 `onStatus` 回调显示在 manifest status 区域。
-- `createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(options)` 将现有 `onStatus` 传入 validation details，不新增 `NavMissionDebugPanel` 状态字段。
-- package version 更新为 `0.66.0`。
-- Runtime label 更新为 `runtime 0.66`。
+- 新增 `RuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact`：
+  - `filename`
+  - `mimeType`
+  - `text`
+  - `bytes`
+  - `issueCount`
+  - `errors`
+  - `warnings`
+- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact(validation, filename)`。
+- 新增 `downloadRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact(artifact)`。
+- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationReportFilename(packageIndex)`。
+- validation details 顶部新增 `Download report`：
+  - 有 errors / warnings 时下载完整 issue report。
+  - validation passed 时仍可下载明确的通过报告。
+  - tooltip 显示文件名与格式化后的 byte size。
+  - accessible label 包含目标文件名。
+- 下载成功或失败继续通过现有 manifest `onStatus` 回调反馈。
+- report 下载不依赖 manifest artifact authoring gate，因此 source JSON 无效时仍可导出 validation failure report。
+- package version 更新为 `0.67.0`。
+- Runtime label 更新为 `runtime 0.67`。
 
 ## Checklist
 
@@ -58,7 +63,8 @@ Mission diagnostics manifest validation issue copy
 - [x] Mission diagnostics policy manifest authoring validation
 - [x] Mission diagnostics policy manifest validation HUD issue details
 - [x] Mission diagnostics policy manifest validation issue copy workflow
-- [ ] Mission diagnostics policy manifest validation report download workflow
+- [x] Mission diagnostics policy manifest validation report download workflow
+- [ ] Mission diagnostics policy manifest validation JSON report workflow
 
 ## 运行 Runtime
 
@@ -81,33 +87,66 @@ npm run build
 npm run preview
 ```
 
-## Copy formatting API
-
-单条 issue：
+## Report artifact API
 
 ```ts
-import { formatRuntimeNavMissionDiagnosticsManifestHudValidationIssue } from "./large/NavMissionDiagnosticsManifestHudValidationDetails";
+import {
+  createRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact,
+  downloadRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact,
+} from "./large/NavMissionDiagnosticsManifestHudValidationDetails";
 
-const text = formatRuntimeNavMissionDiagnosticsManifestHudValidationIssue(issue);
+const artifact = createRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact(
+  validation,
+  "mission-package-0.diagnostics-policy.validation-report.txt",
+);
+
+downloadRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact(artifact);
 ```
 
-输出：
+Artifact 结构：
+
+```ts
+{
+  filename: "mission-package-0.diagnostics-policy.validation-report.txt",
+  mimeType: "text/plain;charset=utf-8",
+  text: "Manifest validation · 1 error\n\n...\n",
+  bytes: 148,
+  issueCount: 1,
+  errors: 1,
+  warnings: 0,
+}
+```
+
+Artifact text 始终以换行结束，便于命令行工具、日志系统和文本 diff 直接消费。
+
+## 文件命名
+
+Mission HUD 根据当前 target 生成稳定文件名。
+
+顶层 `severityPolicy`：
 
 ```text
-[ERROR] mission_packages.not_array
-Path: $.missionPackages
-missionPackages must be an array.
+large-world-manifest.diagnostics-policy.validation-report.txt
 ```
 
-完整 report：
+Package target：
 
-```ts
-import { formatRuntimeNavMissionDiagnosticsManifestHudValidationIssues } from "./large/NavMissionDiagnosticsManifestHudValidationDetails";
-
-const report = formatRuntimeNavMissionDiagnosticsManifestHudValidationIssues(validation);
+```text
+mission-package-0.diagnostics-policy.validation-report.txt
+mission-package-1.diagnostics-policy.validation-report.txt
 ```
 
-输出示例：
+独立调用 artifact factory 时若未传 filename，则使用：
+
+```text
+mission-diagnostics-policy-manifest.validation-report.txt
+```
+
+自定义 filename 会进行安全归一化，并自动补充 `.txt` 后缀。
+
+## Report 内容
+
+存在 issues 时：
 
 ```text
 Manifest validation · 1 error · 1 warning
@@ -121,60 +160,54 @@ Path: $.missionPackages[0].url
 url is missing and will default to ./mission-package.json.
 ```
 
-## HUD copy workflow
+Validation passed 时：
 
-Validation details 接受可选 status callback：
-
-```ts
-const details = createRuntimeNavMissionDiagnosticsManifestHudValidationDetails(validation, {
-  onStatus: (message) => {
-    manifestStatus.textContent = message;
-  },
-});
+```text
+Manifest validation · passed
 ```
 
-Mission HUD 中不需要额外 wiring。Download button factory 会复用已有 callback：
+Report 顺序与 copy workflow 保持一致：
+
+- errors 排在 warnings 前面。
+- 同一 severity 内保持 validator 的原始 issue 顺序。
+- 每条 issue 包含 severity、code、JSON path 与 message。
+
+## HUD download workflow
+
+`createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(options)` 会把 target-specific filename 传给 validation details：
 
 ```ts
 const validationDetails = createRuntimeNavMissionDiagnosticsManifestHudValidationDetails(validation, {
   onStatus: options.onStatus,
+  reportFilename: createRuntimeNavMissionDiagnosticsManifestHudValidationReportFilename(options.packageIndex),
 });
 ```
 
-复制全部 issues 成功时：
+下载成功时：
 
 ```text
-Copied 2 manifest validation issues.
+Downloaded mission-package-0.diagnostics-policy.validation-report.txt with 2 validation issues.
 ```
 
-复制单条 issue 成功时：
+通过报告下载成功时：
 
 ```text
-Copied manifest validation issue mission_packages.not_array.
+Downloaded mission-package-0.diagnostics-policy.validation-report.txt with no validation issues.
 ```
 
-Clipboard API 不可用或写入失败时：
+下载失败时：
 
 ```text
-Copy validation issue failed: <error message>
+Validation report download failed: <error message>
 ```
 
-## Copy order 与交互规则
+## 交互边界
 
-- `Copy all issues` 仅在 validation result 含有 issues 时显示。
-- errors 始终排在 warnings 前面。
-- 单条 `Copy` 只复制当前 issue，不附带其他 validation 内容。
-- Copy button 使用 `type="button"`，不会触发 manifest download。
-- 每条 Copy button 的 accessible label 包含 issue code 与 JSON path。
-- copy 操作不修改 manifest textarea、selected target 或 editor policy。
-- `onStatus` 触发 panel rerender 后，validation details 会根据当前输入重新创建。
-
-## 已知边界
-
-- Clipboard workflow 依赖安全上下文中的浏览器 Clipboard API。
-- 当前提供纯文本复制，不生成独立 validation report 文件；report download workflow 是下一项 checklist。
+- `Download report` 使用 `type="button"`，不会触发 manifest artifact download。
+- Report download 使用浏览器 `Blob`、object URL 与 anchor download。
+- Object URL 始终在下载触发后释放。
+- Report 下载只读取 validation result，不修改 manifest textarea、selected target 或 editor policy。
+- Blocking validation errors 仍会阻止 JSON Patch、patched manifest 与 manifest artifact 创建，但不会阻止 failure report 下载。
+- 当前 report 是适合人工审阅的纯文本；结构化 JSON report 是下一项 checklist。
 - 当前 validation 聚焦 diagnostics policy authoring 所需的 manifest target 与 policy shape，不替代完整 large world manifest schema validation。
-- warnings 不阻止 artifact generation。
-- blocking errors 仍由 authoring validation gate 阻止 JSON Patch、patched manifest 与下载 artifact 创建。
-- 下载是浏览器侧 authoring artifact，不会直接写回仓库、package authoring 文件或远程 registry。
 - authoring document 只保存任务设计内容，不保存 player / agent / world object runtime state。
