@@ -8,7 +8,10 @@ import {
   validateRuntimeNavMissionDiagnosticsManifestAuthoringInput,
 } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 import type { RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
-import { createRuntimeNavMissionDiagnosticsManifestHudValidationDetails } from "./NavMissionDiagnosticsManifestHudValidationDetails.js";
+import {
+  createRuntimeNavMissionDiagnosticsManifestHudValidationDetails,
+  createRuntimeNavMissionDiagnosticsManifestHudValidationReportFilename,
+} from "./NavMissionDiagnosticsManifestHudValidationDetails.js";
 import type { RuntimeNavMissionDiagnosticsSeverityPolicy } from "./NavMissionPackageLoader.js";
 
 export interface RuntimeNavMissionDiagnosticsManifestHudDownloadInput {
@@ -92,6 +95,7 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
   const validation = validateRuntimeNavMissionDiagnosticsManifestAuthoringInput(options);
   const validationDetails = createRuntimeNavMissionDiagnosticsManifestHudValidationDetails(validation, {
     onStatus: options.onStatus,
+    reportFilename: createRuntimeNavMissionDiagnosticsManifestHudValidationReportFilename(options.packageIndex),
   });
   if (!validation.valid) {
     const validationText = formatRuntimeNavMissionDiagnosticsManifestAuthoringValidation(validation);
