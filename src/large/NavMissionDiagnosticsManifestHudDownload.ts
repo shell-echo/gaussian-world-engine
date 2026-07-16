@@ -3,6 +3,11 @@ import {
   downloadRuntimeNavMissionDiagnosticsManifestArtifact,
 } from "./NavMissionDiagnosticsManifestAuthoring.js";
 import type { RuntimeNavMissionDiagnosticsManifestAuthoringArtifact } from "./NavMissionDiagnosticsManifestAuthoring.js";
+import {
+  formatRuntimeNavMissionDiagnosticsManifestAuthoringValidation,
+  validateRuntimeNavMissionDiagnosticsManifestAuthoringInput,
+} from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
+import type { RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 import type { RuntimeNavMissionDiagnosticsSeverityPolicy } from "./NavMissionPackageLoader.js";
 
 export interface RuntimeNavMissionDiagnosticsManifestHudDownloadInput {
@@ -24,6 +29,7 @@ export interface RuntimeNavMissionDiagnosticsManifestHudDownloadSummary {
   operation: RuntimeNavMissionDiagnosticsManifestAuthoringArtifact["operation"];
   jsonPatchCount: number;
   bytes: number;
+  validation: RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult;
 }
 
 export function createRuntimeNavMissionDiagnosticsManifestHudDownloadArtifact(
@@ -39,6 +45,8 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadArtifact(
 export function createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(
   input: RuntimeNavMissionDiagnosticsManifestHudDownloadInput,
 ): RuntimeNavMissionDiagnosticsManifestHudDownloadSummary {
+  const validation = validateRuntimeNavMissionDiagnosticsManifestAuthoringInput(input);
+  if (!validation.valid) throw new Error(formatRuntimeNavMissionDiagnosticsManifestAuthoringValidation(validation));
   const artifact = createRuntimeNavMissionDiagnosticsManifestHudDownloadArtifact(input);
   return {
     filename: artifact.filename,
@@ -46,6 +54,7 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(
     operation: artifact.operation,
     jsonPatchCount: artifact.jsonPatch.length,
     bytes: new TextEncoder().encode(artifact.manifestText).byteLength,
+    validation,
   };
 }
 
@@ -53,7 +62,8 @@ export function formatRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(
   summary: RuntimeNavMissionDiagnosticsManifestHudDownloadSummary,
 ): string {
   const patchLabel = `${summary.jsonPatchCount} JSON patch${summary.jsonPatchCount === 1 ? "" : "es"}`;
-  return `${summary.filename} · ${summary.target} · ${summary.operation} · ${patchLabel} · ${formatByteSize(summary.bytes)}`;
+  const validationLabel = formatRuntimeNavMissionDiagnosticsManifestAuthoringValidation(summary.validation);
+  return `${summary.filename} · ${summary.target} · ${summary.operation} · ${patchLabel} · ${formatByteSize(summary.bytes)} · ${validationLabel}`;
 }
 
 export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
@@ -78,18 +88,26 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
   preview.style.opacity = "0.66";
   preview.style.overflowWrap = "anywhere";
 
-  try {
-    const summary = createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(options);
-    const summaryText = formatRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(summary);
-    preview.textContent = summaryText;
-    button.title = summaryText;
-    button.setAttribute("aria-label", `${label.textContent}. ${summaryText}`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const summaryText = `Preview unavailable · ${message}`;
-    preview.textContent = summaryText;
-    button.title = summaryText;
-    button.setAttribute("aria-label", `${label.textContent}. ${summaryText}`);
+  const validation = validateRuntimeNavMissionDiagnosticsManifestAuthoringInput(options);
+  if (!validation.valid) {
+    const validationText = formatRuntimeNavMissionDiagnosticsManifestAuthoringValidation(validation);
+    preview.textContent = validationText;
+    button.title = validationText;
+    button.setAttribute("aria-label", `${label.textContent}. ${validationText}`);
+  } else {
+    try {
+      const summary = createRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(options);
+      const summaryText = formatRuntimeNavMissionDiagnosticsManifestHudDownloadSummary(summary);
+      preview.textContent = summaryText;
+      button.title = summaryText;
+      button.setAttribute("aria-label", `${label.textContent}. ${summaryText}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const summaryText = `Preview unavailable · ${message}`;
+      preview.textContent = summaryText;
+      button.title = summaryText;
+      button.setAttribute("aria-label", `${label.textContent}. ${summaryText}`);
+    }
   }
 
   button.append(label, preview);

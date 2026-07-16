@@ -1,3 +1,4 @@
+import { assertRuntimeNavMissionDiagnosticsManifestAuthoringInput } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 import type { RuntimeNavMissionDiagnosticsSeverityPolicy } from "./NavMissionPackageLoader.js";
 
 export interface RuntimeNavMissionDiagnosticsManifestAuthoringInput {
@@ -28,6 +29,7 @@ export type RuntimeNavMissionDiagnosticsManifestJsonPatchOperation =
 export function createRuntimeNavMissionDiagnosticsManifestAuthoringArtifact(
   input: RuntimeNavMissionDiagnosticsManifestAuthoringInput,
 ): RuntimeNavMissionDiagnosticsManifestAuthoringArtifact {
+  assertRuntimeNavMissionDiagnosticsManifestAuthoringInput(input);
   const sourceManifest = readManifestAuthoringRecord(input.sourceManifestText);
   const beforePolicy = readDiagnosticsPolicyTarget(sourceManifest, input.packageIndex);
   const path = createDiagnosticsPolicyJsonPointerPath(input.packageIndex);
@@ -84,7 +86,7 @@ function applyDiagnosticsPolicyToManifest(
   const missionPackages = Array.isArray(manifest["missionPackages"]) ? [...manifest["missionPackages"]] : [];
   while (missionPackages.length <= packageIndex) missionPackages.push({ url: "./mission-package.json", merge: true });
   const targetPackage = isRecord(missionPackages[packageIndex]) ? cloneRecord(missionPackages[packageIndex]) : {};
-  if (typeof targetPackage["url"] !== "string" || !targetPackage["url"]) targetPackage["url"] = "./mission-package.json";
+  if (typeof targetPackage["url"] !== "string" || !targetPackage["url"].trim()) targetPackage["url"] = "./mission-package.json";
   if (typeof targetPackage["merge"] !== "boolean") targetPackage["merge"] = true;
   if (policy) {
     targetPackage["severityPolicy"] = cloneValue(policy);
