@@ -1,48 +1,56 @@
-# Splat World Engine — Mission Diagnostics Policy Manifest Validation Report Download
+# Splat World Engine — Mission Diagnostics Policy Manifest Validation JSON Report
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.67 在 0.66 的 validation issue copy workflow 之上，将同一份确定性纯文本 report 封装为浏览器可下载 artifact，使 author 能把校验结果保存到本地、附加到 issue / PR，或纳入外部审查记录。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.68 在 0.67 的纯文本 validation report download 之上，新增机器可消费的 JSON report：同一份 validation result 可以以稳定 schema、明确 target 和确定性 issue 顺序导出，供 CI、审查工具、问题追踪系统或后续自动修复流程读取。
 
 ```text
-Mission diagnostics manifest validation report download
-  ├── structured validation result
-  │   ├── errors
-  │   ├── warnings
+Mission diagnostics manifest validation JSON report
+  ├── schema metadata
+  │   ├── schema identifier
+  │   └── schemaVersion = 1
+  ├── target metadata
+  │   ├── manifest / mission-package / invalid
+  │   ├── normalized packageIndex
+  │   ├── requestedPackageIndex
+  │   └── JSON path
+  ├── validation result
+  │   ├── valid
+  │   ├── summary counts
   │   └── ordered issues
-  ├── validation report artifact
-  │   ├── filename
-  │   ├── text/plain MIME type
-  │   ├── report text
-  │   ├── byte size
-  │   └── issue counts
   └── HUD actions
-      ├── Copy all issues
-      ├── Download report
-      └── per-issue Copy
+      ├── text report download
+      ├── JSON report download
+      └── issue copy workflow
 ```
 
-## Runtime/Builder 0.67 能力
+## Runtime/Builder 0.68 能力
 
-- 扩展 `src/large/NavMissionDiagnosticsManifestHudValidationDetails.ts`。
-- 新增 `RuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact`：
-  - `filename`
-  - `mimeType`
-  - `text`
-  - `bytes`
-  - `issueCount`
-  - `errors`
-  - `warnings`
-- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact(validation, filename)`。
-- 新增 `downloadRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact(artifact)`。
-- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationReportFilename(packageIndex)`。
-- validation details 顶部新增 `Download report`：
-  - 有 errors / warnings 时下载完整 issue report。
-  - validation passed 时仍可下载明确的通过报告。
-  - tooltip 显示文件名与格式化后的 byte size。
-  - accessible label 包含目标文件名。
-- 下载成功或失败继续通过现有 manifest `onStatus` 回调反馈。
-- report 下载不依赖 manifest artifact authoring gate，因此 source JSON 无效时仍可导出 validation failure report。
-- package version 更新为 `0.67.0`。
-- Runtime label 更新为 `runtime 0.67`。
+- 新增 `src/large/NavMissionDiagnosticsManifestHudValidationJsonReport.ts`。
+- 新增稳定 JSON schema：
+  - identifier：`splat-world-engine/mission-diagnostics-policy-manifest-validation`
+  - `schemaVersion: 1`
+- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportTarget(packageIndex)`：
+  - 顶层 policy target：`$.severityPolicy`
+  - package policy target：`$.missionPackages[n].severityPolicy`
+  - 非法 package index：`$.packageIndex`
+- Target 同时保留：
+  - `scope`
+  - 归一化后的 `packageIndex`
+  - 原始 `requestedPackageIndex`
+  - target `path`
+- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportDocument(validation, packageIndex)`。
+- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(...)`：
+  - filename
+  - `application/json;charset=utf-8`
+  - parsed document
+  - serialized text
+  - UTF-8 byte size
+  - error / warning / issue counts
+- 新增浏览器下载 helper 与 `Download validation JSON` HUD button。
+- JSON report 在 validation passed、warnings-only、blocking-error 和非法 target 四种状态下都可下载。
+- JSON 输出不包含 source manifest、editor policy 或生成时间，保证同一输入产生稳定、可 diff 的内容。
+- issues 始终按 errors → warnings 排序，同一 severity 内保持 validator 原始顺序。
+- package version 更新为 `0.68.0`。
+- Runtime label 更新为 `runtime 0.68`。
 
 ## Checklist
 
@@ -64,7 +72,8 @@ Mission diagnostics manifest validation report download
 - [x] Mission diagnostics policy manifest validation HUD issue details
 - [x] Mission diagnostics policy manifest validation issue copy workflow
 - [x] Mission diagnostics policy manifest validation report download workflow
-- [ ] Mission diagnostics policy manifest validation JSON report workflow
+- [x] Mission diagnostics policy manifest validation JSON report workflow
+- [ ] Mission diagnostics policy manifest validation JSON report copy workflow
 
 ## 运行 Runtime
 
@@ -87,127 +96,158 @@ npm run build
 npm run preview
 ```
 
-## Report artifact API
+## JSON document API
 
 ```ts
 import {
-  createRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact,
-  downloadRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact,
-} from "./large/NavMissionDiagnosticsManifestHudValidationDetails";
+  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportDocument,
+  RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_JSON_REPORT_SCHEMA,
+  RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_JSON_REPORT_SCHEMA_VERSION,
+} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReport";
 
-const artifact = createRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact(
+const document = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportDocument(
   validation,
-  "mission-package-0.diagnostics-policy.validation-report.txt",
+  packageIndex,
+);
+```
+
+Document 示例：
+
+```json
+{
+  "schema": "splat-world-engine/mission-diagnostics-policy-manifest-validation",
+  "schemaVersion": 1,
+  "target": {
+    "scope": "mission-package",
+    "packageIndex": 0,
+    "requestedPackageIndex": 0,
+    "path": "$.missionPackages[0].severityPolicy"
+  },
+  "valid": false,
+  "summary": {
+    "issueCount": 2,
+    "errors": 1,
+    "warnings": 1
+  },
+  "issues": [
+    {
+      "severity": "error",
+      "code": "mission_packages.not_array",
+      "path": "$.missionPackages",
+      "message": "missionPackages must be an array."
+    },
+    {
+      "severity": "warning",
+      "code": "mission_package.url_missing",
+      "path": "$.missionPackages[0].url",
+      "message": "url is missing and will default to ./mission-package.json."
+    }
+  ]
+}
+```
+
+## JSON artifact API
+
+```ts
+import {
+  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact,
+  downloadRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact,
+} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReport";
+
+const artifact = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(
+  validation,
+  packageIndex,
 );
 
-downloadRuntimeNavMissionDiagnosticsManifestHudValidationReportArtifact(artifact);
+downloadRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(artifact);
 ```
 
 Artifact 结构：
 
 ```ts
 {
-  filename: "mission-package-0.diagnostics-policy.validation-report.txt",
-  mimeType: "text/plain;charset=utf-8",
-  text: "Manifest validation · 1 error\n\n...\n",
-  bytes: 148,
-  issueCount: 1,
-  errors: 1,
-  warnings: 0,
+  filename,
+  mimeType: "application/json;charset=utf-8",
+  document,
+  text,
+  bytes,
+  issueCount,
+  errors,
+  warnings,
 }
 ```
 
-Artifact text 始终以换行结束，便于命令行工具、日志系统和文本 diff 直接消费。
+Serialized JSON 使用两个空格缩进并以换行结束，方便命令行工具、版本控制与 snapshot comparison。
 
-## 文件命名
-
-Mission HUD 根据当前 target 生成稳定文件名。
+## Target 与文件命名
 
 顶层 `severityPolicy`：
 
 ```text
-large-world-manifest.diagnostics-policy.validation-report.txt
+scope: manifest
+packageIndex: null
+requestedPackageIndex: -1
+path: $.severityPolicy
+filename: large-world-manifest.diagnostics-policy.validation-report.json
 ```
 
 Package target：
 
 ```text
-mission-package-0.diagnostics-policy.validation-report.txt
-mission-package-1.diagnostics-policy.validation-report.txt
+scope: mission-package
+packageIndex: 0
+requestedPackageIndex: 0
+path: $.missionPackages[0].severityPolicy
+filename: mission-package-0.diagnostics-policy.validation-report.json
 ```
 
-独立调用 artifact factory 时若未传 filename，则使用：
+非法 target，例如 `packageIndex = -2`、`1.5` 或 `NaN`：
 
 ```text
-mission-diagnostics-policy-manifest.validation-report.txt
+scope: invalid
+packageIndex: null
+requestedPackageIndex: -2 | 1.5 | "NaN"
+path: $.packageIndex
+filename: mission-diagnostics-policy-manifest.invalid-target.validation-report.json
 ```
 
-自定义 filename 会进行安全归一化，并自动补充 `.txt` 后缀。
+非有限数值会转换为字符串，避免 `JSON.stringify` 将 `NaN` 或 `Infinity` 静默序列化为 `null`。自定义 filename 会进行安全归一化，并自动补充 `.json` 后缀。
 
-## Report 内容
+## HUD integration
 
-存在 issues 时：
+`createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(options)` 会在现有 validation details 后挂载一个全宽 JSON download action：
 
 ```text
-Manifest validation · 1 error · 1 warning
-
-[ERROR] mission_packages.not_array
-Path: $.missionPackages
-missionPackages must be an array.
-
-[WARNING] mission_package.url_missing
-Path: $.missionPackages[0].url
-url is missing and will default to ./mission-package.json.
+manifest actions
+  ├── Download manifest
+  ├── ...
+  ├── Manifest validation details
+  │   ├── Copy all issues
+  │   └── Download report
+  └── Download validation JSON
+      └── filename · schema v1 · issue count · byte size
 ```
 
-Validation passed 时：
+JSON button 使用同一个 validation result 和 `onStatus` callback。成功时：
 
 ```text
-Manifest validation · passed
+Downloaded mission-package-0.diagnostics-policy.validation-report.json with 2 validation issues.
 ```
 
-Report 顺序与 copy workflow 保持一致：
-
-- errors 排在 warnings 前面。
-- 同一 severity 内保持 validator 的原始 issue 顺序。
-- 每条 issue 包含 severity、code、JSON path 与 message。
-
-## HUD download workflow
-
-`createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(options)` 会把 target-specific filename 传给 validation details：
-
-```ts
-const validationDetails = createRuntimeNavMissionDiagnosticsManifestHudValidationDetails(validation, {
-  onStatus: options.onStatus,
-  reportFilename: createRuntimeNavMissionDiagnosticsManifestHudValidationReportFilename(options.packageIndex),
-});
-```
-
-下载成功时：
+失败时：
 
 ```text
-Downloaded mission-package-0.diagnostics-policy.validation-report.txt with 2 validation issues.
+Validation JSON report download failed: <error message>
 ```
 
-通过报告下载成功时：
+## 确定性与兼容边界
 
-```text
-Downloaded mission-package-0.diagnostics-policy.validation-report.txt with no validation issues.
-```
-
-下载失败时：
-
-```text
-Validation report download failed: <error message>
-```
-
-## 交互边界
-
-- `Download report` 使用 `type="button"`，不会触发 manifest artifact download。
-- Report download 使用浏览器 `Blob`、object URL 与 anchor download。
-- Object URL 始终在下载触发后释放。
-- Report 下载只读取 validation result，不修改 manifest textarea、selected target 或 editor policy。
-- Blocking validation errors 仍会阻止 JSON Patch、patched manifest 与 manifest artifact 创建，但不会阻止 failure report 下载。
-- 当前 report 是适合人工审阅的纯文本；结构化 JSON report 是下一项 checklist。
-- 当前 validation 聚焦 diagnostics policy authoring 所需的 manifest target 与 policy shape，不替代完整 large world manifest schema validation。
-- authoring document 只保存任务设计内容，不保存 player / agent / world object runtime state。
+- JSON report 不写入生成时间、随机 ID 或浏览器信息。
+- 同一 validation result 与 package target 会生成相同 document text。
+- issue 对象只包含 `severity`、`code`、`path` 和 `message`。
+- JSON document 不包含 source manifest 或 editor policy，避免把完整 authoring 内容复制到诊断报告。
+- `schemaVersion` 用于未来演进；当前消费者应校验 schema identifier 与 version。
+- Blocking validation errors 仍会阻止 JSON Patch、patched manifest 与 manifest artifact，但不会阻止 text / JSON failure report 下载。
+- JSON action 使用 `type="button"`，不会触发 manifest artifact download。
+- Object URL 在 anchor download 触发后释放。
+- 当前 JSON report 支持下载；直接复制 JSON 是下一项 checklist。
