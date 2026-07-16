@@ -8,6 +8,7 @@ import {
   validateRuntimeNavMissionDiagnosticsManifestAuthoringInput,
 } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 import type { RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
+import { createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportButton } from "./NavMissionDiagnosticsManifestHudValidationJsonReport.js";
 import {
   createRuntimeNavMissionDiagnosticsManifestHudValidationDetails,
   createRuntimeNavMissionDiagnosticsManifestHudValidationReportFilename,
@@ -97,6 +98,11 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
     onStatus: options.onStatus,
     reportFilename: createRuntimeNavMissionDiagnosticsManifestHudValidationReportFilename(options.packageIndex),
   });
+  const validationJsonReportButton = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportButton(
+    validation,
+    options.packageIndex,
+    { onStatus: options.onStatus },
+  );
   if (!validation.valid) {
     const validationText = formatRuntimeNavMissionDiagnosticsManifestAuthoringValidation(validation);
     preview.textContent = validationText;
@@ -121,8 +127,8 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
   button.append(label, preview);
   queueMicrotask(() => {
     const actions = button.parentElement;
-    if (!button.isConnected || !actions || validationDetails.isConnected) return;
-    actions.append(validationDetails);
+    if (!button.isConnected || !actions || validationDetails.isConnected || validationJsonReportButton.isConnected) return;
+    actions.append(validationDetails, validationJsonReportButton);
   });
   button.addEventListener("click", () => {
     try {
