@@ -1,44 +1,48 @@
-# Splat World Engine — Mission Diagnostics Policy Manifest Validation JSON Report Copy
+# Splat World Engine — Mission Diagnostics Policy Manifest Validation JSON Report Checksum
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.69 在 0.68 的 deterministic validation JSON report 之上，新增直接复制完整 JSON artifact 的 workflow：author 可以将与下载文件完全一致的 schema v1 JSON 粘贴到 issue、PR、聊天、CI 输入或外部诊断工具中。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.70 在 0.69 的 deterministic validation JSON copy workflow 之上，为 JSON artifact 增加 SHA-256 checksum：author 可以复制标准 checksum 文本，在 issue、PR、CI 或外部系统之间确认 report 内容是否完全一致。
 
 ```text
-Mission diagnostics validation JSON copy
+Mission diagnostics validation JSON checksum
   ├── deterministic JSON artifact
-  │   ├── schema identifier
-  │   ├── schemaVersion = 1
-  │   ├── target metadata
-  │   ├── summary counts
-  │   └── ordered issues
-  ├── copy workflow
   │   ├── exact artifact.text
-  │   ├── trailing newline preserved
-  │   ├── Clipboard API validation
-  │   └── optional onCopy callback
+  │   ├── UTF-8 bytes
+  │   └── trailing newline preserved
+  ├── checksum artifact
+  │   ├── SHA-256
+  │   ├── 64-character lowercase hex
+  │   ├── report filename
+  │   └── sha256sum-style text
   └── HUD actions
-      ├── Manifest validation details
       ├── Copy validation JSON
+      ├── Copy validation JSON checksum
       └── Download validation JSON
 ```
 
-## Runtime/Builder 0.69 能力
+## Runtime/Builder 0.70 能力
 
-- 新增 `src/large/NavMissionDiagnosticsManifestHudValidationJsonReportCopy.ts`。
-- 新增 `copyRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(artifact)`：
-  - 复制完整 `artifact.text`。
-  - 保留两个空格缩进和末尾换行。
-  - Clipboard API 不可用时抛出明确错误。
-- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportCopyButton(...)`：
-  - label：`Copy validation JSON`。
-  - preview 显示 filename、schema version、issue count 与 UTF-8 byte size。
-  - accessible label 包含完整 preview。
-  - 支持 `onCopy` 和 `onStatus` 回调。
-- Copy 与 Download 使用相同的 JSON artifact factory，因此相同 validation result 和 target 会产生完全相同的 JSON 文本。
-- validation passed、warnings-only、blocking-error 与非法 package target 均可复制。
-- HUD manifest actions 现在会依次挂载 validation details、JSON copy action 和 JSON download action。
-- sibling 挂载改为逐个检查并补挂；某个节点已连接不会阻止其他 action 挂载。
-- package version 更新为 `0.69.0`。
-- Runtime label 更新为 `runtime 0.69`。
+- 新增 `src/large/NavMissionDiagnosticsManifestHudValidationJsonReportChecksum.ts`。
+- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumArtifact(report, filename)`：
+  - 使用 Web Crypto `SHA-256`。
+  - 对完整 `artifact.text` 的 UTF-8 bytes 计算摘要。
+  - 保留 JSON indentation 与末尾换行对摘要的影响。
+  - 生成 64 位小写 hexadecimal digest。
+- Checksum text 使用兼容常见 checksum 工具的格式：
+
+```text
+<64-character sha256 hex>  <validation report filename>\n
+```
+
+- 新增 `copyRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumArtifact(checksum)`。
+- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumButton(...)`：
+  - label：`Copy validation JSON checksum`。
+  - 计算期间禁用按钮，防止重复提交。
+  - 计算成功后在 preview 中显示完整 SHA-256。
+  - 将 algorithm 与 digest 写入 `data-checksum-algorithm` 和 `data-checksum-hex`。
+  - 支持 `onCopy` 与 `onStatus` 回调。
+- validation passed、warnings-only、blocking-error 和非法 package target 均可以计算 checksum。
+- package version 更新为 `0.70.0`。
+- Runtime label 更新为 `runtime 0.70`。
 
 ## Checklist
 
@@ -62,7 +66,8 @@ Mission diagnostics validation JSON copy
 - [x] Mission diagnostics policy manifest validation report download workflow
 - [x] Mission diagnostics policy manifest validation JSON report workflow
 - [x] Mission diagnostics policy manifest validation JSON report copy workflow
-- [ ] Mission diagnostics policy manifest validation JSON report checksum workflow
+- [x] Mission diagnostics policy manifest validation JSON report checksum workflow
+- [ ] Mission diagnostics policy manifest validation JSON checksum download workflow
 
 ## 运行 Runtime
 
@@ -85,68 +90,88 @@ npm run build
 npm run preview
 ```
 
-## Copy artifact API
+## Checksum artifact API
 
 ```ts
 import {
-  copyRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact,
-} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReportCopy";
-import {
   createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact,
 } from "./large/NavMissionDiagnosticsManifestHudValidationJsonReport";
+import {
+  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumArtifact,
+} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReportChecksum";
 
-const artifact = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(
+const report = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(
   validation,
   packageIndex,
 );
 
-await copyRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(artifact);
+const checksum = await createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumArtifact(
+  report,
+);
 ```
 
-复制内容与下载文件完全一致：
+Checksum artifact：
 
-```json
+```ts
 {
-  "schema": "splat-world-engine/mission-diagnostics-policy-manifest-validation",
-  "schemaVersion": 1,
-  "target": {
-    "scope": "mission-package",
-    "packageIndex": 0,
-    "requestedPackageIndex": 0,
-    "path": "$.missionPackages[0].severityPolicy"
-  },
-  "valid": false,
-  "summary": {
-    "issueCount": 1,
-    "errors": 1,
-    "warnings": 0
-  },
-  "issues": [
-    {
-      "severity": "error",
-      "code": "mission_packages.not_array",
-      "path": "$.missionPackages",
-      "message": "missionPackages must be an array."
-    }
-  ]
+  filename: "mission-package-0.diagnostics-policy.validation-report.json.sha256",
+  mimeType: "text/plain;charset=utf-8",
+  algorithm: "SHA-256",
+  hex: "<64 lowercase hex characters>",
+  reportFilename: "mission-package-0.diagnostics-policy.validation-report.json",
+  reportBytes: 684,
+  text: "<hex>  mission-package-0.diagnostics-policy.validation-report.json\n",
+  bytes: 134,
 }
 ```
 
-Artifact text 使用两个空格缩进，并在最后一个 `}` 后保留一个换行字符。
+`reportBytes` 来自重新编码后的实际 `report.text`，因此 checksum 明确覆盖完整 JSON artifact，而不是 parsed document 或删去空白后的 JSON。
 
-## Copy button API
+## Checksum filename
+
+默认 checksum filename 在 report filename 后追加 `.sha256`：
+
+```text
+large-world-manifest.diagnostics-policy.validation-report.json.sha256
+mission-package-0.diagnostics-policy.validation-report.json.sha256
+mission-diagnostics-policy-manifest.invalid-target.validation-report.json.sha256
+```
+
+自定义 checksum filename 会进行安全归一化，并自动补充 `.sha256` 后缀。
+
+## Copy checksum API
 
 ```ts
 import {
-  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportCopyButton,
-} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReportCopy";
+  copyRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumArtifact,
+} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReportChecksum";
 
-const copyButton = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportCopyButton(
+await copyRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumArtifact(
+  checksum,
+);
+```
+
+复制内容示例：
+
+```text
+2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881  mission-package-0.diagnostics-policy.validation-report.json
+```
+
+文件名前使用两个空格，文本最后保留换行。
+
+## Checksum button API
+
+```ts
+import {
+  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumButton,
+} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReportChecksum";
+
+const button = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumButton(
   validation,
   packageIndex,
   {
-    onCopy: (artifact) => {
-      console.log(artifact.filename, artifact.bytes);
+    onCopy: (checksum, report) => {
+      console.log(checksum.hex, report.filename);
     },
     onStatus: (message) => {
       manifestStatus.textContent = message;
@@ -155,77 +180,57 @@ const copyButton = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonRe
 );
 ```
 
-`onCopy` 仅在 Clipboard 写入成功后调用，并接收已复制的完整 artifact。
+`onCopy` 仅在 SHA-256 计算和 Clipboard 写入都成功后调用。
 
 ## HUD integration
 
-`createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(options)` 会复用同一个 validation result 创建 copy 与 download action：
+`createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(options)` 会挂载：
 
 ```text
 manifest actions
   ├── Download manifest
   ├── ...
   ├── Manifest validation details
-  │   ├── Copy all issues
-  │   └── Download report
   ├── Copy validation JSON
-  │   └── filename · schema v1 · issue count · byte size
+  ├── Copy validation JSON checksum
+  │   └── checksum filename · SHA-256 · exact report byte size
   └── Download validation JSON
-      └── filename · schema v1 · issue count · byte size
 ```
 
-复制成功：
+按钮首次显示：
 
 ```text
-Copied mission-package-0.diagnostics-policy.validation-report.json with 2 validation issues.
+mission-package-0.diagnostics-policy.validation-report.json.sha256 · SHA-256 · exact 684 B JSON artifact
 ```
 
-Validation passed：
+计算并复制成功后，preview 显示完整 digest：
 
 ```text
-Copied mission-package-0.diagnostics-policy.validation-report.json with no validation issues.
+SHA-256 <64-character hex> · mission-package-0.diagnostics-policy.validation-report.json
 ```
 
-复制失败：
+Status 使用短 digest，避免占满 panel：
 
 ```text
-Validation JSON report copy failed: Clipboard API is unavailable.
+Copied SHA-256 2d711642b726… for mission-package-0.diagnostics-policy.validation-report.json.
 ```
 
-## Copy 与 download 一致性
-
-对相同的 `validation` 和 `packageIndex`：
-
-```ts
-const artifact = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportArtifact(
-  validation,
-  packageIndex,
-);
-```
-
-以下两个操作消费同一个字段：
+失败时：
 
 ```text
-Copy     -> navigator.clipboard.writeText(artifact.text)
-Download -> new Blob([artifact.text], { type: artifact.mimeType })
+Validation JSON report checksum failed: Web Crypto SHA-256 is unavailable.
+Validation JSON report checksum failed: Clipboard API is unavailable.
 ```
 
-因此复制内容和下载内容在以下方面保持一致：
+## 确定性与安全边界
 
-- schema identifier 与 version。
-- target scope、package index 和 JSON path。
-- valid 与 summary counts。
-- error-first issue 顺序。
-- JSON indentation。
-- trailing newline。
-
-## 交互与安全边界
-
-- Copy button 使用 `type="button"`，不会触发 manifest artifact download。
-- Clipboard workflow 依赖安全上下文中的浏览器 Clipboard API。
-- Clipboard API 不可用或拒绝写入时不会调用 `onCopy`。
-- Copy 不读取 source manifest text，也不会把 editor policy 内容附加到 report。
-- Copy 不修改 manifest textarea、selected target、editor policy 或 validation result。
-- JSON report 不包含时间戳、随机 ID 或浏览器信息，因此同一输入仍产生稳定文本。
-- Blocking validation errors 会阻止 manifest authoring artifact，但不会阻止 JSON failure report 的复制或下载。
-- 下一项将为 deterministic JSON report 增加 checksum，便于跨系统确认内容一致性。
+- SHA-256 输入是 `TextEncoder().encode(report.text)` 的完整结果。
+- JSON 空格、字段顺序、issue 顺序和末尾换行发生变化时 checksum 也会变化。
+- 相同 validation result、target 和 schema version 会产生相同 report text 与 checksum。
+- Checksum artifact 不包含 source manifest、editor policy、时间戳、随机 ID 或浏览器 metadata。
+- SHA-256 依赖安全上下文中的 Web Crypto API。
+- Copy 依赖安全上下文中的 Clipboard API。
+- Web Crypto 或 Clipboard API 不可用时不会调用 `onCopy`。
+- Checksum action 使用 `type="button"`，不会触发 manifest artifact download。
+- Blocking validation errors 不会阻止 failure report checksum 的计算和复制。
+- 当前 checksum 支持计算和复制；独立 `.sha256` 文件下载是下一项 checklist。
