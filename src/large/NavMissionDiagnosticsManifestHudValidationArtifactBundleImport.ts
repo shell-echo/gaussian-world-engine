@@ -1,6 +1,13 @@
 import {
+  createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionActions,
+  extractRuntimeNavMissionDiagnosticsManifestHudValidationArtifactsFromBundleText,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtraction.js";
+import type {
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
+  RuntimeNavMissionDiagnosticsManifestHudValidationExtractedArtifact,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtraction.js";
+import {
   formatRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerification,
-  verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleText,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleVerification.js";
 import type {
   RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationIssue,
@@ -28,6 +35,7 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
   file: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportFileMetadata;
   textBytes: number | null;
   verification: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationResult | null;
+  extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult | null;
   error: string | null;
 }
 
@@ -38,6 +46,17 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
 export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportControlOptions
   extends RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportOptions {
   onImport?: (result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportResult) => void;
+  onExtract?: (
+    extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
+    result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportResult,
+  ) => void;
+  onArtifactDownload?: (
+    artifact: RuntimeNavMissionDiagnosticsManifestHudValidationExtractedArtifact,
+    extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
+  ) => void;
+  onDownloadAll?: (
+    extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
+  ) => void;
   onStatus?: (message: string) => void;
 }
 
@@ -53,6 +72,7 @@ export async function importRuntimeNavMissionDiagnosticsManifestHudValidationArt
       file: metadata,
       textBytes: null,
       verification: null,
+      extraction: null,
       error: `Bundle file exceeds the ${formatByteSize(maxFileBytes)} import limit.`,
     };
   }
@@ -66,6 +86,7 @@ export async function importRuntimeNavMissionDiagnosticsManifestHudValidationArt
       file: metadata,
       textBytes: null,
       verification: null,
+      extraction: null,
       error: formatErrorMessage(error),
     };
   }
@@ -77,19 +98,28 @@ export async function importRuntimeNavMissionDiagnosticsManifestHudValidationArt
       file: metadata,
       textBytes,
       verification: null,
+      extraction: null,
       error: `Decoded bundle text exceeds the ${formatByteSize(maxFileBytes)} import limit.`,
     };
   }
 
   try {
-    const verification =
-      await verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleText(text);
+    const extraction =
+      await extractRuntimeNavMissionDiagnosticsManifestHudValidationArtifactsFromBundleText(text);
+    const verification = extraction.verification;
+    const status: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportStatus =
+      extraction.status === "extracted"
+        ? "verified"
+        : extraction.status === "verification-failed"
+          ? "verification-failed"
+          : "verification-error";
     return {
-      status: verification.valid ? "verified" : "verification-failed",
+      status,
       file: metadata,
       textBytes,
       verification,
-      error: null,
+      extraction,
+      error: status === "verification-error" ? extraction.error : null,
     };
   } catch (error) {
     return {
@@ -97,6 +127,7 @@ export async function importRuntimeNavMissionDiagnosticsManifestHudValidationArt
       file: metadata,
       textBytes,
       verification: null,
+      extraction: null,
       error: formatErrorMessage(error),
     };
   }
@@ -105,10 +136,10 @@ export async function importRuntimeNavMissionDiagnosticsManifestHudValidationArt
 export function formatRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportResult(
   result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportResult,
 ): string {
-  if (result.status === "verified" && result.verification) {
+  if (result.status === "verified" && result.verification && result.extraction) {
     return `Imported ${result.file.filename} · ${formatRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerification(
       result.verification,
-    )}`;
+    )} · ${result.extraction.artifactCount} artifacts ready for extraction`;
   }
   if (result.status === "verification-failed" && result.verification) {
     return `Imported ${result.file.filename} · verification failed · ${formatIssueCount(
@@ -206,12 +237,15 @@ async function handleBundleImport(
   try {
     const result = await importRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleFile(file, options);
     applyImportDataset(root, result);
-    renderImportResult(details, result);
+    renderImportResult(details, result, options);
     const summary = formatRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportResult(result);
     preview.textContent = createImportPreview(result);
     button.title = summary;
     button.setAttribute("aria-label", `Import and verify validation artifact bundle. ${summary}`);
     options.onImport?.(result);
+    if (result.extraction?.status === "extracted") {
+      options.onExtract?.(result.extraction, result);
+    }
     options.onStatus?.(createImportStatusMessage(result));
   } finally {
     button.disabled = false;
@@ -222,6 +256,7 @@ async function handleBundleImport(
 function renderImportResult(
   details: HTMLDetailsElement,
   result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportResult,
+  options: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportControlOptions,
 ): void {
   details.hidden = false;
   details.open = result.status !== "verified";
@@ -263,6 +298,25 @@ function renderImportResult(
     error.style.color = "#ffb4b4";
     error.style.overflowWrap = "anywhere";
     body.append(error);
+  }
+
+  if (result.extraction?.status === "extracted") {
+    body.append(
+      createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionActions(
+        result.extraction,
+        {
+          onArtifactDownload: options.onArtifactDownload,
+          onDownloadAll: options.onDownloadAll,
+          onStatus: options.onStatus,
+        },
+      ),
+    );
+  } else if (result.extraction?.error && result.status === "verification-error") {
+    const extractionError = document.createElement("small");
+    extractionError.textContent = `Artifact extraction unavailable: ${result.extraction.error}`;
+    extractionError.style.color = "#ffb4b4";
+    extractionError.style.overflowWrap = "anywhere";
+    body.append(extractionError);
   }
 
   details.replaceChildren(summary, body);
@@ -352,6 +406,15 @@ function applyImportDataset(
     delete root.dataset.bundleVerificationChecksumCount;
     delete root.dataset.bundleVerificationStatus;
   }
+  if (result.extraction) {
+    root.dataset.bundleExtractionStatus = result.extraction.status;
+    root.dataset.bundleExtractionArtifactCount = String(result.extraction.artifactCount);
+    root.dataset.bundleExtractionTotalBytes = String(result.extraction.totalBytes);
+  } else {
+    delete root.dataset.bundleExtractionStatus;
+    delete root.dataset.bundleExtractionArtifactCount;
+    delete root.dataset.bundleExtractionTotalBytes;
+  }
 }
 
 function createImportPreview(
@@ -359,7 +422,11 @@ function createImportPreview(
 ): string {
   if (result.verification) {
     const status = result.verification.bundleStatus ?? "unknown-status";
-    return `${result.file.filename} · ${result.status} · ${status} · ${result.verification.artifactCount} artifacts · ${formatByteSize(
+    const extraction =
+      result.extraction?.status === "extracted"
+        ? ` · ${result.extraction.artifactCount} artifacts ready`
+        : "";
+    return `${result.file.filename} · ${result.status} · ${status} · ${result.verification.artifactCount} artifacts${extraction} · ${formatByteSize(
       result.textBytes ?? result.file.bytes,
     )}`;
   }
@@ -369,8 +436,8 @@ function createImportPreview(
 function createImportStatusMessage(
   result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportResult,
 ): string {
-  if (result.status === "verified" && result.verification) {
-    return `Imported and verified validation artifact bundle ${result.file.filename} with ${result.verification.artifactCount} artifacts.`;
+  if (result.status === "verified" && result.verification && result.extraction) {
+    return `Imported and verified validation artifact bundle ${result.file.filename}; ${result.extraction.artifactCount} artifacts are ready for extraction.`;
   }
   if (result.status === "verification-failed" && result.verification) {
     return `Imported ${result.file.filename}; validation artifact bundle verification failed with ${formatIssueCount(
@@ -385,8 +452,8 @@ function createImportStatusMessage(
 function createDetailsSummary(
   result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportResult,
 ): string {
-  if (result.status === "verified" && result.verification) {
-    return `Imported bundle verification · passed · ${result.verification.artifactCount} artifacts`;
+  if (result.status === "verified" && result.verification && result.extraction) {
+    return `Imported bundle verification · passed · ${result.extraction.artifactCount} artifacts ready`;
   }
   if (result.status === "verification-failed" && result.verification) {
     return `Imported bundle verification · failed · ${formatIssueCount(result.verification.issues.length)}`;
