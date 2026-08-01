@@ -1,9 +1,9 @@
-# Splat World Engine — Mission Diagnostics Policy Manifest Validation JSON Report Checksum
+# Splat World Engine — Mission Diagnostics Policy Manifest Validation Checksum Download
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.70 在 0.69 的 deterministic validation JSON copy workflow 之上，为 JSON artifact 增加 SHA-256 checksum：author 可以复制标准 checksum 文本，在 issue、PR、CI 或外部系统之间确认 report 内容是否完全一致。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.71 在 0.70 的 deterministic validation JSON SHA-256 checksum 之上，增加独立 `.sha256` 文件下载：author 现在可以对同一份 JSON report 复制 checksum，也可以下载标准 checksum artifact，用于 issue、PR、CI、归档和跨系统完整性校验。
 
 ```text
-Mission diagnostics validation JSON checksum
+Mission diagnostics validation checksum download
   ├── deterministic JSON artifact
   │   ├── exact artifact.text
   │   ├── UTF-8 bytes
@@ -14,35 +14,36 @@ Mission diagnostics validation JSON checksum
   │   ├── report filename
   │   └── sha256sum-style text
   └── HUD actions
+      ├── Manifest validation details
       ├── Copy validation JSON
+      ├── Download validation JSON
       ├── Copy validation JSON checksum
-      └── Download validation JSON
+      └── Download validation JSON checksum
 ```
 
-## Runtime/Builder 0.70 能力
+## Runtime/Builder 0.71 能力
 
-- 新增 `src/large/NavMissionDiagnosticsManifestHudValidationJsonReportChecksum.ts`。
-- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumArtifact(report, filename)`：
-  - 使用 Web Crypto `SHA-256`。
-  - 对完整 `artifact.text` 的 UTF-8 bytes 计算摘要。
-  - 保留 JSON indentation 与末尾换行对摘要的影响。
-  - 生成 64 位小写 hexadecimal digest。
-- Checksum text 使用兼容常见 checksum 工具的格式：
-
-```text
-<64-character sha256 hex>  <validation report filename>\n
-```
-
-- 新增 `copyRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumArtifact(checksum)`。
-- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumButton(...)`：
-  - label：`Copy validation JSON checksum`。
-  - 计算期间禁用按钮，防止重复提交。
-  - 计算成功后在 preview 中显示完整 SHA-256。
-  - 将 algorithm 与 digest 写入 `data-checksum-algorithm` 和 `data-checksum-hex`。
-  - 支持 `onCopy` 与 `onStatus` 回调。
-- validation passed、warnings-only、blocking-error 和非法 package target 均可以计算 checksum。
-- package version 更新为 `0.70.0`。
-- Runtime label 更新为 `runtime 0.70`。
+- 新增 `src/large/NavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownload.ts`。
+- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownloadArtifact(checksum)`：
+  - 保留 checksum filename。
+  - 保留 `text/plain;charset=utf-8` MIME type。
+  - 保留完整 sha256sum-style checksum text。
+  - 保留 checksum artifact 与 byte size。
+- 新增 `downloadRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumArtifact(artifact)`：
+  - 使用浏览器 `Blob` 与 object URL。
+  - 通过 anchor download 下载 `.sha256` 文件。
+  - 下载触发后始终释放 object URL。
+- 新增 `createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownloadButton(...)`：
+  - label：`Download validation JSON checksum`。
+  - 点击时基于 exact JSON report bytes 重新计算 SHA-256。
+  - 计算期间禁用按钮。
+  - 成功后 preview 显示 checksum filename、algorithm 与完整 digest。
+  - 将 algorithm 与 digest 写入 `data-checksum-algorithm` / `data-checksum-hex`。
+  - 支持 `onDownload` 与 `onStatus` 回调。
+- validation passed、warnings-only、blocking-error 与非法 package target 均可下载 checksum。
+- JSON schema v1、JSON copy/download API、checksum copy API 与 manifest download 返回类型保持不变。
+- package version 更新为 `0.71.0`。
+- Runtime label 更新为 `runtime 0.71`。
 
 ## Checklist
 
@@ -67,7 +68,8 @@ Mission diagnostics validation JSON checksum
 - [x] Mission diagnostics policy manifest validation JSON report workflow
 - [x] Mission diagnostics policy manifest validation JSON report copy workflow
 - [x] Mission diagnostics policy manifest validation JSON report checksum workflow
-- [ ] Mission diagnostics policy manifest validation JSON checksum download workflow
+- [x] Mission diagnostics policy manifest validation JSON checksum download workflow
+- [ ] Mission diagnostics policy manifest validation artifact bundle workflow
 
 ## 运行 Runtime
 
@@ -125,62 +127,63 @@ Checksum artifact：
 }
 ```
 
-`reportBytes` 来自重新编码后的实际 `report.text`，因此 checksum 明确覆盖完整 JSON artifact，而不是 parsed document 或删去空白后的 JSON。
+`reportBytes` 来自 `TextEncoder().encode(report.text)`，因此 checksum 覆盖完整 JSON artifact，包括 indentation、字段顺序、issue 顺序与最后的换行。
 
-## Checksum filename
-
-默认 checksum filename 在 report filename 后追加 `.sha256`：
-
-```text
-large-world-manifest.diagnostics-policy.validation-report.json.sha256
-mission-package-0.diagnostics-policy.validation-report.json.sha256
-mission-diagnostics-policy-manifest.invalid-target.validation-report.json.sha256
-```
-
-自定义 checksum filename 会进行安全归一化，并自动补充 `.sha256` 后缀。
-
-## Copy checksum API
+## Checksum download API
 
 ```ts
 import {
-  copyRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumArtifact,
-} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReportChecksum";
+  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownloadArtifact,
+  downloadRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumArtifact,
+} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownload";
 
-await copyRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumArtifact(
-  checksum,
+const checksumDownload =
+  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownloadArtifact(
+    checksum,
+  );
+
+downloadRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumArtifact(
+  checksumDownload,
 );
 ```
 
-复制内容示例：
+下载文件：
+
+```text
+mission-package-0.diagnostics-policy.validation-report.json.sha256
+```
+
+内容保持标准 sha256sum 风格：
 
 ```text
 2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881  mission-package-0.diagnostics-policy.validation-report.json
 ```
 
-文件名前使用两个空格，文本最后保留换行。
+文件名前使用两个空格，最后保留换行。
 
-## Checksum button API
+## Checksum download button API
 
 ```ts
 import {
-  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumButton,
-} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReportChecksum";
+  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownloadButton,
+} from "./large/NavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownload";
 
-const button = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumButton(
-  validation,
-  packageIndex,
-  {
-    onCopy: (checksum, report) => {
-      console.log(checksum.hex, report.filename);
+const button =
+  createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownloadButton(
+    validation,
+    packageIndex,
+    {
+      onDownload: (artifact, report) => {
+        console.log(artifact.filename, artifact.checksum.hex, report.filename);
+      },
+      onStatus: (message) => {
+        manifestStatus.textContent = message;
+      },
     },
-    onStatus: (message) => {
-      manifestStatus.textContent = message;
-    },
-  },
-);
+  );
 ```
 
-`onCopy` 仅在 SHA-256 计算和 Clipboard 写入都成功后调用。
+`onDownload` 仅在 SHA-256 计算与浏览器 download trigger 都成功后调用。
 
 ## HUD integration
 
@@ -192,45 +195,43 @@ manifest actions
   ├── ...
   ├── Manifest validation details
   ├── Copy validation JSON
+  ├── Download validation JSON
   ├── Copy validation JSON checksum
-  │   └── checksum filename · SHA-256 · exact report byte size
-  └── Download validation JSON
+  └── Download validation JSON checksum
 ```
 
-按钮首次显示：
+Checksum download 初始 preview：
 
 ```text
-mission-package-0.diagnostics-policy.validation-report.json.sha256 · SHA-256 · exact 684 B JSON artifact
+SHA-256 · exact 684 B JSON artifact
 ```
 
-计算并复制成功后，preview 显示完整 digest：
+计算并下载成功后：
 
 ```text
-SHA-256 <64-character hex> · mission-package-0.diagnostics-policy.validation-report.json
+mission-package-0.diagnostics-policy.validation-report.json.sha256 · SHA-256 <64-character hex>
 ```
 
-Status 使用短 digest，避免占满 panel：
+Status：
 
 ```text
-Copied SHA-256 2d711642b726… for mission-package-0.diagnostics-policy.validation-report.json.
+Downloaded SHA-256 checksum mission-package-0.diagnostics-policy.validation-report.json.sha256.
 ```
 
-失败时：
+失败：
 
 ```text
-Validation JSON report checksum failed: Web Crypto SHA-256 is unavailable.
-Validation JSON report checksum failed: Clipboard API is unavailable.
+Validation JSON checksum download failed: Web Crypto SHA-256 is unavailable.
 ```
 
 ## 确定性与安全边界
 
-- SHA-256 输入是 `TextEncoder().encode(report.text)` 的完整结果。
-- JSON 空格、字段顺序、issue 顺序和末尾换行发生变化时 checksum 也会变化。
-- 相同 validation result、target 和 schema version 会产生相同 report text 与 checksum。
+- SHA-256 输入仍是完整 `report.text` UTF-8 bytes。
+- Copy checksum 与 Download checksum 使用同一个 checksum artifact factory。
+- 下载 checksum 不修改 JSON report、manifest textarea、selected target 或 editor policy。
 - Checksum artifact 不包含 source manifest、editor policy、时间戳、随机 ID 或浏览器 metadata。
 - SHA-256 依赖安全上下文中的 Web Crypto API。
-- Copy 依赖安全上下文中的 Clipboard API。
-- Web Crypto 或 Clipboard API 不可用时不会调用 `onCopy`。
-- Checksum action 使用 `type="button"`，不会触发 manifest artifact download。
-- Blocking validation errors 不会阻止 failure report checksum 的计算和复制。
-- 当前 checksum 支持计算和复制；独立 `.sha256` 文件下载是下一项 checklist。
+- Download 本身不依赖 Clipboard API。
+- Checksum download button 使用 `type="button"`，不会触发 manifest artifact download。
+- Blocking validation errors 不会阻止 failure report checksum 的计算、复制或下载。
+- 下一项将把 text report、JSON report 与 checksum 组织为统一 validation artifact bundle。

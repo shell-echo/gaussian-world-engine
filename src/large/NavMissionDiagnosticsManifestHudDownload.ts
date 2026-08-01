@@ -10,6 +10,7 @@ import {
 import type { RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 import { createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportButton } from "./NavMissionDiagnosticsManifestHudValidationJsonReport.js";
 import { createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumButton } from "./NavMissionDiagnosticsManifestHudValidationJsonReportChecksum.js";
+import { createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownloadButton } from "./NavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownload.js";
 import { createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportCopyButton } from "./NavMissionDiagnosticsManifestHudValidationJsonReportCopy.js";
 import {
   createRuntimeNavMissionDiagnosticsManifestHudValidationDetails,
@@ -105,15 +106,22 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
     options.packageIndex,
     { onStatus: options.onStatus },
   );
-  const validationJsonReportChecksumButton =
-    createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumButton(validation, options.packageIndex, {
-      onStatus: options.onStatus,
-    });
   const validationJsonReportDownloadButton = createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportButton(
     validation,
     options.packageIndex,
     { onStatus: options.onStatus },
   );
+  const validationJsonReportChecksumButton =
+    createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumButton(validation, options.packageIndex, {
+      onStatus: options.onStatus,
+    });
+  const validationJsonReportChecksumDownloadButton =
+    createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownloadButton(
+      validation,
+      options.packageIndex,
+      { onStatus: options.onStatus },
+    );
+
   if (!validation.valid) {
     const validationText = formatRuntimeNavMissionDiagnosticsManifestAuthoringValidation(validation);
     preview.textContent = validationText;
@@ -142,8 +150,9 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
     for (const element of [
       validationDetails,
       validationJsonReportCopyButton,
-      validationJsonReportChecksumButton,
       validationJsonReportDownloadButton,
+      validationJsonReportChecksumButton,
+      validationJsonReportChecksumDownloadButton,
     ]) {
       if (!element.isConnected) actions.append(element);
     }
