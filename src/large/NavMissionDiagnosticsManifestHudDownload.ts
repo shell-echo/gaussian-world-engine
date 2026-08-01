@@ -9,6 +9,7 @@ import {
 } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 import type { RuntimeNavMissionDiagnosticsManifestAuthoringValidationResult } from "./NavMissionDiagnosticsManifestAuthoringValidation.js";
 import { createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleButton } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundle.js";
+import { createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationButton } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleVerification.js";
 import { createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportButton } from "./NavMissionDiagnosticsManifestHudValidationJsonReport.js";
 import { createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumButton } from "./NavMissionDiagnosticsManifestHudValidationJsonReportChecksum.js";
 import { createRuntimeNavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownloadButton } from "./NavMissionDiagnosticsManifestHudValidationJsonReportChecksumDownload.js";
@@ -128,6 +129,12 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
       options.packageIndex,
       { onStatus: options.onStatus },
     );
+  const validationArtifactBundleVerificationButton =
+    createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationButton(
+      validation,
+      options.packageIndex,
+      { onStatus: options.onStatus },
+    );
 
   if (!validation.valid) {
     const validationText = formatRuntimeNavMissionDiagnosticsManifestAuthoringValidation(validation);
@@ -161,6 +168,7 @@ export function createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(
       validationJsonReportChecksumButton,
       validationJsonReportChecksumDownloadButton,
       validationArtifactBundleButton,
+      validationArtifactBundleVerificationButton,
     ]) {
       if (!element.isConnected) actions.append(element);
     }
