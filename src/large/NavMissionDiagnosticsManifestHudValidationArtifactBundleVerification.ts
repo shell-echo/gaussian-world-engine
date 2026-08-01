@@ -89,6 +89,8 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
 }
 
 type JsonRecord = Record<string, unknown>;
+type VerificationChecks = RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationResult["checks"];
+type VerificationIssue = RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationIssue;
 
 export async function verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleArtifact(
   artifact: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleArtifact,
@@ -99,8 +101,8 @@ export async function verifyRuntimeNavMissionDiagnosticsManifestHudValidationArt
 export async function verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleText(
   text: string,
 ): Promise<RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationResult> {
-  const issues: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationIssue[] = [];
-  const checks = {
+  const issues: VerificationIssue[] = [];
+  const checks: VerificationChecks = {
     canonicalBundleText: false,
     artifactOrder: false,
     byteSizesVerified: 0,
@@ -117,14 +119,12 @@ export async function verifyRuntimeNavMissionDiagnosticsManifestHudValidationArt
     addIssue(issues, "invalid-json", "$", `Bundle text is not valid JSON: ${message}`);
     return createVerificationResult(null, issues, checks);
   }
-
   if (!isRecord(parsed)) {
     addIssue(issues, "invalid-root", "$", "Bundle document root must be a JSON object.");
     return createVerificationResult(null, issues, checks);
   }
 
-  const canonicalText = `${JSON.stringify(parsed, null, 2)}\n`;
-  checks.canonicalBundleText = canonicalText === text;
+  checks.canonicalBundleText = `${JSON.stringify(parsed, null, 2)}\n` === text;
   if (!checks.canonicalBundleText) {
     addIssue(
       issues,
@@ -134,81 +134,23 @@ export async function verifyRuntimeNavMissionDiagnosticsManifestHudValidationArt
     );
   }
 
-  const schema = typeof parsed.schema === "string" ? parsed.schema : null;
-  const schemaVersion = typeof parsed.schemaVersion === "number" ? parsed.schemaVersion : null;
-  const status = typeof parsed.status === "string" ? parsed.status : null;
-  if (schema !== RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_SCHEMA) {
+  verifyDescriptorMetadata(parsed, issues);
+  verifySummaryAndStatus(parsed, issues);
+
+  const artifacts = Array.isArray(parsed.artifacts) ? parsed.artifacts : [];
+  const declaredArtifactCount = isRecord(parsed.summary)
+    ? readNonNegativeInteger(parsed.summary.artifactCount)
+    : null;
+  if (declaredArtifactCount !== artifacts.length || artifacts.length !== 3) {
     addIssue(
       issues,
-      "schema-mismatch",
-      "$.schema",
-      `Expected bundle schema ${RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_SCHEMA}.`,
-    );
-  }
-  if (schemaVersion !== RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_SCHEMA_VERSION) {
-    addIssue(
-      issues,
-      "schema-version-mismatch",
-      "$.schemaVersion",
-      `Expected bundle schema version ${RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_SCHEMA_VERSION}.`,
+      "artifact-count-mismatch",
+      "$.summary.artifactCount",
+      "Bundle must declare and contain exactly three validation artifacts.",
     );
   }
 
-  const target = isRecord(parsed.target) ? parsed.target : null;
-  const targetScope = target && isTargetScope(target.scope) ? target.scope : null;
-  if (!target || !validateTarget(target)) {
-    addIssue(issues, "target-invalid", "$.target", "Bundle target metadata is incomplete or inconsistent.");
-  }
-
-  if (!isBundleStatus(parsed.status)) {
-    addIssue(issues, "status-invalid", "$.status", "Bundle status is not a supported validation artifact status.");
-  }
-  if (typeof parsed.valid !== "boolean") {
-    addIssue(issues, "validity-invalid", "$.valid", "Bundle valid must be a boolean.");
-  }
-
-  const summary = isRecord(parsed.summary) ? parsed.summary : null;
-  const issueCount = summary ? readNonNegativeInteger(summary.issueCount) : null;
-  const errors = summary ? readNonNegativeInteger(summary.errors) : null;
-  const warnings = summary ? readNonNegativeInteger(summary.warnings) : null;
-  const declaredArtifactCount = summary ? readNonNegativeInteger(summary.artifactCount) : null;
-  if (issueCount === null || errors === null || warnings === null || declaredArtifactCount === null) {
-    addIssue(issues, "summary-invalid", "$.summary", "Bundle summary fields must be non-negative integers.");
-  } else {
-    if (issueCount !== errors + warnings) {
-      addIssue(
-        issues,
-        "summary-mismatch",
-        "$.summary.issueCount",
-        "Bundle issueCount must equal errors plus warnings.",
-      );
-    }
-    if (typeof parsed.valid === "boolean" && parsed.valid !== (errors === 0)) {
-      addIssue(
-        issues,
-        "validity-mismatch",
-        "$.valid",
-        "Bundle valid must be true exactly when the error count is zero.",
-      );
-    }
-    const expectedStatus = createExpectedStatus(targetScope, parsed.valid, warnings);
-    if (expectedStatus && parsed.status !== expectedStatus) {
-      addIssue(
-        issues,
-        "status-mismatch",
-        "$.status",
-        `Bundle status must be ${expectedStatus} for the declared target and summary.`,
-      );
-    }
-  }
-
-  const artifactOrder = Array.isArray(parsed.artifactOrder) ? parsed.artifactOrder : null;
-  checks.artifactOrder =
-    artifactOrder !== null &&
-    artifactOrder.length === RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_ORDER.length &&
-    artifactOrder.every(
-      (kind, index) => kind === RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_ORDER[index],
-    );
+  checks.artifactOrder = verifyArtifactOrder(parsed.artifactOrder);
   if (!checks.artifactOrder) {
     addIssue(
       issues,
@@ -220,127 +162,31 @@ export async function verifyRuntimeNavMissionDiagnosticsManifestHudValidationArt
     );
   }
 
-  const artifacts = Array.isArray(parsed.artifacts) ? parsed.artifacts : [];
-  if (declaredArtifactCount !== artifacts.length || artifacts.length !== 3) {
-    addIssue(
-      issues,
-      "artifact-count-mismatch",
-      "$.summary.artifactCount",
-      "Bundle must declare and contain exactly three validation artifacts.",
-    );
-  }
-
-  const seenFilenames = new Set<string>();
-  const artifactRecords: JsonRecord[] = [];
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle?.digest) {
+  const cryptoAvailable = Boolean(globalThis.crypto?.subtle);
+  if (!cryptoAvailable) {
     addIssue(issues, "crypto-unavailable", "$", "Web Crypto SHA-256 is unavailable for bundle verification.");
   }
 
+  const artifactRecords: JsonRecord[] = [];
+  const seenFilenames = new Set<string>();
   for (let index = 0; index < artifacts.length; index += 1) {
-    const path = `$.artifacts[${index}]`;
     const artifact = artifacts[index];
+    const path = `$.artifacts[${index}]`;
     if (!isRecord(artifact)) {
       addIssue(issues, "artifact-invalid", path, "Bundle artifact entry must be a JSON object.");
       continue;
     }
     artifactRecords.push(artifact);
-
-    const expectedKind = RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_ORDER[index];
-    if (!expectedKind || artifact.kind !== expectedKind) {
-      addIssue(
-        issues,
-        "artifact-kind-mismatch",
-        `${path}.kind`,
-        expectedKind ? `Artifact at index ${index} must be ${expectedKind}.` : "Bundle contains an unexpected artifact.",
-      );
-    }
-
-    const filename = typeof artifact.filename === "string" ? artifact.filename : null;
-    if (!filename || !/^[a-zA-Z0-9._-]+$/.test(filename)) {
-      addIssue(
-        issues,
-        "artifact-filename-invalid",
-        `${path}.filename`,
-        "Artifact filename must be a non-empty safe basename.",
-      );
-    } else if (seenFilenames.has(filename)) {
-      addIssue(issues, "artifact-filename-duplicate", `${path}.filename`, `Duplicate artifact filename ${filename}.`);
-    } else {
-      seenFilenames.add(filename);
-    }
-
-    const expectedMimeType = expectedKind ? expectedArtifactMimeType(expectedKind) : null;
-    if (expectedMimeType && artifact.mimeType !== expectedMimeType) {
-      addIssue(
-        issues,
-        "artifact-mime-type-mismatch",
-        `${path}.mimeType`,
-        `Artifact ${expectedKind} must use MIME type ${expectedMimeType}.`,
-      );
-    }
-
-    const artifactText = typeof artifact.text === "string" ? artifact.text : null;
-    const declaredBytes = readNonNegativeInteger(artifact.bytes);
-    if (artifactText === null || declaredBytes === null) {
-      addIssue(
-        issues,
-        "artifact-byte-size-mismatch",
-        `${path}.bytes`,
-        "Artifact text and non-negative UTF-8 byte size are required.",
-      );
-    } else {
-      const actualBytes = new TextEncoder().encode(artifactText).byteLength;
-      if (actualBytes !== declaredBytes) {
-        addIssue(
-          issues,
-          "artifact-byte-size-mismatch",
-          `${path}.bytes`,
-          `Declared byte size ${declaredBytes} does not match exact UTF-8 byte size ${actualBytes}.`,
-        );
-      } else {
-        checks.byteSizesVerified += 1;
-      }
-    }
-
-    const checksum = isRecord(artifact.checksum) ? artifact.checksum : null;
-    const checksumHex = checksum && typeof checksum.hex === "string" ? checksum.hex : null;
-    const checksumMetadataValid =
-      checksum?.algorithm === RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_JSON_REPORT_CHECKSUM_ALGORITHM &&
-      checksum.input === "artifact-text-utf8" &&
-      checksumHex !== null &&
-      /^[0-9a-f]{64}$/.test(checksumHex);
-    if (!checksumMetadataValid) {
-      addIssue(
-        issues,
-        "artifact-checksum-invalid",
-        `${path}.checksum`,
-        "Artifact checksum must be SHA-256 over artifact-text-utf8 with 64 lowercase hexadecimal characters.",
-      );
-    } else if (artifactText !== null && subtle?.digest) {
-      const actualHex = await createSha256Hex(artifactText);
-      if (actualHex !== checksumHex) {
-        addIssue(
-          issues,
-          "artifact-checksum-mismatch",
-          `${path}.checksum.hex`,
-          `Artifact checksum does not match the exact UTF-8 bytes of ${filename ?? expectedKind ?? "artifact"}.`,
-        );
-      } else {
-        checks.checksumsVerified += 1;
-      }
-    }
+    await verifyArtifactEntry(artifact, index, path, seenFilenames, cryptoAvailable, issues, checks);
   }
 
   verifyChecksumRelationship(artifactRecords, issues, checks);
   checks.jsonReportMetadataVerified = verifyJsonReportMetadata(parsed, artifactRecords, issues);
 
   const result = createVerificationResult(parsed, issues, checks);
-  result.bundleSchema = schema;
-  result.bundleSchemaVersion = schemaVersion;
-  result.bundleStatus = status;
-  result.artifactCount = artifacts.length;
-  if (result.valid) result.document = parsed as unknown as RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleDocument;
+  if (result.valid) {
+    result.document = parsed as unknown as RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleDocument;
+  }
   return result;
 }
 
@@ -431,10 +277,158 @@ async function verifyValidationArtifactBundle(
   }
 }
 
+function verifyDescriptorMetadata(bundle: JsonRecord, issues: VerificationIssue[]): void {
+  if (bundle.schema !== RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_SCHEMA) {
+    addIssue(
+      issues,
+      "schema-mismatch",
+      "$.schema",
+      `Expected bundle schema ${RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_SCHEMA}.`,
+    );
+  }
+  if (bundle.schemaVersion !== RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_SCHEMA_VERSION) {
+    addIssue(
+      issues,
+      "schema-version-mismatch",
+      "$.schemaVersion",
+      `Expected bundle schema version ${RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_SCHEMA_VERSION}.`,
+    );
+  }
+  if (!isRecord(bundle.target) || !validateTarget(bundle.target)) {
+    addIssue(issues, "target-invalid", "$.target", "Bundle target metadata is incomplete or inconsistent.");
+  }
+  if (!isBundleStatus(bundle.status)) {
+    addIssue(issues, "status-invalid", "$.status", "Bundle status is not a supported validation artifact status.");
+  }
+  if (typeof bundle.valid !== "boolean") {
+    addIssue(issues, "validity-invalid", "$.valid", "Bundle valid must be a boolean.");
+  }
+}
+
+function verifySummaryAndStatus(bundle: JsonRecord, issues: VerificationIssue[]): void {
+  if (!isRecord(bundle.summary)) {
+    addIssue(issues, "summary-invalid", "$.summary", "Bundle summary must be a JSON object.");
+    return;
+  }
+  const issueCount = readNonNegativeInteger(bundle.summary.issueCount);
+  const errors = readNonNegativeInteger(bundle.summary.errors);
+  const warnings = readNonNegativeInteger(bundle.summary.warnings);
+  const artifactCount = readNonNegativeInteger(bundle.summary.artifactCount);
+  if (issueCount === null || errors === null || warnings === null || artifactCount === null) {
+    addIssue(issues, "summary-invalid", "$.summary", "Bundle summary fields must be non-negative integers.");
+    return;
+  }
+  if (issueCount !== errors + warnings) {
+    addIssue(issues, "summary-mismatch", "$.summary.issueCount", "Bundle issueCount must equal errors plus warnings.");
+  }
+  if (typeof bundle.valid === "boolean" && bundle.valid !== (errors === 0)) {
+    addIssue(issues, "validity-mismatch", "$.valid", "Bundle valid must be true exactly when errors is zero.");
+  }
+  const scope = isRecord(bundle.target) && isTargetScope(bundle.target.scope) ? bundle.target.scope : null;
+  const expectedStatus = createExpectedStatus(scope, bundle.valid, warnings);
+  if (expectedStatus && bundle.status !== expectedStatus) {
+    addIssue(
+      issues,
+      "status-mismatch",
+      "$.status",
+      `Bundle status must be ${expectedStatus} for the declared target and summary.`,
+    );
+  }
+}
+
+async function verifyArtifactEntry(
+  artifact: JsonRecord,
+  index: number,
+  path: string,
+  seenFilenames: Set<string>,
+  cryptoAvailable: boolean,
+  issues: VerificationIssue[],
+  checks: VerificationChecks,
+): Promise<void> {
+  const expectedKind = RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_ORDER[index];
+  if (!expectedKind || artifact.kind !== expectedKind) {
+    addIssue(
+      issues,
+      "artifact-kind-mismatch",
+      `${path}.kind`,
+      expectedKind ? `Artifact at index ${index} must be ${expectedKind}.` : "Bundle contains an unexpected artifact.",
+    );
+  }
+
+  const filename = typeof artifact.filename === "string" ? artifact.filename : null;
+  if (!filename || !/^[a-zA-Z0-9._-]+$/.test(filename)) {
+    addIssue(issues, "artifact-filename-invalid", `${path}.filename`, "Artifact filename must be a safe basename.");
+  } else if (seenFilenames.has(filename)) {
+    addIssue(issues, "artifact-filename-duplicate", `${path}.filename`, `Duplicate artifact filename ${filename}.`);
+  } else {
+    seenFilenames.add(filename);
+  }
+
+  if (expectedKind && artifact.mimeType !== expectedArtifactMimeType(expectedKind)) {
+    addIssue(
+      issues,
+      "artifact-mime-type-mismatch",
+      `${path}.mimeType`,
+      `Artifact ${expectedKind} must use MIME type ${expectedArtifactMimeType(expectedKind)}.`,
+    );
+  }
+
+  const artifactText = typeof artifact.text === "string" ? artifact.text : null;
+  const declaredBytes = readNonNegativeInteger(artifact.bytes);
+  if (artifactText === null || declaredBytes === null) {
+    addIssue(
+      issues,
+      "artifact-byte-size-mismatch",
+      `${path}.bytes`,
+      "Artifact text and non-negative UTF-8 byte size are required.",
+    );
+  } else {
+    const actualBytes = new TextEncoder().encode(artifactText).byteLength;
+    if (actualBytes !== declaredBytes) {
+      addIssue(
+        issues,
+        "artifact-byte-size-mismatch",
+        `${path}.bytes`,
+        `Declared byte size ${declaredBytes} does not match exact UTF-8 byte size ${actualBytes}.`,
+      );
+    } else {
+      checks.byteSizesVerified += 1;
+    }
+  }
+
+  const checksum = isRecord(artifact.checksum) ? artifact.checksum : null;
+  const checksumHex = checksum && typeof checksum.hex === "string" ? checksum.hex : null;
+  const checksumMetadataValid =
+    checksum?.algorithm === RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_JSON_REPORT_CHECKSUM_ALGORITHM &&
+    checksum.input === "artifact-text-utf8" &&
+    checksumHex !== null &&
+    /^[0-9a-f]{64}$/.test(checksumHex);
+  if (!checksumMetadataValid) {
+    addIssue(
+      issues,
+      "artifact-checksum-invalid",
+      `${path}.checksum`,
+      "Artifact checksum must be SHA-256 over artifact-text-utf8 with 64 lowercase hexadecimal characters.",
+    );
+  } else if (artifactText !== null && cryptoAvailable) {
+    const actualHex = await createSha256Hex(artifactText);
+    if (actualHex !== checksumHex) {
+      addIssue(
+        issues,
+        "artifact-checksum-mismatch",
+        `${path}.checksum.hex`,
+        `Artifact checksum does not match the exact UTF-8 bytes of ${filename ?? expectedKind ?? "artifact"}.`,
+      );
+    } else {
+      checks.checksumsVerified += 1;
+    }
+  }
+}
+
 function verifyChecksumRelationship(
   artifacts: JsonRecord[],
-  issues: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationIssue[],
-  checks: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationResult["checks"],
+  issues: VerificationIssue[],
+  checks: VerificationChecks,
 ): void {
   const jsonReport = artifacts.find((artifact) => artifact.kind === "validation-report-json");
   const checksumArtifact = artifacts.find((artifact) => artifact.kind === "validation-report-json-sha256");
@@ -453,14 +447,14 @@ function verifyChecksumRelationship(
     return;
   }
 
-  const relationshipMatches =
-    verifies.relation === "checksum-for" &&
-    verifies.filename === jsonReport.filename &&
-    verifies.bytes === jsonReport.bytes &&
-    verifiesChecksum.algorithm === jsonChecksum?.algorithm &&
-    verifiesChecksum.input === jsonChecksum?.input &&
-    verifiesChecksum.hex === jsonChecksum?.hex;
-  if (!relationshipMatches) {
+  if (
+    verifies.relation !== "checksum-for" ||
+    verifies.filename !== jsonReport.filename ||
+    verifies.bytes !== jsonReport.bytes ||
+    verifiesChecksum.algorithm !== jsonChecksum?.algorithm ||
+    verifiesChecksum.input !== jsonChecksum?.input ||
+    verifiesChecksum.hex !== jsonChecksum?.hex
+  ) {
     addIssue(
       issues,
       "checksum-reference-mismatch",
@@ -471,11 +465,11 @@ function verifyChecksumRelationship(
     checks.checksumRelationshipsVerified += 1;
   }
 
-  const expectedChecksumText =
+  const expectedText =
     typeof jsonChecksum?.hex === "string" && typeof jsonReport.filename === "string"
       ? `${jsonChecksum.hex}  ${jsonReport.filename}\n`
       : null;
-  if (expectedChecksumText === null || checksumArtifact.text !== expectedChecksumText) {
+  if (expectedText === null || checksumArtifact.text !== expectedText) {
     addIssue(
       issues,
       "checksum-text-mismatch",
@@ -488,7 +482,7 @@ function verifyChecksumRelationship(
 function verifyJsonReportMetadata(
   bundle: JsonRecord,
   artifacts: JsonRecord[],
-  issues: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationIssue[],
+  issues: VerificationIssue[],
 ): boolean {
   const jsonReport = artifacts.find((artifact) => artifact.kind === "validation-report-json");
   if (!jsonReport || typeof jsonReport.text !== "string") return false;
@@ -508,7 +502,7 @@ function verifyJsonReportMetadata(
 
   const reportSummary = isRecord(report.summary) ? report.summary : null;
   const bundleSummary = isRecord(bundle.summary) ? bundle.summary : null;
-  const metadataMatches =
+  const matches =
     report.schema === RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_JSON_REPORT_SCHEMA &&
     report.schemaVersion === RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_JSON_REPORT_SCHEMA_VERSION &&
     sameJsonValue(report.target, bundle.target) &&
@@ -520,7 +514,7 @@ function verifyJsonReportMetadata(
     reportSummary.warnings === bundleSummary.warnings &&
     Array.isArray(report.issues) &&
     report.issues.length === reportSummary.issueCount;
-  if (!metadataMatches) {
+  if (!matches) {
     addIssue(
       issues,
       "json-report-mismatch",
@@ -528,13 +522,13 @@ function verifyJsonReportMetadata(
       "Embedded JSON report schema, target, validity, summary, and issue count must match the bundle descriptor.",
     );
   }
-  return metadataMatches;
+  return matches;
 }
 
 function createVerificationResult(
   document: JsonRecord | null,
-  issues: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationIssue[],
-  checks: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationResult["checks"],
+  issues: VerificationIssue[],
+  checks: VerificationChecks,
 ): RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationResult {
   return {
     valid: issues.length === 0,
@@ -546,6 +540,16 @@ function createVerificationResult(
     checks,
     document: null,
   };
+}
+
+function verifyArtifactOrder(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length === RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_ORDER.length &&
+    value.every(
+      (kind, index) => kind === RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_ORDER[index],
+    )
+  );
 }
 
 function createExpectedStatus(
@@ -566,8 +570,8 @@ function validateTarget(target: JsonRecord): boolean {
   if (target.scope === "manifest") return target.packageIndex === null && target.path === "$.severityPolicy";
   if (target.scope === "mission-package") {
     return (
-      Number.isInteger(target.packageIndex) &&
       typeof target.packageIndex === "number" &&
+      Number.isInteger(target.packageIndex) &&
       target.packageIndex >= 0 &&
       target.path === `$.missionPackages[${target.packageIndex}].severityPolicy`
     );
@@ -583,7 +587,7 @@ function expectedArtifactMimeType(
 
 async function createSha256Hex(text: string): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
-  if (!subtle?.digest) throw new Error("Web Crypto SHA-256 is unavailable.");
+  if (!subtle) throw new Error("Web Crypto SHA-256 is unavailable.");
   const digest = await subtle.digest(
     RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_JSON_REPORT_CHECKSUM_ALGORITHM,
     new TextEncoder().encode(text),
@@ -612,7 +616,7 @@ function sameJsonValue(left: unknown, right: unknown): boolean {
 }
 
 function addIssue(
-  issues: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationIssue[],
+  issues: VerificationIssue[],
   code: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleVerificationIssueCode,
   path: string,
   message: string,
