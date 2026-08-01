@@ -2,6 +2,14 @@ import type {
   RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleEntryKind,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundle.js";
 import {
+  createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive,
+  createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveButton,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive.js";
+import type {
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveArtifact,
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveResult,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive.js";
+import {
   RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_ORDER,
   verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleText,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleVerification.js";
@@ -41,6 +49,14 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
   ) => void;
   onDownloadAll?: (
     extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
+  ) => void;
+  onArchive?: (
+    archive: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveResult,
+    extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
+  ) => void;
+  onArchiveDownload?: (
+    artifact: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveArtifact,
+    archive: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveResult,
   ) => void;
   onStatus?: (message: string) => void;
 }
@@ -175,6 +191,7 @@ export function createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactB
   root.dataset.bundleExtractionStatus = extraction.status;
   root.dataset.bundleExtractionArtifactCount = String(extraction.artifactCount);
   root.dataset.bundleExtractionTotalBytes = String(extraction.totalBytes);
+  root.dataset.bundleExtractionArchiveStatus = "preparing";
   Object.assign(root.style, {
     display: "grid",
     gap: "5px",
@@ -191,6 +208,13 @@ export function createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactB
     lineHeight: "1.35",
     overflowWrap: "anywhere",
   });
+
+  const archive = document.createElement("div");
+  archive.dataset.bundleExtractionArchiveContainer = "true";
+  const archivePreparing = document.createElement("small");
+  archivePreparing.textContent = "Preparing deterministic verified artifacts ZIP…";
+  archivePreparing.style.opacity = "0.66";
+  archive.append(archivePreparing);
 
   const downloadAll = createExtractionButton(
     "Download all verified artifacts",
@@ -239,8 +263,60 @@ export function createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactB
     artifacts.append(button);
   }
 
-  root.append(heading, downloadAll, artifacts);
+  root.append(heading, archive, downloadAll, artifacts);
+  void prepareExtractionArchive(root, archive, extraction, options);
   return root;
+}
+
+async function prepareExtractionArchive(
+  root: HTMLElement,
+  container: HTMLElement,
+  extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
+  options: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionActionsOptions,
+): Promise<void> {
+  const result =
+    await createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive(extraction);
+  root.dataset.bundleExtractionArchiveStatus = result.status;
+  options.onArchive?.(result, extraction);
+  if (result.status !== "created" || !result.artifact) {
+    delete root.dataset.bundleExtractionArchiveFilename;
+    delete root.dataset.bundleExtractionArchiveBytes;
+    delete root.dataset.bundleExtractionArchiveEntryCount;
+    delete root.dataset.bundleExtractionArchiveChecksum;
+    const error = document.createElement("small");
+    error.textContent = `Verified artifact ZIP unavailable: ${result.error ?? "Unknown archive failure."}`;
+    error.style.color = "#ffb4b4";
+    error.style.overflowWrap = "anywhere";
+    container.replaceChildren(error);
+    return;
+  }
+
+  const artifact = result.artifact;
+  root.dataset.bundleExtractionArchiveFilename = artifact.filename;
+  root.dataset.bundleExtractionArchiveBytes = String(artifact.bytes);
+  root.dataset.bundleExtractionArchiveEntryCount = String(artifact.entryCount);
+  root.dataset.bundleExtractionArchiveChecksum = artifact.checksumHex;
+
+  const archiveHeading = document.createElement("small");
+  archiveHeading.textContent = `Deterministic ZIP archive · ${artifact.entryCount} entries · ${formatByteSize(
+    artifact.bytes,
+  )}`;
+  Object.assign(archiveHeading.style, {
+    display: "block",
+    marginBottom: "4px",
+    fontWeight: "750",
+    lineHeight: "1.35",
+    overflowWrap: "anywhere",
+  });
+  const button =
+    createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveButton(
+      result,
+      {
+        onDownload: options.onArchiveDownload,
+        onStatus: options.onStatus,
+      },
+    );
+  container.replaceChildren(archiveHeading, button);
 }
 
 function createExtractionFailure(
