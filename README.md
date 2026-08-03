@@ -1,93 +1,128 @@
-# Splat World Engine — Mission Diagnostics Verified Extraction Archive
+# Splat World Engine — Mission Diagnostics Verified Extraction Archive Verification
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.76 在 0.75 的 verified artifact extraction 之上增加确定性 ZIP archive workflow：只有完整通过 bundle verifier 并成功提取的 validation text report、JSON report 与 JSON SHA-256 artifact，才可以被打包为标准 ZIP。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.77 在 0.76 的确定性 ZIP archive 之上补齐反向解析与验证闭环：Runtime、Builder 或 CI 可以直接读取 ZIP bytes，重新检查 EOCD、central directory、local headers、固定 metadata、entry 顺序、CRC-32、entry SHA-256 与整个 archive SHA-256，而不是信任 archive creator 返回的 metadata。
 
 ```text
 External validation artifact bundle
-  ├── bounded local file import
-  ├── exact-text verification
+  ├── exact-text bundle verification
   ├── verified artifact extraction
-  │   ├── validation report text
-  │   ├── validation report JSON
-  │   └── validation report JSON SHA-256
-  └── deterministic ZIP archive
+  ├── deterministic ZIP archive creation
+  └── ZIP archive verification
+      ├── EOCD
+      ├── central directory
+      ├── local file headers
       ├── fixed entry order
-      ├── ZIP Store, no compression
-      ├── UTF-8 filenames
+      ├── UTF-8 flag + Store method
       ├── fixed DOS timestamp
+      ├── offsets + byte sizes
       ├── per-entry CRC-32
-      └── archive SHA-256
+      ├── per-entry SHA-256
+      └── complete archive SHA-256
 ```
 
-## Runtime/Builder 0.76 能力
+## Runtime/Builder 0.77 能力
 
 新增：
 
 ```text
-src/large/NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive.ts
+src/large/
+└── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerification.ts
 ```
 
-### Archive API
+### Typed archive verification
 
 ```ts
-createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive(
+verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveArtifact(
+  artifact,
   extraction,
+)
+```
+
+该入口验证 0.76 创建的 typed archive artifact，并同时核对：
+
+- `filename`
+- `mimeType`
+- declared archive byte size
+- declared archive SHA-256
+- declared entry count
+- declared total uncompressed bytes
+- declared entry filename、bytes、CRC-32 与 artifact SHA-256
+- 原始 verified extraction 中的 exact artifact text、filename、bytes 与 SHA-256
+
+### Raw ZIP bytes verification
+
+```ts
+verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveBytes(
+  data,
   options,
 )
 ```
 
-该 API 只接受 `status: "extracted"` 的可信 extraction result。未经验证、验证失败、document 不可用或 artifact set 不完整的输入不会产生 ZIP bytes。
+`data` 是任意 `Uint8Array`。该入口不会要求 bytes 来自 archive creator，可供：
 
-返回状态：
+- Runtime 外部 ZIP 文件导入
+- Builder verification
+- CI artifact verification
+- Remote artifact service
+- 测试损坏或篡改样本
 
-```text
-created
-extraction-unavailable
-filename-invalid
-zip64-required
-crypto-unavailable
-archive-error
-```
-
-成功 artifact：
+可选 expected metadata：
 
 ```ts
 {
-  filename,
-  mimeType: "application/zip",
-  bytes,
-  checksumHex,
-  entryCount: 3,
-  totalUncompressedBytes,
-  compressionMethod: "store",
-  fixedTimestamp: "1980-01-01T00:00:00",
-  entries: [
-    {
-      kind,
-      filename,
-      bytes,
-      crc32Hex,
-      checksumHex,
-    },
-  ],
-  data: Uint8Array,
+  expectedExtraction,
+  expectedFilename,
+  expectedArchiveBytes,
+  expectedArchiveChecksumHex,
+  declaredEntries,
+  declaredEntryCount,
+  declaredTotalUncompressedBytes,
+  declaredMimeType,
+  declaredCompressionMethod,
+  declaredFixedTimestamp,
 }
 ```
 
-### Deterministic ZIP contract
+## ZIP parser 验证范围
 
-Archive 使用标准 ZIP32 结构：
+### EOCD
+
+- 从 ZIP 末尾向前搜索 EOCD signature。
+- 验证 single-disk archive。
+- 验证 disk entry count 与 total entry count 一致。
+- 验证 archive comment length 为零。
+- 验证 ZIP bytes 在 EOCD 后立即结束。
+- 验证 central-directory offset 与 size 均在 archive bounds 内。
+- 验证 central directory 在 EOCD 前立即结束。
+
+### Central directory
+
+- 验证每个 central-directory signature。
+- 验证所有 variable-length filename、extra field 和 comment 范围。
+- 使用 fatal UTF-8 decoder 验证 filename。
+- 验证 entry count 严格为三项。
+- 验证 central directory 被所有 entry records 精确消费，不允许隐藏尾部数据。
+
+### Deterministic entry metadata
+
+每个 entry 必须满足：
 
 ```text
-local file headers
-file data
-central directory
-end of central directory
+version made by: 20
+version needed: 20
+flags: 0x0800 only
+compression method: 0 / Store
+DOS time: 0
+DOS date: 0x0021
+extra field length: 0
+file comment length: 0
+disk start: 0
+internal attributes: 0
+external attributes: 0
+compressed bytes == uncompressed bytes
 ```
 
-固定约束：
-
-- Entry 顺序严格为：
+固定 entry 顺序：
 
 ```text
 validation-report-text
@@ -95,117 +130,203 @@ validation-report-json
 validation-report-json-sha256
 ```
 
-- Compression method 为 `0`：ZIP Store，不压缩。
-- General purpose bit flag 启用 UTF-8 filename。
-- DOS timestamp 固定为 `1980-01-01 00:00:00`。
-- 不写入 extra fields。
-- 不写入 file comments。
-- 不写入 archive comment。
-- 不使用 data descriptor。
-- 每个 entry 写入 exact UTF-8 bytes 和真实 CRC-32。
-- Central directory 与 local header 使用同一 metadata。
-- 最终 ZIP 使用 Web Crypto 计算完整 SHA-256。
-- 相同 extraction、相同 archive filename 将生成逐字节一致的 ZIP。
+### Local file headers
 
-当前版本有意不启用 ZIP64。任何需要 64-bit entry size、offset 或 central-directory field 的输入都会返回 `zip64-required`，不会截断数值或输出损坏 archive。
+- 验证 local-header signature。
+- 验证 local version、flags、Store method、固定时间戳和空 extra field。
+- 验证 local metadata 与 central-directory entry 完全一致。
+- 验证 local records 从 offset `0` 开始、连续排列并保持固定顺序。
+- 验证最后一个 local record 在 central-directory offset 处精确结束。
+- 验证 entry data range 不越过 central directory 或 archive bounds。
 
-### Archive filename
+### Integrity
 
-默认 filename 根据 verified target 生成：
+每个 entry：
 
 ```text
-large-world-manifest.diagnostics-policy.verified-validation-artifacts.zip
-mission-package-<index>.diagnostics-policy.verified-validation-artifacts.zip
-mission-diagnostics-policy-manifest.invalid-target.verified-validation-artifacts.zip
+exact stored bytes
+  ├── CRC-32 → local header
+  ├── CRC-32 → central directory
+  ├── SHA-256 → declared archive entry metadata
+  ├── SHA-256 → verified extraction artifact metadata
+  └── byte-for-byte comparison → verified extraction text UTF-8 bytes
 ```
 
-调用者可以传入自定义 filename，但必须是安全的 `.zip` basename，不能包含路径分隔符或控制字符。
+完整 ZIP：
 
-### Download API
+```text
+exact ZIP bytes
+  └── SHA-256 → archive artifact checksumHex
+```
+
+Web Crypto 不可用时，结构与 CRC-32 仍会继续解析，但 verification 会返回 `crypto-unavailable` issue，不会把未验证 SHA-256 的 archive 标记为 valid。
+
+## Verification result
 
 ```ts
-downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive(
-  artifact,
-)
+{
+  valid: true,
+  archiveChecksumHex: "...",
+  archiveBytes: 1842,
+  entryCount: 3,
+  totalUncompressedBytes: 1320,
+  issues: [],
+  checks: {
+    archiveChecksum: true,
+    eocd: true,
+    centralDirectory: true,
+    entryOrder: true,
+    localHeadersVerified: 3,
+    deterministicMetadataVerified: 3,
+    crc32Verified: 3,
+    sha256Verified: 3,
+  },
+  entries: [
+    {
+      kind: "validation-report-text",
+      filename: "...txt",
+      bytes: 420,
+      compressedBytes: 420,
+      crc32Hex: "...",
+      checksumHex: "...",
+      localHeaderOffset: 0,
+    },
+    // JSON report
+    // JSON SHA-256 artifact
+  ],
+}
 ```
 
-下载 exact ZIP bytes，使用 `application/zip` Blob，并在点击后立即释放 object URL。
+Verifier 尽量在一个 pass 中返回所有可恢复的问题。只有无法定位 EOCD 或无法继续安全读取结构时才提前结束。
 
-### HUD archive action
+## HUD integration
 
-0.75 的 extraction actions 现在会异步准备 archive：
+Verified extraction archive 区域现在包含：
 
 ```text
-Verified artifact extraction
-  ├── Preparing deterministic verified artifacts ZIP…
+Deterministic ZIP archive
   ├── Download verified artifacts ZIP
-  ├── Download all verified artifacts
-  ├── Download verified validation text report
-  ├── Download verified validation JSON report
-  └── Download verified validation JSON SHA-256
+  └── Verify verified artifacts ZIP
+      ├── EOCD
+      ├── central directory
+      ├── local headers
+      ├── CRC-32
+      └── SHA-256
 ```
 
-Archive 成功后按钮 preview 包含：
+验证前 preview：
 
 ```text
-archive filename
-entry count
-ZIP byte size
-Store compression method
-archive SHA-256 prefix
+EOCD · central directory · local headers · CRC-32 · SHA-256
 ```
 
-Archive 失败不会影响三个已验证 artifact 的单项下载或原有 download-all workflow。
-
-### Machine-readable HUD state
-
-Extraction root 暴露：
+验证成功：
 
 ```text
-data-bundle-extraction-archive-status
-data-bundle-extraction-archive-filename
-data-bundle-extraction-archive-bytes
-data-bundle-extraction-archive-entry-count
-data-bundle-extraction-archive-checksum
+<archive filename> · verified · 3 entries · 3 CRC-32 · 3 SHA-256
 ```
 
-Archive download button 暴露：
+验证失败时 details 自动展开，逐项显示：
 
 ```text
-data-bundle-extraction-archive-action
-data-bundle-extraction-archive-status
-data-bundle-extraction-archive-filename
-data-bundle-extraction-archive-bytes
-data-bundle-extraction-archive-entry-count
-data-bundle-extraction-archive-checksum
-data-bundle-extraction-archive-compression
+issue code
+JSON-style path
+message
 ```
 
-新增 extraction action callbacks：
+### HUD data attributes
+
+Archive verification control：
+
+```text
+data-bundle-extraction-archive-verification-status
+data-bundle-extraction-archive-verification-valid
+data-bundle-extraction-archive-verification-issue-count
+data-bundle-extraction-archive-verification-entry-count
+data-bundle-extraction-archive-verification-crc32-count
+data-bundle-extraction-archive-verification-sha256-count
+data-bundle-extraction-archive-verification-checksum
+```
+
+Extraction root 同步暴露：
+
+```text
+data-bundle-extraction-archive-verification-status
+data-bundle-extraction-archive-verification-valid
+data-bundle-extraction-archive-verification-issue-count
+data-bundle-extraction-archive-verification-entry-count
+data-bundle-extraction-archive-verification-crc32-count
+data-bundle-extraction-archive-verification-sha256-count
+```
+
+新增 callback：
 
 ```ts
-onArchive(result, extraction)
-onArchiveDownload(artifact, result)
+onArchiveVerify(verification, artifact, archiveResult)
 ```
 
-## Security boundary
-
-- Raw bundle JSON 不能直接进入 archive writer。
-- Archive writer 只接受 `extracted` result。
-- Entry filename 必须是安全 basename，阻止 ZIP path traversal。
-- Entry exact text 会重新编码并核对 UTF-8 byte size。
-- CRC-32 用于标准 ZIP entry integrity；原始 SHA-256 metadata 同时保留在 archive result 中。
-- Archive SHA-256 对最终完整 ZIP bytes 计算。
-- Web Crypto 不可用时不输出缺少完整性 metadata 的 archive。
-- 失败流程不创建 Blob、object URL、anchor 或下载。
-- 无时间戳、随机 ID、浏览器 metadata 或压缩器差异进入 ZIP bytes。
-
-## Version
+## Stable archive verification issue codes
 
 ```text
-package version: 0.76.0
-runtime label: runtime 0.76
+archive-empty
+archive-filename-invalid
+archive-mime-type-mismatch
+archive-byte-size-mismatch
+archive-checksum-invalid
+archive-checksum-mismatch
+archive-metadata-mismatch
+crypto-unavailable
+eocd-not-found
+eocd-invalid
+multi-disk-unsupported
+archive-comment-not-empty
+archive-trailing-data
+central-directory-range-invalid
+central-directory-size-mismatch
+central-directory-count-mismatch
+central-directory-signature-mismatch
+central-directory-entry-truncated
+central-directory-trailing-data
+entry-count-mismatch
+entry-order-mismatch
+entry-filename-invalid
+entry-filename-mismatch
+entry-utf8-flag-mismatch
+entry-compression-method-mismatch
+entry-version-mismatch
+entry-timestamp-mismatch
+entry-extra-field-not-empty
+entry-comment-not-empty
+entry-disk-number-mismatch
+entry-attributes-mismatch
+entry-size-mismatch
+entry-crc32-mismatch
+entry-sha256-mismatch
+entry-content-mismatch
+local-header-offset-invalid
+local-header-signature-mismatch
+local-header-truncated
+local-header-metadata-mismatch
+local-central-mismatch
+local-entry-order-mismatch
+entry-data-range-invalid
+local-data-central-directory-gap
 ```
+
+这些 code 可直接用于 HUD details、Builder diagnostics、CI annotations 或远程 artifact validation service。
+
+## 安全边界
+
+- Verifier 不解压到文件系统。
+- Verifier 不创建 Blob、object URL 或下载。
+- 所有 offset、length 和 data range 在访问前进行 bounds 验证。
+- ZIP filename 必须是安全 basename，不允许 `/`、`\\`、`.`、`..` 或控制字符。
+- 不支持 multi-disk ZIP。
+- 不支持 ZIP64。
+- 不支持 compression、encryption 或 data descriptor。
+- 不允许 extra fields、file comments、archive comments 或 archive trailing data。
+- CRC-32 只用于 ZIP 结构一致性，可信内容完整性仍以 SHA-256 和 exact bytes comparison 为准。
+- Archive verification 与 archive creation 使用独立实现，避免 creator 和 verifier 共享同一个序列化路径而隐藏错误。
 
 ## Checklist
 
@@ -236,9 +357,10 @@ runtime label: runtime 0.76
 - [x] Mission diagnostics policy manifest validation artifact bundle import / verification workflow
 - [x] Mission diagnostics policy manifest validation artifact bundle verified artifact extraction workflow
 - [x] Mission diagnostics policy manifest validation artifact bundle verified extraction archive workflow
-- [ ] Mission diagnostics policy manifest validation artifact bundle verified extraction archive verification workflow
+- [x] Mission diagnostics policy manifest validation artifact bundle verified extraction archive verification workflow
+- [ ] Mission diagnostics policy manifest validation artifact bundle verified extraction archive import / verification workflow
 
-## 运行 Runtime
+## 运行与验证
 
 ```bash
 npm install
@@ -251,7 +373,7 @@ npm run dev
 http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1&missionDebug=1
 ```
 
-验证：
+工程验证：
 
 ```bash
 npm run typecheck
@@ -259,39 +381,18 @@ npm run build
 npm run preview
 ```
 
-## Archive example
+## Version
 
-```ts
-const extraction =
-  await extractRuntimeNavMissionDiagnosticsManifestHudValidationArtifactsFromBundleText(
-    bundleText,
-  );
-
-const archive =
-  await createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive(
-    extraction,
-  );
-
-if (archive.status === "created" && archive.artifact) {
-  console.log(
-    archive.artifact.filename,
-    archive.artifact.bytes,
-    archive.artifact.checksumHex,
-  );
-
-  downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive(
-    archive.artifact,
-  );
-}
+```text
+package version: 0.77.0
+runtime label: runtime 0.77
 ```
 
 ## Next
 
-下一项：
-
 ```text
 Mission diagnostics policy manifest validation artifact bundle
-verified extraction archive verification workflow
+verified extraction archive import / verification workflow
 ```
 
-下一版将从 ZIP bytes 重新解析 local headers、central directory 与 EOCD，验证固定时间戳、Store method、UTF-8 flag、entry order、CRC-32、entry SHA-256 与 archive SHA-256，形成 archive 自验证闭环。
+下一项将增加外部 `.zip` 文件选择、文件大小限制、exact bytes 读取、archive verifier 调用和结构化 HUD issue details，使 0.77 的 raw ZIP bytes verifier 可以用于真实导入场景。
