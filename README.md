@@ -1,61 +1,93 @@
-# Splat World Engine — Mission Diagnostics Verified Artifact Extraction
+# Splat World Engine — Mission Diagnostics Verified Extraction Archive
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.75 在 0.74 的外部 validation artifact bundle 导入与验证能力之上补齐可信提取闭环：只有通过完整 verifier 的 bundle 才能暴露内嵌 validation text report、JSON report 与 JSON SHA-256 artifact，并按固定顺序进行单项或批量下载。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.76 在 0.75 的 verified artifact extraction 之上增加确定性 ZIP archive workflow：只有完整通过 bundle verifier 并成功提取的 validation text report、JSON report 与 JSON SHA-256 artifact，才可以被打包为标准 ZIP。
 
 ```text
 External validation artifact bundle
   ├── bounded local file import
-  ├── exact bundle text
-  ├── canonical descriptor verification
-  ├── artifact byte-size verification
-  ├── SHA-256 verification
-  ├── checksum-for relationship verification
-  └── verified extraction gate
-      ├── validation report text
-      ├── validation report JSON
-      └── validation report JSON SHA-256
+  ├── exact-text verification
+  ├── verified artifact extraction
+  │   ├── validation report text
+  │   ├── validation report JSON
+  │   └── validation report JSON SHA-256
+  └── deterministic ZIP archive
+      ├── fixed entry order
+      ├── ZIP Store, no compression
+      ├── UTF-8 filenames
+      ├── fixed DOS timestamp
+      ├── per-entry CRC-32
+      └── archive SHA-256
 ```
 
-## Runtime/Builder 0.75 能力
+## Runtime/Builder 0.76 能力
 
-- 新增：
+新增：
 
 ```text
-src/large/NavMissionDiagnosticsManifestHudValidationArtifactBundleExtraction.ts
+src/large/NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive.ts
 ```
 
-- 新增可信文本入口：
+### Archive API
 
 ```ts
-extractRuntimeNavMissionDiagnosticsManifestHudValidationArtifactsFromBundleText(text)
-```
-
-该 API 首先调用现有 bundle verifier，然后才尝试提取 artifacts。返回值同时保留完整 verification result，不存在“跳过验证直接解析”的路径。
-
-- 新增已验证结果入口：
-
-```ts
-extractRuntimeNavMissionDiagnosticsManifestHudValidationArtifactsFromVerification(
-  verification,
+createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive(
+  extraction,
+  options,
 )
 ```
 
-该入口要求：
+该 API 只接受 `status: "extracted"` 的可信 extraction result。未经验证、验证失败、document 不可用或 artifact set 不完整的输入不会产生 ZIP bytes。
+
+返回状态：
 
 ```text
-verification.valid === true
-verification.issues.length === 0
-verification.document !== null
+created
+extraction-unavailable
+filename-invalid
+zip64-required
+crypto-unavailable
+archive-error
 ```
 
-并再次检查：
+成功 artifact：
 
-- `artifactOrder` 与固定 extraction order 一致。
-- `artifacts[]` 数量严格为 3。
-- 每个 entry 的 kind 与索引一致。
-- 每个 entry 的 exact text UTF-8 byte size 仍与声明值一致。
+```ts
+{
+  filename,
+  mimeType: "application/zip",
+  bytes,
+  checksumHex,
+  entryCount: 3,
+  totalUncompressedBytes,
+  compressionMethod: "store",
+  fixedTimestamp: "1980-01-01T00:00:00",
+  entries: [
+    {
+      kind,
+      filename,
+      bytes,
+      crc32Hex,
+      checksumHex,
+    },
+  ],
+  data: Uint8Array,
+}
+```
 
-- 固定提取顺序：
+### Deterministic ZIP contract
+
+Archive 使用标准 ZIP32 结构：
+
+```text
+local file headers
+file data
+central directory
+end of central directory
+```
+
+固定约束：
+
+- Entry 顺序严格为：
 
 ```text
 validation-report-text
@@ -63,104 +95,117 @@ validation-report-json
 validation-report-json-sha256
 ```
 
-- Extraction status：
+- Compression method 为 `0`：ZIP Store，不压缩。
+- General purpose bit flag 启用 UTF-8 filename。
+- DOS timestamp 固定为 `1980-01-01 00:00:00`。
+- 不写入 extra fields。
+- 不写入 file comments。
+- 不写入 archive comment。
+- 不使用 data descriptor。
+- 每个 entry 写入 exact UTF-8 bytes 和真实 CRC-32。
+- Central directory 与 local header 使用同一 metadata。
+- 最终 ZIP 使用 Web Crypto 计算完整 SHA-256。
+- 相同 extraction、相同 archive filename 将生成逐字节一致的 ZIP。
+
+当前版本有意不启用 ZIP64。任何需要 64-bit entry size、offset 或 central-directory field 的输入都会返回 `zip64-required`，不会截断数值或输出损坏 archive。
+
+### Archive filename
+
+默认 filename 根据 verified target 生成：
 
 ```text
-extracted
-verification-failed
-document-unavailable
-artifact-set-invalid
+large-world-manifest.diagnostics-policy.verified-validation-artifacts.zip
+mission-package-<index>.diagnostics-policy.verified-validation-artifacts.zip
+mission-diagnostics-policy-manifest.invalid-target.verified-validation-artifacts.zip
 ```
 
-- 每个 extracted artifact 保留：
+调用者可以传入自定义 filename，但必须是安全的 `.zip` basename，不能包含路径分隔符或控制字符。
+
+### Download API
 
 ```ts
-{
-  kind,
-  filename,
-  mimeType,
-  bytes,
-  checksumHex,
-  text,
-}
-```
-
-- Extraction result 保留：
-
-```ts
-{
-  status,
-  verification,
-  bundleStatus,
-  artifactCount,
-  totalBytes,
-  artifacts,
-  error,
-}
-```
-
-- 新增下载 API：
-
-```ts
-downloadRuntimeNavMissionDiagnosticsManifestHudValidationExtractedArtifact(
+downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive(
   artifact,
 )
-
-downloadRuntimeNavMissionDiagnosticsManifestHudValidationExtractedArtifacts(
-  extraction,
-)
 ```
 
-- 单项下载严格使用 bundle 中已通过 checksum 与 byte-size 验证的 exact text。
-- 批量下载严格沿固定 bundle order 触发三个下载。
-- 非 `extracted` 状态调用下载 API 会抛出错误，不会静默输出不可信内容。
-- 新增 HUD extraction actions：
+下载 exact ZIP bytes，使用 `application/zip` Blob，并在点击后立即释放 object URL。
+
+### HUD archive action
+
+0.75 的 extraction actions 现在会异步准备 archive：
+
+```text
+Verified artifact extraction
+  ├── Preparing deterministic verified artifacts ZIP…
+  ├── Download verified artifacts ZIP
+  ├── Download all verified artifacts
+  ├── Download verified validation text report
+  ├── Download verified validation JSON report
+  └── Download verified validation JSON SHA-256
+```
+
+Archive 成功后按钮 preview 包含：
+
+```text
+archive filename
+entry count
+ZIP byte size
+Store compression method
+archive SHA-256 prefix
+```
+
+Archive 失败不会影响三个已验证 artifact 的单项下载或原有 download-all workflow。
+
+### Machine-readable HUD state
+
+Extraction root 暴露：
+
+```text
+data-bundle-extraction-archive-status
+data-bundle-extraction-archive-filename
+data-bundle-extraction-archive-bytes
+data-bundle-extraction-archive-entry-count
+data-bundle-extraction-archive-checksum
+```
+
+Archive download button 暴露：
+
+```text
+data-bundle-extraction-archive-action
+data-bundle-extraction-archive-status
+data-bundle-extraction-archive-filename
+data-bundle-extraction-archive-bytes
+data-bundle-extraction-archive-entry-count
+data-bundle-extraction-archive-checksum
+data-bundle-extraction-archive-compression
+```
+
+新增 extraction action callbacks：
 
 ```ts
-createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionActions(
-  extraction,
-  options,
-)
+onArchive(result, extraction)
+onArchiveDownload(artifact, result)
 ```
 
-- HUD 提供：
-  - `Download all verified artifacts`
-  - `Download verified validation text report`
-  - `Download verified validation JSON report`
-  - `Download verified validation JSON SHA-256`
-- 每个 artifact action 显示 filename、byte size 与 checksum prefix。
-- 支持 callbacks：
+## Security boundary
+
+- Raw bundle JSON 不能直接进入 archive writer。
+- Archive writer 只接受 `extracted` result。
+- Entry filename 必须是安全 basename，阻止 ZIP path traversal。
+- Entry exact text 会重新编码并核对 UTF-8 byte size。
+- CRC-32 用于标准 ZIP entry integrity；原始 SHA-256 metadata 同时保留在 archive result 中。
+- Archive SHA-256 对最终完整 ZIP bytes 计算。
+- Web Crypto 不可用时不输出缺少完整性 metadata 的 archive。
+- 失败流程不创建 Blob、object URL、anchor 或下载。
+- 无时间戳、随机 ID、浏览器 metadata 或压缩器差异进入 ZIP bytes。
+
+## Version
 
 ```text
-onExtract
-onArtifactDownload
-onDownloadAll
-onStatus
+package version: 0.76.0
+runtime label: runtime 0.76
 ```
-
-- 0.74 import result 新增：
-
-```text
-extraction
-```
-
-- 验证通过时，import details 内渲染 extraction actions。
-- 验证失败、文件拒绝、读取失败或 verifier 异常时，不渲染 extraction download actions。
-- 新增 machine-readable attributes：
-
-```text
-data-bundle-extraction-status
-data-bundle-extraction-artifact-count
-data-bundle-extraction-total-bytes
-data-bundle-extraction-action
-data-bundle-extraction-artifact-kind
-data-bundle-extraction-artifact-filename
-data-bundle-extraction-artifact-bytes
-data-bundle-extraction-artifact-checksum
-```
-
-- package version 更新为 `0.75.0`。
-- Runtime label 更新为 `runtime 0.75`。
 
 ## Checklist
 
@@ -190,7 +235,8 @@ data-bundle-extraction-artifact-checksum
 - [x] Mission diagnostics policy manifest validation artifact bundle verification workflow
 - [x] Mission diagnostics policy manifest validation artifact bundle import / verification workflow
 - [x] Mission diagnostics policy manifest validation artifact bundle verified artifact extraction workflow
-- [ ] Mission diagnostics policy manifest validation artifact bundle verified extraction archive workflow
+- [x] Mission diagnostics policy manifest validation artifact bundle verified extraction archive workflow
+- [ ] Mission diagnostics policy manifest validation artifact bundle verified extraction archive verification workflow
 
 ## 运行 Runtime
 
@@ -213,182 +259,39 @@ npm run build
 npm run preview
 ```
 
-## Extraction API
-
-从外部 bundle text 验证并提取：
+## Archive example
 
 ```ts
-import {
-  extractRuntimeNavMissionDiagnosticsManifestHudValidationArtifactsFromBundleText,
-} from "./large/NavMissionDiagnosticsManifestHudValidationArtifactBundleExtraction";
-
 const extraction =
   await extractRuntimeNavMissionDiagnosticsManifestHudValidationArtifactsFromBundleText(
     bundleText,
   );
 
-if (extraction.status === "extracted") {
-  console.log(extraction.artifacts);
+const archive =
+  await createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive(
+    extraction,
+  );
+
+if (archive.status === "created" && archive.artifact) {
+  console.log(
+    archive.artifact.filename,
+    archive.artifact.bytes,
+    archive.artifact.checksumHex,
+  );
+
+  downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive(
+    archive.artifact,
+  );
 }
 ```
 
-成功结果：
+## Next
 
-```ts
-{
-  status: "extracted",
-  verification: {
-    valid: true,
-    issues: [],
-    document: bundleDocument,
-  },
-  bundleStatus: "passed",
-  artifactCount: 3,
-  totalBytes: 1074,
-  artifacts: [
-    {
-      kind: "validation-report-text",
-      filename: "mission-package-0.diagnostics-policy.validation-report.txt",
-      mimeType: "text/plain;charset=utf-8",
-      bytes: 256,
-      checksumHex: "...",
-      text: "...",
-    },
-    {
-      kind: "validation-report-json",
-      filename: "mission-package-0.diagnostics-policy.validation-report.json",
-      mimeType: "application/json;charset=utf-8",
-      bytes: 684,
-      checksumHex: "...",
-      text: "...",
-    },
-    {
-      kind: "validation-report-json-sha256",
-      filename: "mission-package-0.diagnostics-policy.validation-report.json.sha256",
-      mimeType: "text/plain;charset=utf-8",
-      bytes: 134,
-      checksumHex: "...",
-      text: "...",
-    },
-  ],
-  error: null,
-}
-```
-
-验证失败时：
-
-```ts
-{
-  status: "verification-failed",
-  artifactCount: 0,
-  totalBytes: 0,
-  artifacts: [],
-  verification: {
-    valid: false,
-    issues: [
-      {
-        code: "artifact-checksum-mismatch",
-        path: "$.artifacts[1].checksum.hex",
-        message: "...",
-      },
-    ],
-  },
-}
-```
-
-## Import result integration
-
-0.75 的 file import result：
-
-```ts
-{
-  status: "verified",
-  file: {
-    filename: "mission-package-0.diagnostics-policy.validation-artifacts.bundle.json",
-    mimeType: "application/json",
-    bytes: 3480,
-  },
-  textBytes: 3480,
-  verification: verifiedResult,
-  extraction: {
-    status: "extracted",
-    artifactCount: 3,
-    totalBytes: 1074,
-    artifacts: [textReport, jsonReport, jsonChecksum],
-  },
-  error: null,
-}
-```
-
-Import control callbacks：
-
-```ts
-const control =
-  createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportControl({
-    onImport: (result) => {
-      console.log(result.status);
-    },
-    onExtract: (extraction, result) => {
-      console.log(result.file.filename, extraction.artifactCount);
-    },
-    onArtifactDownload: (artifact) => {
-      console.log(artifact.kind, artifact.filename);
-    },
-    onDownloadAll: (extraction) => {
-      console.log(extraction.artifactCount);
-    },
-    onStatus: (message) => {
-      manifestStatus.textContent = message;
-    },
-  });
-```
-
-## HUD integration
-
-`createRuntimeNavMissionDiagnosticsManifestHudDownloadButton(options)` 继续按顺序挂载：
+下一项：
 
 ```text
-manifest actions
-  ├── Download manifest
-  ├── ...
-  ├── Manifest validation details
-  ├── Copy validation JSON
-  ├── Download validation JSON
-  ├── Copy validation JSON checksum
-  ├── Download validation JSON checksum
-  ├── Download validation artifact bundle
-  ├── Verify validation artifact bundle
-  └── Import and verify validation artifact bundle
-      └── verified result details
-          ├── Download all verified artifacts
-          ├── Download verified validation text report
-          ├── Download verified validation JSON report
-          └── Download verified validation JSON SHA-256
+Mission diagnostics policy manifest validation artifact bundle
+verified extraction archive verification workflow
 ```
 
-验证通过后的 import preview：
-
-```text
-mission-package-0...bundle.json · verified · passed · 3 artifacts · 3 artifacts ready · 3.4 KB
-```
-
-Status：
-
-```text
-Imported and verified validation artifact bundle ...; 3 artifacts are ready for extraction.
-Downloaded verified artifact ...validation-report.json.
-Downloaded 3 verified validation artifacts.
-```
-
-## 确定性与安全边界
-
-- Extraction 不接受未验证的 raw bundle document。
-- 外部 text 入口始终先调用完整 verifier。
-- `verification.valid`、issues、typed document、artifact count、order、kind 和 byte size 必须全部满足要求。
-- 提取时不执行 artifact text，不解析 artifact 内的 HTML、脚本或 URL。
-- 下载内容是已验证 entry 的 exact text，不重新格式化 JSON、不改变换行符。
-- 单项与批量下载均使用 entry 中已验证的 filename 与 MIME type。
-- Object URL 在每次下载后立即释放。
-- 失败 extraction 不创建 Blob、object URL、anchor 或下载动作。
-- 当前版本仍保持 bundle descriptor + 独立 artifact 下载，不引入 ZIP 依赖。
-- 下一项将把三个 verified artifacts 聚合为一个可传输的 archive artifact，同时保留确定性顺序与完整性 metadata。
+下一版将从 ZIP bytes 重新解析 local headers、central directory 与 EOCD，验证固定时间戳、Store method、UTF-8 flag、entry order、CRC-32、entry SHA-256 与 archive SHA-256，形成 archive 自验证闭环。
