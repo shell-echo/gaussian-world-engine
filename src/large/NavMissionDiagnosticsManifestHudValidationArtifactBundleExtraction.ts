@@ -15,6 +15,10 @@ import {
 import type {
   RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImport.js";
+import type {
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveArtifact,
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactExtraction.js";
 import {
   createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerificationControl,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerification.js";
@@ -83,6 +87,22 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
     verification: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerificationResult,
     result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
     extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
+  ) => void;
+  onArchiveImportExtract?: (
+    entryExtraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
+    result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
+    extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
+  ) => void;
+  onArchiveImportedArtifactDownload?: (
+    artifact: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveArtifact,
+    entryExtraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
+  ) => void;
+  onArchiveImportedDownloadAll?: (
+    entryExtraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
+  ) => void;
+  onArchiveImportedArtifactCopy?: (
+    artifact: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveArtifact,
+    entryExtraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
   ) => void;
   onStatus?: (message: string) => void;
 }
@@ -249,6 +269,10 @@ export function createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactB
       {
         onImport: options.onArchiveImport,
         onVerify: options.onArchiveImportVerify,
+        onExtract: options.onArchiveImportExtract,
+        onImportedArtifactDownload: options.onArchiveImportedArtifactDownload,
+        onImportedDownloadAll: options.onArchiveImportedDownloadAll,
+        onImportedArtifactCopy: options.onArchiveImportedArtifactCopy,
         onStatus: options.onStatus,
       },
     );
