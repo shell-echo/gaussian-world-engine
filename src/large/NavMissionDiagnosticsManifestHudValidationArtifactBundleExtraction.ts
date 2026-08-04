@@ -10,6 +10,12 @@ import type {
   RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveResult,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive.js";
 import {
+  createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportControl,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImport.js";
+import type {
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImport.js";
+import {
   createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerificationControl,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerification.js";
 import type {
@@ -68,6 +74,15 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
     verification: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerificationResult,
     artifact: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveArtifact,
     archive: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveResult,
+  ) => void;
+  onArchiveImport?: (
+    result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
+    extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
+  ) => void;
+  onArchiveImportVerify?: (
+    verification: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerificationResult,
+    result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
+    extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
   ) => void;
   onStatus?: (message: string) => void;
 }
@@ -228,6 +243,16 @@ export function createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactB
   archivePreparing.style.opacity = "0.66";
   archive.append(archivePreparing);
 
+  const archiveImport =
+    createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportControl(
+      extraction,
+      {
+        onImport: options.onArchiveImport,
+        onVerify: options.onArchiveImportVerify,
+        onStatus: options.onStatus,
+      },
+    );
+
   const downloadAll = createExtractionButton(
     "Download all verified artifacts",
     `${extraction.artifactCount} artifacts · fixed bundle order · ${formatByteSize(extraction.totalBytes)}`,
@@ -275,7 +300,7 @@ export function createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactB
     artifacts.append(button);
   }
 
-  root.append(heading, archive, downloadAll, artifacts);
+  root.append(heading, archive, archiveImport, downloadAll, artifacts);
   void prepareExtractionArchive(root, archive, extraction, options);
   return root;
 }
