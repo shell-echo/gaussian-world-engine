@@ -5,7 +5,6 @@ import type {
   RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImport.js";
 import type {
-  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveArtifact,
   RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactExtraction.js";
 
@@ -44,6 +43,30 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
   hex: string;
 }
 
+export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceDocumentArtifact {
+  index: number;
+  kind: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleEntryKind;
+  filename: string;
+  mimeType: string;
+  bytes: number;
+  checksum: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceChecksum;
+  dataOffset?: number;
+  dataEnd?: number;
+  crc32?: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceCrc32;
+}
+
+export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceRelationship {
+  index: number;
+  kind: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleEntryKind;
+  filenameMatches: boolean;
+  mimeTypeMatches: boolean;
+  byteSizeMatches: boolean;
+  dataRangeMatches: boolean;
+  crc32Matches: boolean;
+  checksumMatches: boolean;
+  exactTextMatches: boolean;
+}
+
 export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceDocument {
   schema: typeof RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_IMPORTED_ARCHIVE_PROVENANCE_SCHEMA;
   schemaVersion: typeof RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_IMPORTED_ARCHIVE_PROVENANCE_SCHEMA_VERSION;
@@ -56,16 +79,16 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
     checksum: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceChecksum;
   };
   verification: {
-    valid: true;
-    issueCount: 0;
+    valid: boolean;
+    issueCount: number;
     archiveBytes: number;
     entryCount: number;
     totalUncompressedBytes: number;
     checks: {
-      archiveChecksum: true;
-      eocd: true;
-      centralDirectory: true;
-      entryOrder: true;
+      archiveChecksum: boolean;
+      eocd: boolean;
+      centralDirectory: boolean;
+      entryOrder: boolean;
       localHeadersVerified: number;
       deterministicMetadataVerified: number;
       crc32Verified: number;
@@ -77,49 +100,16 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
     bundleStatus: string | null;
     artifactCount: number;
     totalBytes: number;
-    artifacts: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceTrustedArtifact[];
+    artifacts: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceDocumentArtifact[];
   };
   importedExtraction: {
     status: "extracted";
     sourceArchiveFilename: string;
     artifactCount: number;
     totalBytes: number;
-    artifacts: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceImportedArtifact[];
+    artifacts: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceDocumentArtifact[];
   };
   relationships: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceRelationship[];
-}
-
-export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceTrustedArtifact {
-  index: number;
-  kind: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleEntryKind;
-  filename: string;
-  mimeType: string;
-  bytes: number;
-  checksum: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceChecksum;
-}
-
-export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceImportedArtifact {
-  index: number;
-  kind: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleEntryKind;
-  filename: string;
-  mimeType: string;
-  bytes: number;
-  dataOffset: number;
-  dataEnd: number;
-  crc32: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceCrc32;
-  checksum: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceChecksum;
-}
-
-export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceRelationship {
-  index: number;
-  kind: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleEntryKind;
-  filenameMatches: true;
-  mimeTypeMatches: true;
-  byteSizeMatches: true;
-  dataRangeMatches: true;
-  crc32Matches: true;
-  checksumMatches: true;
-  exactTextMatches: true;
 }
 
 export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact {
@@ -166,160 +156,98 @@ export async function createRuntimeNavMissionDiagnosticsManifestHudValidationArt
 ): Promise<RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceResult> {
   const importResult = entryExtraction.importResult;
   if (importResult.status !== "verified") {
-    return createProvenanceFailure(
-      "import-unavailable",
-      entryExtraction,
-      "External artifact ZIP import must be verified before provenance can be generated.",
-    );
+    return fail("import-unavailable", entryExtraction, "External ZIP import is not verified.");
   }
-  if (!importResult.verification || !importResult.verification.valid || importResult.verification.issues.length > 0) {
-    return createProvenanceFailure(
-      "verification-unavailable",
-      entryExtraction,
-      "External artifact ZIP verification must be valid and issue-free before provenance can be generated.",
-    );
+  const verification = importResult.verification;
+  if (!verification || !verification.valid || verification.issues.length > 0) {
+    return fail("verification-unavailable", entryExtraction, "External ZIP verification is unavailable or failed.");
   }
   if (entryExtraction.status !== "extracted") {
-    return createProvenanceFailure(
+    return fail(
       "entry-extraction-unavailable",
       entryExtraction,
-      entryExtraction.error ?? "Verified imported archive entries are unavailable.",
+      entryExtraction.error ?? "Verified imported entries are unavailable.",
     );
   }
-  if (!importResult.data || !importResult.verification.archiveChecksumHex) {
-    return createProvenanceFailure(
-      "verification-unavailable",
-      entryExtraction,
-      "Verified source ZIP bytes or archive SHA-256 are unavailable.",
-    );
+  if (!importResult.data || !verification.archiveChecksumHex) {
+    return fail("verification-unavailable", entryExtraction, "Verified source ZIP bytes or SHA-256 are unavailable.");
   }
   if (entryExtraction.extraction.status !== "extracted") {
-    return createProvenanceFailure(
+    return fail(
       "relationship-invalid",
       entryExtraction,
-      entryExtraction.extraction.error ?? "Trusted artifact extraction is unavailable.",
+      entryExtraction.extraction.error ?? "Trusted extraction is unavailable.",
     );
   }
 
   const subtle = globalThis.crypto?.subtle;
   if (!subtle) {
-    return createProvenanceFailure(
-      "crypto-unavailable",
-      entryExtraction,
-      "Web Crypto is unavailable; provenance checksums cannot be calculated.",
-    );
+    return fail("crypto-unavailable", entryExtraction, "Web Crypto is unavailable.");
   }
 
   try {
-    const verification = importResult.verification;
-    const trustedArtifacts = entryExtraction.extraction.artifacts;
-    const importedArtifacts = entryExtraction.artifacts;
-    if (
-      verification.entries.length !== importedArtifacts.length ||
-      importedArtifacts.length !== trustedArtifacts.length ||
-      importedArtifacts.length !== 3
-    ) {
-      return createProvenanceFailure(
-        "relationship-invalid",
-        entryExtraction,
-        "Provenance requires exactly three aligned verified, imported, and trusted artifacts.",
-      );
+    const trusted = entryExtraction.extraction.artifacts;
+    const imported = entryExtraction.artifacts;
+    if (verification.entries.length !== 3 || trusted.length !== 3 || imported.length !== 3) {
+      return fail("relationship-invalid", entryExtraction, "Provenance requires exactly three aligned artifacts.");
     }
 
-    const sourceArchiveChecksumHex = bytesToHex(
-      await subtle.digest(SHA256_ALGORITHM, importResult.data),
-    );
-    if (sourceArchiveChecksumHex !== verification.archiveChecksumHex) {
-      return createProvenanceFailure(
-        "relationship-invalid",
-        entryExtraction,
-        "Source ZIP SHA-256 changed after archive verification.",
-      );
+    const sourceChecksum = await digestBytes(importResult.data, subtle);
+    if (sourceChecksum !== verification.archiveChecksumHex) {
+      return fail("relationship-invalid", entryExtraction, "Source ZIP SHA-256 changed after verification.");
     }
 
-    const trustedDocumentArtifacts: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceTrustedArtifact[] = [];
-    const importedDocumentArtifacts: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceImportedArtifact[] = [];
+    const trustedArtifacts: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceDocumentArtifact[] = [];
+    const importedArtifacts: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceDocumentArtifact[] = [];
     const relationships: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceRelationship[] = [];
     const encoder = new TextEncoder();
 
-    for (let index = 0; index < importedArtifacts.length; index += 1) {
-      const importedArtifact = importedArtifacts[index];
-      const trustedArtifact = trustedArtifacts[index];
+    for (let index = 0; index < 3; index += 1) {
+      const trustedArtifact = trusted[index];
+      const importedArtifact = imported[index];
       const verifiedEntry = verification.entries[index];
-      if (!importedArtifact || !trustedArtifact || !verifiedEntry || verifiedEntry.kind === null) {
-        return createProvenanceFailure(
-          "relationship-invalid",
-          entryExtraction,
-          `Provenance artifact relationship ${index} is incomplete.`,
-        );
-      }
-      if (
-        importedArtifact.kind !== trustedArtifact.kind ||
-        importedArtifact.kind !== verifiedEntry.kind ||
-        importedArtifact.filename !== trustedArtifact.filename ||
-        importedArtifact.filename !== verifiedEntry.filename ||
-        importedArtifact.mimeType !== trustedArtifact.mimeType ||
-        importedArtifact.bytes !== trustedArtifact.bytes ||
-        importedArtifact.bytes !== verifiedEntry.bytes ||
-        importedArtifact.dataEnd - importedArtifact.dataOffset !== importedArtifact.bytes ||
-        importedArtifact.data.byteLength !== importedArtifact.bytes
-      ) {
-        return createProvenanceFailure(
-          "relationship-invalid",
-          entryExtraction,
-          `Provenance artifact relationship ${index} metadata no longer matches.`,
-        );
+      if (!trustedArtifact || !importedArtifact || !verifiedEntry || !verifiedEntry.kind) {
+        return fail("relationship-invalid", entryExtraction, `Artifact relationship ${index} is incomplete.`);
       }
 
-      const actualCrc32Hex = calculateCrc32(importedArtifact.data).toString(16).padStart(8, "0");
-      if (actualCrc32Hex !== importedArtifact.crc32Hex || actualCrc32Hex !== verifiedEntry.crc32Hex) {
-        return createProvenanceFailure(
-          "relationship-invalid",
-          entryExtraction,
-          `Provenance artifact relationship ${index} CRC-32 no longer matches.`,
-        );
+      const metadataMatches =
+        trustedArtifact.kind === importedArtifact.kind &&
+        trustedArtifact.kind === verifiedEntry.kind &&
+        trustedArtifact.filename === importedArtifact.filename &&
+        trustedArtifact.filename === verifiedEntry.filename &&
+        trustedArtifact.mimeType === importedArtifact.mimeType &&
+        trustedArtifact.bytes === importedArtifact.bytes &&
+        trustedArtifact.bytes === verifiedEntry.bytes;
+      const dataRangeMatches =
+        importedArtifact.dataEnd - importedArtifact.dataOffset === importedArtifact.bytes &&
+        importedArtifact.data.byteLength === importedArtifact.bytes;
+      if (!metadataMatches || !dataRangeMatches) {
+        return fail("relationship-invalid", entryExtraction, `Artifact relationship ${index} metadata changed.`);
       }
 
-      const importedChecksumHex = bytesToHex(
-        await subtle.digest(SHA256_ALGORITHM, importedArtifact.data),
-      );
-      if (
-        importedChecksumHex !== importedArtifact.checksumHex ||
-        importedChecksumHex !== trustedArtifact.checksumHex ||
-        importedChecksumHex !== verifiedEntry.checksumHex
-      ) {
-        return createProvenanceFailure(
-          "relationship-invalid",
-          entryExtraction,
-          `Provenance artifact relationship ${index} SHA-256 no longer matches.`,
-        );
+      const crc32Hex = calculateCrc32(importedArtifact.data).toString(16).padStart(8, "0");
+      const crc32Matches = crc32Hex === importedArtifact.crc32Hex && crc32Hex === verifiedEntry.crc32Hex;
+      const checksumHex = await digestBytes(importedArtifact.data, subtle);
+      const checksumMatches =
+        checksumHex === importedArtifact.checksumHex &&
+        checksumHex === trustedArtifact.checksumHex &&
+        checksumHex === verifiedEntry.checksumHex;
+      const exactTextMatches =
+        importedArtifact.text === trustedArtifact.text &&
+        equalBytes(importedArtifact.data, encoder.encode(trustedArtifact.text));
+      if (!crc32Matches || !checksumMatches || !exactTextMatches) {
+        return fail("relationship-invalid", entryExtraction, `Artifact relationship ${index} integrity changed.`);
       }
 
-      const trustedTextBytes = encoder.encode(trustedArtifact.text);
-      if (
-        importedArtifact.text !== trustedArtifact.text ||
-        !equalBytes(importedArtifact.data, trustedTextBytes)
-      ) {
-        return createProvenanceFailure(
-          "relationship-invalid",
-          entryExtraction,
-          `Provenance artifact relationship ${index} exact text no longer matches.`,
-        );
-      }
-
-      trustedDocumentArtifacts.push({
+      trustedArtifacts.push({
         index,
         kind: trustedArtifact.kind,
         filename: trustedArtifact.filename,
         mimeType: trustedArtifact.mimeType,
         bytes: trustedArtifact.bytes,
-        checksum: {
-          algorithm: SHA256_ALGORITHM,
-          input: "artifact-text-utf8",
-          hex: trustedArtifact.checksumHex,
-        },
+        checksum: { algorithm: SHA256_ALGORITHM, input: "artifact-text-utf8", hex: trustedArtifact.checksumHex },
       });
-      importedDocumentArtifacts.push({
+      importedArtifacts.push({
         index,
         kind: importedArtifact.kind,
         filename: importedArtifact.filename,
@@ -327,16 +255,8 @@ export async function createRuntimeNavMissionDiagnosticsManifestHudValidationArt
         bytes: importedArtifact.bytes,
         dataOffset: importedArtifact.dataOffset,
         dataEnd: importedArtifact.dataEnd,
-        crc32: {
-          algorithm: "CRC-32",
-          input: "entry-bytes",
-          hex: actualCrc32Hex,
-        },
-        checksum: {
-          algorithm: SHA256_ALGORITHM,
-          input: "entry-bytes",
-          hex: importedChecksumHex,
-        },
+        crc32: { algorithm: "CRC-32", input: "entry-bytes", hex: crc32Hex },
+        checksum: { algorithm: SHA256_ALGORITHM, input: "entry-bytes", hex: checksumHex },
       });
       relationships.push({
         index,
@@ -361,68 +281,49 @@ export async function createRuntimeNavMissionDiagnosticsManifestHudValidationArt
         reportedMimeType: importResult.file.mimeType,
         reportedBytes: importResult.file.bytes,
         exactBytes: importResult.data.byteLength,
-        checksum: {
-          algorithm: SHA256_ALGORITHM,
-          input: "archive-bytes",
-          hex: sourceArchiveChecksumHex,
-        },
+        checksum: { algorithm: SHA256_ALGORITHM, input: "archive-bytes", hex: sourceChecksum },
       },
       verification: {
-        valid: true,
-        issueCount: 0,
+        valid: verification.valid,
+        issueCount: verification.issues.length,
         archiveBytes: verification.archiveBytes,
         entryCount: verification.entryCount,
         totalUncompressedBytes: verification.totalUncompressedBytes,
-        checks: {
-          archiveChecksum: true,
-          eocd: true,
-          centralDirectory: true,
-          entryOrder: true,
-          localHeadersVerified: verification.checks.localHeadersVerified,
-          deterministicMetadataVerified: verification.checks.deterministicMetadataVerified,
-          crc32Verified: verification.checks.crc32Verified,
-          sha256Verified: verification.checks.sha256Verified,
-        },
+        checks: { ...verification.checks },
       },
       trustedExtraction: {
         status: "extracted",
         bundleStatus: entryExtraction.extraction.bundleStatus,
         artifactCount: entryExtraction.extraction.artifactCount,
         totalBytes: entryExtraction.extraction.totalBytes,
-        artifacts: trustedDocumentArtifacts,
+        artifacts: trustedArtifacts,
       },
       importedExtraction: {
         status: "extracted",
         sourceArchiveFilename: entryExtraction.sourceArchiveFilename,
         artifactCount: entryExtraction.artifactCount,
         totalBytes: entryExtraction.totalBytes,
-        artifacts: importedDocumentArtifacts,
+        artifacts: importedArtifacts,
       },
       relationships,
     };
 
-    const filenames = createProvenanceFilenames(entryExtraction);
-    const jsonText = `${JSON.stringify(canonicalizeJsonValue(document), null, 2)}\n`;
-    const textReport = createProvenanceTextReport(document);
-    const jsonChecksumHex = await sha256Text(jsonText, subtle);
-    const checksumText = `${jsonChecksumHex}  ${filenames.json}\n`;
-    const artifacts: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact[] = [
-      await createProvenanceArtifact(
-        "provenance-report-text",
-        filenames.text,
-        "text/plain;charset=utf-8",
-        textReport,
-        subtle,
-      ),
+    const filenames = createFilenames(entryExtraction);
+    const jsonText = `${JSON.stringify(canonicalize(document), null, 2)}\n`;
+    const textReport = createTextReport(document);
+    const jsonChecksum = await digestText(jsonText, subtle);
+    const checksumText = `${jsonChecksum}  ${filenames.json}\n`;
+    const artifacts = [
+      await createArtifact("provenance-report-text", filenames.text, "text/plain;charset=utf-8", textReport, subtle),
       {
-        kind: "provenance-report-json",
+        kind: "provenance-report-json" as const,
         filename: filenames.json,
-        mimeType: "application/json;charset=utf-8",
+        mimeType: "application/json;charset=utf-8" as const,
         bytes: encoder.encode(jsonText).byteLength,
-        checksumHex: jsonChecksumHex,
+        checksumHex: jsonChecksum,
         text: jsonText,
       },
-      await createProvenanceArtifact(
+      await createArtifact(
         "provenance-report-json-sha256",
         filenames.checksum,
         "text/plain;charset=utf-8",
@@ -442,11 +343,7 @@ export async function createRuntimeNavMissionDiagnosticsManifestHudValidationArt
       error: null,
     };
   } catch (error) {
-    return createProvenanceFailure(
-      "provenance-error",
-      entryExtraction,
-      formatErrorMessage(error),
-    );
+    return fail("provenance-error", entryExtraction, formatError(error));
   }
 }
 
@@ -471,11 +368,9 @@ export function downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifac
 export function downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifacts(
   result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceResult,
 ): number {
-  assertProvenanceCreated(result);
+  assertCreated(result);
   for (const artifact of result.artifacts) {
-    downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact(
-      artifact,
-    );
+    downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact(artifact);
   }
   return result.artifacts.length;
 }
@@ -495,35 +390,28 @@ export function createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactB
   const root = document.createElement("section");
   root.className = "mission-debug-diagnostics-manifest-validation-imported-archive-provenance";
   root.dataset.bundleImportedArchiveProvenanceStatus = "preparing";
-  Object.assign(root.style, {
-    display: "grid",
-    gap: "5px",
-    minWidth: "0",
-    paddingTop: "2px",
-  });
+  Object.assign(root.style, { display: "grid", gap: "5px", minWidth: "0", paddingTop: "2px" });
   const preparing = document.createElement("small");
   preparing.textContent = "Preparing deterministic verified import provenance reports…";
   preparing.style.opacity = "0.66";
   root.append(preparing);
-  void prepareProvenanceActions(root, entryExtraction, options);
+  void prepareActions(root, entryExtraction, options);
   return root;
 }
 
-async function prepareProvenanceActions(
+async function prepareActions(
   root: HTMLElement,
   entryExtraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
   options: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceActionsOptions,
 ): Promise<void> {
   const result =
-    await createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenance(
-      entryExtraction,
-    );
+    await createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenance(entryExtraction);
   root.dataset.bundleImportedArchiveProvenanceStatus = result.status;
   options.onCreate?.(result);
   if (result.status !== "created" || !result.document) {
-    clearProvenanceDataset(root);
+    clearDataset(root);
     const error = document.createElement("small");
-    error.textContent = `Verified import provenance unavailable: ${result.error ?? "Unknown provenance failure."}`;
+    error.textContent = `Verified import provenance unavailable: ${result.error ?? "Unknown failure."}`;
     error.style.color = "#ffb4b4";
     error.style.overflowWrap = "anywhere";
     root.replaceChildren(error);
@@ -535,55 +423,40 @@ async function prepareProvenanceActions(
   root.dataset.bundleImportedArchiveProvenanceSchemaVersion = String(result.document.schemaVersion);
   root.dataset.bundleImportedArchiveProvenanceArtifactCount = String(result.artifactCount);
   root.dataset.bundleImportedArchiveProvenanceTotalBytes = String(result.totalBytes);
-  root.dataset.bundleImportedArchiveProvenanceSourceChecksum =
-    result.document.sourceArchive.checksum.hex;
-  if (jsonArtifact) {
-    root.dataset.bundleImportedArchiveProvenanceJsonChecksum = jsonArtifact.checksumHex;
-  }
+  root.dataset.bundleImportedArchiveProvenanceSourceChecksum = result.document.sourceArchive.checksum.hex;
+  if (jsonArtifact) root.dataset.bundleImportedArchiveProvenanceJsonChecksum = jsonArtifact.checksumHex;
 
   const heading = document.createElement("small");
-  heading.textContent = `Verified import provenance · ${result.artifactCount} artifacts · ${formatByteSize(
-    result.totalBytes,
-  )}`;
-  Object.assign(heading.style, {
-    fontWeight: "750",
-    lineHeight: "1.35",
-    overflowWrap: "anywhere",
-  });
+  heading.textContent = `Verified import provenance · ${result.artifactCount} artifacts · ${formatBytes(result.totalBytes)}`;
+  heading.style.fontWeight = "750";
 
-  const downloadAll = createActionButton(
+  const downloadAll = button(
     "Download all provenance artifacts",
-    `${result.artifactCount} artifacts · canonical fixed order · ${formatByteSize(result.totalBytes)}`,
+    `${result.artifactCount} artifacts · canonical fixed order · ${formatBytes(result.totalBytes)}`,
   );
   downloadAll.dataset.bundleImportedArchiveProvenanceAction = "download-all";
   downloadAll.addEventListener("click", () => {
     try {
       const count =
-        downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifacts(
-          result,
-        );
+        downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifacts(result);
       options.onDownloadAll?.(result);
       options.onStatus?.(`Downloaded ${count} verified import provenance artifacts.`);
     } catch (error) {
-      const message = formatErrorMessage(error);
-      console.warn("Verified import provenance download-all failed.", error);
-      options.onStatus?.(`Verified import provenance download failed: ${message}`);
+      options.onStatus?.(`Verified import provenance download failed: ${formatError(error)}`);
     }
   });
 
-  const artifacts = document.createElement("div");
-  Object.assign(artifacts.style, { display: "grid", gap: "5px" });
-  const maxPreviewCharacters = normalizeMaxPreviewCharacters(options.maxPreviewCharacters);
-  for (const artifact of result.artifacts) {
-    artifacts.append(createProvenanceArtifactInspection(artifact, result, maxPreviewCharacters, options));
-  }
-  root.replaceChildren(heading, downloadAll, artifacts);
+  const list = document.createElement("div");
+  Object.assign(list.style, { display: "grid", gap: "5px" });
+  const maxPreview = normalizePreview(options.maxPreviewCharacters);
+  for (const artifact of result.artifacts) list.append(inspection(artifact, result, maxPreview, options));
+  root.replaceChildren(heading, downloadAll, list);
 }
 
-function createProvenanceArtifactInspection(
+function inspection(
   artifact: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact,
   result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceResult,
-  maxPreviewCharacters: number,
+  maxPreview: number,
   options: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceActionsOptions,
 ): HTMLElement {
   const details = document.createElement("details");
@@ -598,33 +471,26 @@ function createProvenanceArtifactInspection(
     borderRadius: "7px",
     background: "rgba(118, 190, 255, 0.035)",
   });
-
   const summary = document.createElement("summary");
-  summary.textContent = `${artifact.filename} · ${formatByteSize(artifact.bytes)} · SHA-256 ${artifact.checksumHex.slice(0, 12)}…`;
-  Object.assign(summary.style, {
-    cursor: "pointer",
-    fontSize: "10px",
-    fontWeight: "700",
-    lineHeight: "1.35",
-    overflowWrap: "anywhere",
-  });
+  summary.textContent = `${artifact.filename} · ${formatBytes(artifact.bytes)} · SHA-256 ${artifact.checksumHex.slice(0, 12)}…`;
+  summary.style.cursor = "pointer";
+  summary.style.fontSize = "10px";
+  summary.style.fontWeight = "700";
+  summary.style.overflowWrap = "anywhere";
 
-  const body = document.createElement("div");
-  Object.assign(body.style, { display: "grid", gap: "5px", marginTop: "6px" });
   const preview = document.createElement("pre");
-  const previewText = artifact.text.slice(0, maxPreviewCharacters);
-  preview.textContent = artifact.text.length > maxPreviewCharacters
-    ? `${previewText}\n… preview truncated after ${maxPreviewCharacters} characters`
-    : previewText;
+  const visible = artifact.text.slice(0, maxPreview);
+  preview.textContent = artifact.text.length > maxPreview
+    ? `${visible}\n… preview truncated after ${maxPreview} characters`
+    : visible;
   Object.assign(preview.style, {
-    margin: "0",
+    margin: "6px 0 0",
     maxHeight: "220px",
     overflow: "auto",
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
     fontSize: "9px",
     lineHeight: "1.4",
-    opacity: "0.82",
   });
 
   const actions = document.createElement("div");
@@ -632,93 +498,65 @@ function createProvenanceArtifactInspection(
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
     gap: "4px",
+    marginTop: "5px",
   });
-  const copy = createActionButton(
-    "Copy provenance artifact",
-    `${artifact.filename} · exact ${artifact.bytes} bytes`,
-  );
+  const copy = button("Copy provenance artifact", `${artifact.filename} · exact ${artifact.bytes} bytes`);
   copy.dataset.bundleImportedArchiveProvenanceAction = "copy";
-  copy.dataset.bundleImportedArchiveProvenanceArtifactKind = artifact.kind;
   copy.addEventListener("click", () => {
-    void (async () => {
-      try {
-        await copyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact(
-          artifact,
-        );
+    void copyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact(artifact)
+      .then(() => {
         options.onArtifactCopy?.(artifact, result);
         options.onStatus?.(`Copied provenance artifact ${artifact.filename}.`);
-      } catch (error) {
-        const message = formatErrorMessage(error);
-        console.warn("Verified import provenance copy failed.", error);
-        options.onStatus?.(`Verified import provenance copy failed: ${message}`);
-      }
-    })();
+      })
+      .catch((error: unknown) => options.onStatus?.(`Provenance copy failed: ${formatError(error)}`));
   });
-
-  const download = createActionButton(
-    "Download provenance artifact",
-    `${artifact.filename} · ${artifact.mimeType}`,
-  );
+  const download = button("Download provenance artifact", `${artifact.filename} · ${artifact.mimeType}`);
   download.dataset.bundleImportedArchiveProvenanceAction = "download";
-  download.dataset.bundleImportedArchiveProvenanceArtifactKind = artifact.kind;
   download.addEventListener("click", () => {
     try {
-      downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact(
-        artifact,
-      );
+      downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact(artifact);
       options.onArtifactDownload?.(artifact, result);
       options.onStatus?.(`Downloaded provenance artifact ${artifact.filename}.`);
     } catch (error) {
-      const message = formatErrorMessage(error);
-      console.warn("Verified import provenance download failed.", error);
-      options.onStatus?.(`Verified import provenance download failed: ${message}`);
+      options.onStatus?.(`Provenance download failed: ${formatError(error)}`);
     }
   });
   actions.append(copy, download);
-  body.append(preview, actions);
-  details.append(summary, body);
+  details.append(summary, preview, actions);
   return details;
 }
 
-async function createProvenanceArtifact(
+async function createArtifact(
   kind: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifactKind,
   filename: string,
   mimeType: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact["mimeType"],
   text: string,
   subtle: SubtleCrypto,
 ): Promise<RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact> {
-  const encoder = new TextEncoder();
   return {
     kind,
     filename,
     mimeType,
-    bytes: encoder.encode(text).byteLength,
-    checksumHex: await sha256Text(text, subtle),
+    bytes: new TextEncoder().encode(text).byteLength,
+    checksumHex: await digestText(text, subtle),
     text,
   };
 }
 
-function createProvenanceFilenames(
-  entryExtraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
+function createFilenames(
+  result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
 ): { text: string; json: string; checksum: string } {
-  const target = entryExtraction.extraction.verification.document?.target;
+  const target = result.extraction.verification.document?.target;
   let prefix = "mission-diagnostics-policy-manifest";
-  if (target?.scope === "manifest") {
-    prefix = "large-world-manifest.diagnostics-policy";
-  } else if (target?.scope === "mission-package" && target.packageIndex !== null) {
+  if (target?.scope === "manifest") prefix = "large-world-manifest.diagnostics-policy";
+  else if (target?.scope === "mission-package" && target.packageIndex !== null) {
     prefix = `mission-package-${target.packageIndex}.diagnostics-policy`;
-  } else if (target?.scope === "invalid") {
-    prefix = "mission-diagnostics-policy-manifest.invalid-target";
-  }
+  } else if (target?.scope === "invalid") prefix = "mission-diagnostics-policy-manifest.invalid-target";
   const base = `${prefix}.verified-import-provenance`;
-  return {
-    text: `${base}.txt`,
-    json: `${base}.json`,
-    checksum: `${base}.json.sha256`,
-  };
+  return { text: `${base}.txt`, json: `${base}.json`, checksum: `${base}.json.sha256` };
 }
 
-function createProvenanceTextReport(
+function createTextReport(
   document: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceDocument,
 ): string {
   const lines = [
@@ -726,58 +564,38 @@ function createProvenanceTextReport(
     "",
     `Schema: ${document.schema}`,
     `Schema version: ${document.schemaVersion}`,
-    `Target: ${JSON.stringify(canonicalizeJsonValue(document.target))}`,
+    `Target: ${JSON.stringify(canonicalize(document.target))}`,
     "",
-    "Source archive",
-    `  Filename: ${document.sourceArchive.filename}`,
-    `  Reported MIME type: ${document.sourceArchive.reportedMimeType}`,
-    `  Reported bytes: ${document.sourceArchive.reportedBytes}`,
-    `  Exact bytes: ${document.sourceArchive.exactBytes}`,
-    `  SHA-256: ${document.sourceArchive.checksum.hex}`,
+    `Source archive: ${document.sourceArchive.filename}`,
+    `Source exact bytes: ${document.sourceArchive.exactBytes}`,
+    `Source SHA-256: ${document.sourceArchive.checksum.hex}`,
     "",
-    "ZIP verification",
-    `  Valid: ${document.verification.valid}`,
-    `  Issues: ${document.verification.issueCount}`,
-    `  Entries: ${document.verification.entryCount}`,
-    `  Total uncompressed bytes: ${document.verification.totalUncompressedBytes}`,
-    `  EOCD: ${document.verification.checks.eocd}`,
-    `  Central directory: ${document.verification.checks.centralDirectory}`,
-    `  Entry order: ${document.verification.checks.entryOrder}`,
-    `  Local headers verified: ${document.verification.checks.localHeadersVerified}`,
-    `  Deterministic metadata verified: ${document.verification.checks.deterministicMetadataVerified}`,
-    `  CRC-32 verified: ${document.verification.checks.crc32Verified}`,
-    `  SHA-256 verified: ${document.verification.checks.sha256Verified}`,
+    `ZIP verification valid: ${document.verification.valid}`,
+    `ZIP verification issues: ${document.verification.issueCount}`,
+    `ZIP entries: ${document.verification.entryCount}`,
+    `Local headers verified: ${document.verification.checks.localHeadersVerified}`,
+    `CRC-32 verified: ${document.verification.checks.crc32Verified}`,
+    `SHA-256 verified: ${document.verification.checks.sha256Verified}`,
     "",
     "Artifact relationships",
   ];
   for (const relationship of document.relationships) {
-    const imported = document.importedExtraction.artifacts[relationship.index];
+    const artifact = document.importedExtraction.artifacts[relationship.index];
     lines.push(
       `  ${relationship.index + 1}. ${relationship.kind}`,
-      `     Filename: ${imported?.filename ?? "unavailable"}`,
-      `     ZIP data range: ${imported?.dataOffset ?? -1}-${imported?.dataEnd ?? -1}`,
-      `     Bytes: ${imported?.bytes ?? 0}`,
-      `     CRC-32: ${imported?.crc32.hex ?? "unavailable"}`,
-      `     SHA-256: ${imported?.checksum.hex ?? "unavailable"}`,
-      "     Filename match: true",
-      "     MIME type match: true",
-      "     Byte size match: true",
-      "     Data range match: true",
-      "     CRC-32 match: true",
-      "     SHA-256 match: true",
-      "     Exact text match: true",
+      `     Filename: ${artifact?.filename ?? "unavailable"}`,
+      `     Data range: ${artifact?.dataOffset ?? -1}-${artifact?.dataEnd ?? -1}`,
+      `     Bytes: ${artifact?.bytes ?? 0}`,
+      `     CRC-32: ${artifact?.crc32?.hex ?? "unavailable"}`,
+      `     SHA-256: ${artifact?.checksum.hex ?? "unavailable"}`,
+      "     All trusted relationships: true",
     );
   }
-  lines.push(
-    "",
-    `Trusted extraction artifacts: ${document.trustedExtraction.artifactCount}`,
-    `Imported extraction artifacts: ${document.importedExtraction.artifactCount}`,
-    "Result: verified provenance relationships complete",
-  );
+  lines.push("", "Result: verified provenance relationships complete");
   return `${lines.join("\n")}\n`;
 }
 
-function createProvenanceFailure(
+function fail(
   status: Exclude<
     RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceStatus,
     "created"
@@ -797,17 +615,13 @@ function createProvenanceFailure(
   };
 }
 
-function assertProvenanceCreated(
+function assertCreated(
   result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceResult,
-): asserts result is RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceResult & {
-  status: "created";
-} {
-  if (result.status !== "created") {
-    throw new Error(result.error ?? "Verified import provenance artifacts are unavailable.");
-  }
+): void {
+  if (result.status !== "created") throw new Error(result.error ?? "Provenance artifacts are unavailable.");
 }
 
-function clearProvenanceDataset(root: HTMLElement): void {
+function clearDataset(root: HTMLElement): void {
   delete root.dataset.bundleImportedArchiveProvenanceSchema;
   delete root.dataset.bundleImportedArchiveProvenanceSchemaVersion;
   delete root.dataset.bundleImportedArchiveProvenanceArtifactCount;
@@ -816,55 +630,44 @@ function clearProvenanceDataset(root: HTMLElement): void {
   delete root.dataset.bundleImportedArchiveProvenanceJsonChecksum;
 }
 
-function createActionButton(labelText: string, previewText: string): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.type = "button";
-  Object.assign(button.style, {
-    display: "grid",
-    width: "100%",
-    gap: "2px",
-    maxWidth: "100%",
-    textAlign: "left",
-  });
+function button(labelText: string, previewText: string): HTMLButtonElement {
+  const element = document.createElement("button");
+  element.type = "button";
+  Object.assign(element.style, { display: "grid", width: "100%", gap: "2px", textAlign: "left" });
   const label = document.createElement("span");
   label.textContent = labelText;
   const preview = document.createElement("small");
   preview.textContent = previewText;
-  Object.assign(preview.style, {
-    display: "block",
-    maxWidth: "100%",
-    fontSize: "9px",
-    fontWeight: "500",
-    lineHeight: "1.25",
-    opacity: "0.66",
-    overflowWrap: "anywhere",
-  });
-  button.title = previewText;
-  button.setAttribute("aria-label", `${labelText}. ${previewText}`);
-  button.append(label, preview);
-  return button;
+  preview.style.fontSize = "9px";
+  preview.style.opacity = "0.66";
+  preview.style.overflowWrap = "anywhere";
+  element.title = previewText;
+  element.setAttribute("aria-label", `${labelText}. ${previewText}`);
+  element.append(label, preview);
+  return element;
 }
 
-function normalizeMaxPreviewCharacters(value: number | undefined): number {
+function normalizePreview(value: number | undefined): number {
   if (value === undefined) return DEFAULT_PREVIEW_CHARACTERS;
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error("Provenance maxPreviewCharacters must be a positive finite number.");
-  }
+  if (!Number.isFinite(value) || value <= 0) throw new Error("maxPreviewCharacters must be positive.");
   return Math.floor(value);
 }
 
-async function sha256Text(text: string, subtle: SubtleCrypto): Promise<string> {
-  return bytesToHex(await subtle.digest(SHA256_ALGORITHM, new TextEncoder().encode(text)));
+async function digestBytes(bytes: Uint8Array, subtle: SubtleCrypto): Promise<string> {
+  return bytesToHex(await subtle.digest(SHA256_ALGORITHM, copyToArrayBuffer(bytes)));
 }
 
-function canonicalizeJsonValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map((item) => canonicalizeJsonValue(item));
+async function digestText(text: string, subtle: SubtleCrypto): Promise<string> {
+  return digestBytes(new TextEncoder().encode(text), subtle);
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
   if (value !== null && typeof value === "object") {
     const source = value as Record<string, unknown>;
     const output: Record<string, unknown> = {};
     for (const key of Object.keys(source).sort()) {
-      const child = source[key];
-      if (child !== undefined) output[key] = canonicalizeJsonValue(child);
+      if (source[key] !== undefined) output[key] = canonicalize(source[key]);
     }
     return output;
   }
@@ -873,9 +676,7 @@ function canonicalizeJsonValue(value: unknown): unknown {
 
 function calculateCrc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc = CRC32_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
-  }
+  for (const byte of bytes) crc = CRC32_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
   return (crc ^ 0xffffffff) >>> 0;
 }
 
@@ -883,9 +684,7 @@ function createCrc32Table(): Uint32Array {
   const table = new Uint32Array(256);
   for (let index = 0; index < table.length; index += 1) {
     let value = index;
-    for (let bit = 0; bit < 8; bit += 1) {
-      value = (value & 1) !== 0 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
-    }
+    for (let bit = 0; bit < 8; bit += 1) value = (value & 1) !== 0 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
     table[index] = value >>> 0;
   }
   return table;
@@ -893,28 +692,28 @@ function createCrc32Table(): Uint32Array {
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) return false;
-  for (let index = 0; index < left.byteLength; index += 1) {
-    if (left[index] !== right[index]) return false;
-  }
+  for (let index = 0; index < left.byteLength; index += 1) if (left[index] !== right[index]) return false;
   return true;
+}
+
+function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
 }
 
 function bytesToHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function formatErrorMessage(error: unknown): string {
+function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function formatByteSize(bytes: number): string {
+function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const kilobytes = bytes / 1024;
-  if (kilobytes < 1024) return `${formatByteValue(kilobytes)} KB`;
+  if (kilobytes < 1024) return `${kilobytes >= 10 ? kilobytes.toFixed(0) : kilobytes.toFixed(1)} KB`;
   const megabytes = kilobytes / 1024;
-  return `${formatByteValue(megabytes)} MB`;
-}
-
-function formatByteValue(value: number): string {
-  return value >= 10 ? value.toFixed(0) : value.toFixed(1);
+  return `${megabytes >= 10 ? megabytes.toFixed(0) : megabytes.toFixed(1)} MB`;
 }
