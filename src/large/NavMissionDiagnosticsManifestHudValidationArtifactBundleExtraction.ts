@@ -10,6 +10,12 @@ import type {
   RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveResult,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchive.js";
 import {
+  createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerificationControl,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerification.js";
+import type {
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerificationResult,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerification.js";
+import {
   RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_ORDER,
   verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleText,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleVerification.js";
@@ -55,6 +61,11 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
     extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
   ) => void;
   onArchiveDownload?: (
+    artifact: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveArtifact,
+    archive: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveResult,
+  ) => void;
+  onArchiveVerify?: (
+    verification: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerificationResult,
     artifact: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveArtifact,
     archive: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveResult,
   ) => void;
@@ -192,6 +203,7 @@ export function createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactB
   root.dataset.bundleExtractionArtifactCount = String(extraction.artifactCount);
   root.dataset.bundleExtractionTotalBytes = String(extraction.totalBytes);
   root.dataset.bundleExtractionArchiveStatus = "preparing";
+  root.dataset.bundleExtractionArchiveVerificationStatus = "unavailable";
   Object.assign(root.style, {
     display: "grid",
     gap: "5px",
@@ -279,10 +291,16 @@ async function prepareExtractionArchive(
   root.dataset.bundleExtractionArchiveStatus = result.status;
   options.onArchive?.(result, extraction);
   if (result.status !== "created" || !result.artifact) {
+    root.dataset.bundleExtractionArchiveVerificationStatus = "unavailable";
     delete root.dataset.bundleExtractionArchiveFilename;
     delete root.dataset.bundleExtractionArchiveBytes;
     delete root.dataset.bundleExtractionArchiveEntryCount;
     delete root.dataset.bundleExtractionArchiveChecksum;
+    delete root.dataset.bundleExtractionArchiveVerificationValid;
+    delete root.dataset.bundleExtractionArchiveVerificationIssueCount;
+    delete root.dataset.bundleExtractionArchiveVerificationEntryCount;
+    delete root.dataset.bundleExtractionArchiveVerificationCrc32Count;
+    delete root.dataset.bundleExtractionArchiveVerificationSha256Count;
     const error = document.createElement("small");
     error.textContent = `Verified artifact ZIP unavailable: ${result.error ?? "Unknown archive failure."}`;
     error.style.color = "#ffb4b4";
@@ -296,6 +314,7 @@ async function prepareExtractionArchive(
   root.dataset.bundleExtractionArchiveBytes = String(artifact.bytes);
   root.dataset.bundleExtractionArchiveEntryCount = String(artifact.entryCount);
   root.dataset.bundleExtractionArchiveChecksum = artifact.checksumHex;
+  root.dataset.bundleExtractionArchiveVerificationStatus = "idle";
 
   const archiveHeading = document.createElement("small");
   archiveHeading.textContent = `Deterministic ZIP archive · ${artifact.entryCount} entries · ${formatByteSize(
@@ -316,7 +335,34 @@ async function prepareExtractionArchive(
         onStatus: options.onStatus,
       },
     );
-  container.replaceChildren(archiveHeading, button);
+  const verification =
+    createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerificationControl(
+      artifact,
+      extraction,
+      {
+        onVerify: (verificationResult, verifiedArtifact) => {
+          root.dataset.bundleExtractionArchiveVerificationStatus = verificationResult.valid
+            ? "verified"
+            : "failed";
+          root.dataset.bundleExtractionArchiveVerificationValid = String(verificationResult.valid);
+          root.dataset.bundleExtractionArchiveVerificationIssueCount = String(
+            verificationResult.issues.length,
+          );
+          root.dataset.bundleExtractionArchiveVerificationEntryCount = String(
+            verificationResult.entryCount,
+          );
+          root.dataset.bundleExtractionArchiveVerificationCrc32Count = String(
+            verificationResult.checks.crc32Verified,
+          );
+          root.dataset.bundleExtractionArchiveVerificationSha256Count = String(
+            verificationResult.checks.sha256Verified,
+          );
+          options.onArchiveVerify?.(verificationResult, verifiedArtifact, result);
+        },
+        onStatus: options.onStatus,
+      },
+    );
+  container.replaceChildren(archiveHeading, button, verification);
 }
 
 function createExtractionFailure(
