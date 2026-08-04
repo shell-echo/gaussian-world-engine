@@ -1,344 +1,337 @@
-# Splat World Engine — Mission Diagnostics External Verified Artifacts ZIP Import
+# Splat World Engine — Mission Diagnostics Verified Imported ZIP Artifacts
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.78 在 0.77 的独立 ZIP archive verifier 之上增加外部文件导入闭环：author 可以从本地选择一个 ZIP 文件，读取 exact bytes，执行有界输入检查，再使用同一套 raw ZIP verifier 对 ZIP32 结构、确定性 metadata、CRC-32、entry SHA-256 和当前 verified extraction 的 exact artifact bytes 进行完整验证。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.79 在 0.78 的外部 ZIP 导入与验证能力之上补齐 verified imported entry inspection / extraction：只有外部 ZIP 完整通过结构、CRC-32、SHA-256 与当前可信 extraction 的 exact byte comparison 后，Runtime 才会从已验证的 local-header data ranges 构造 typed imported artifacts，并允许安全预览、复制和下载。
 
 ```text
 Validation artifact bundle
-  ├── exact-text verification
-  ├── verified artifact extraction
+  ├── exact-text bundle verification
+  ├── trusted artifact extraction
   ├── deterministic ZIP creation
   ├── generated ZIP verification
-  └── external ZIP import / verification
-      ├── bounded File import
-      ├── exact ArrayBuffer bytes
-      ├── raw ZIP parser
-      ├── deterministic ZIP metadata
-      ├── CRC-32
-      ├── entry SHA-256
-      ├── exact artifact byte comparison
-      └── archive SHA-256
+  ├── bounded external ZIP import
+  ├── independent ZIP verification
+  └── verified imported entry extraction
+      ├── local-header range revalidation
+      ├── exact stored-byte copy
+      ├── CRC-32 revalidation
+      ├── SHA-256 revalidation
+      ├── trusted artifact byte comparison
+      ├── safe text inspection
+      ├── clipboard copy
+      └── single / fixed-order download
 ```
 
-## Runtime/Builder 0.78 能力
+## Runtime/Builder 0.79 能力
 
 新增：
 
 ```text
 src/large/
-└── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImport.ts
+└── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactExtraction.ts
 ```
 
-### File import API
+更新：
+
+```text
+src/large/NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImport.ts
+src/large/NavMissionDiagnosticsManifestHudValidationArtifactBundleExtraction.ts
+```
+
+## Verified import extraction gate
+
+核心 API：
 
 ```ts
-importRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveFile(
-  file,
+extractRuntimeNavMissionDiagnosticsManifestHudValidationArtifactsFromVerifiedArchiveImport(
+  importResult,
   extraction,
-  options,
 )
 ```
 
-输入：
-
-- 浏览器 `File`
-- 已通过 bundle verification 的 `extraction`
-- 可选 `maxFileBytes`
-
-默认导入上限：
+该 API 同时要求：
 
 ```text
-32 MiB
+importResult.status === "verified"
+importResult.verification.valid === true
+importResult.verification.issues.length === 0
+importResult.data !== null
+extraction.status === "extracted"
 ```
 
-导入流程同时检查：
+任何 verification-failed、rejected、read-failed、verification-error 或缺少 exact ZIP bytes 的结果都不会暴露 entry 内容。
+
+## 二次完整性检查
+
+0.79 不会因为 0.78 已经验证成功就直接返回 `Uint8Array.subarray()`。
+
+每个 imported entry 都重新执行：
+
+1. 从 verifier 返回的 `localHeaderOffset` 读取 local file header。
+2. 重新验证 local-header signature。
+3. 重新验证 UTF-8 flag、Store method 与 empty extra field。
+4. 重新计算 filename、data offset 与 data end。
+5. 验证所有 byte ranges 仍在 exact ZIP bounds 内。
+6. 使用 fatal UTF-8 decoder 重新读取 filename。
+7. 核对 verified entry、trusted artifact 与 local header 的 filename / byte size。
+8. 对 exact stored bytes 重新计算 CRC-32。
+9. 对 exact stored bytes 重新计算 SHA-256。
+10. 与 trusted artifact text 的 UTF-8 bytes 逐字节比较。
+11. 重新进行 fatal UTF-8 text decoding。
+12. 复制 exact bytes 到独立 `Uint8Array` 后才返回 artifact。
+
+因此，即使调用方在 verification 后修改 import result、原 ZIP buffer 或 metadata，也无法绕过 extraction gate。
+
+## Extraction 状态
 
 ```text
-File.size
-ArrayBuffer.byteLength
+extracted
+import-unavailable
+verification-unavailable
+verification-failed
+archive-data-unavailable
+artifact-set-invalid
+crypto-unavailable
+extraction-error
 ```
 
-扩展名与 reported MIME type 只用于 file picker hint 和结果展示，不作为可信信号。即使文件名不是 `.zip` 或 MIME type 不标准，也不会跳过 ZIP verifier。
-
-文件内容通过：
+失败结果始终满足：
 
 ```ts
-const data = new Uint8Array(await file.arrayBuffer());
+{
+  artifactCount: 0,
+  totalBytes: 0,
+  artifacts: [],
+  error: "...",
+}
 ```
 
-读取为 exact bytes，不进行文本解码、换行转换、JSON parsing 或浏览器解压。
+## Typed imported artifact
 
-### Import status
+```ts
+{
+  kind,
+  filename,
+  mimeType,
+  bytes,
+  crc32Hex,
+  checksumHex,
+  dataOffset,
+  dataEnd,
+  data: Uint8Array,
+  text,
+}
+```
+
+`data` 是从 verified ZIP entry bytes 复制出的独立 buffer，不与原始 imported ZIP `Uint8Array` 共享可变内存。
+
+固定 artifact 顺序：
+
+```text
+1. validation-report-text
+2. validation-report-json
+3. validation-report-json-sha256
+```
+
+## Import API result
+
+0.78 import result 新增：
+
+```ts
+entryExtraction:
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult
+  | null
+```
+
+Import 状态新增：
+
+```text
+entry-extraction-failed
+```
+
+完整成功条件：
+
+```text
+ZIP verification passed
+AND imported artifact extraction passed
+```
+
+只有两个阶段都成功，最终 import status 才是：
 
 ```text
 verified
-verification-failed
-rejected
-read-failed
-verification-error
 ```
 
-语义：
+## Inspection UI
 
-- `verified`：文件读取成功，ZIP 结构、metadata 与可信 artifacts 全部通过。
-- `verification-failed`：文件读取成功，但 verifier 返回结构化 issues。
-- `rejected`：文件大小超过输入边界。
-- `read-failed`：`File.arrayBuffer()` 失败。
-- `verification-error`：verifier 发生非普通 verification issue 的异常。
+外部 ZIP 验证并提取成功后，HUD 显示：
 
-### Import result
+```text
+Verified imported ZIP entries · 3 artifacts
+  ├── Download all verified imported artifacts
+  ├── validation report text
+  │   ├── metadata
+  │   ├── safe text preview
+  │   ├── Copy verified imported text
+  │   └── Download verified imported artifact
+  ├── validation report JSON
+  │   └── ...
+  └── validation report JSON SHA-256
+      └── ...
+```
+
+Preview 使用 `textContent` 写入，不执行 imported text，也不使用 `innerHTML`。
+
+默认 preview 上限：
+
+```text
+4096 characters
+```
+
+超过上限只截断 UI preview，不修改 artifact 的 `text` 或 `data`。
+
+可通过以下参数调整：
 
 ```ts
 {
-  status,
-  file: {
-    filename,
-    mimeType,
-    bytes,
-  },
-  archiveBytes,
-  data,
-  verification,
-  error,
+  maxPreviewCharacters: 8192,
 }
 ```
 
-`data` 保留读取到的 exact `Uint8Array`，为后续 verified imported ZIP entry inspection / extraction workflow 提供稳定输入。本版本不会从该数据提取文件，也不会自动创建 Blob URL 或下载。
+## Download API
 
-## 外部 ZIP 验证范围
-
-0.78 调用 0.77 的 raw bytes API：
+单项下载：
 
 ```ts
-verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveBytes(
-  data,
-  {
-    expectedExtraction: extraction,
-  },
+downloadRuntimeNavMissionDiagnosticsManifestHudValidationImportedArchiveArtifact(
+  artifact,
 )
 ```
 
-验证内容包括：
-
-### ZIP container
-
-- EOCD signature 与完整范围
-- single-disk layout
-- archive comment 为空
-- EOCD 后无 trailing bytes
-- central-directory offset、size 与 entry count
-- central-directory records 完整消费
-- local-header offsets 与连续 entry order
-
-### Deterministic metadata
-
-```text
-ZIP version 20
-UTF-8 flag only
-Store compression method
-DOS timestamp 1980-01-01 00:00:00
-empty extra fields
-empty file comments
-empty archive comment
-zero disk number
-zero internal/external attributes
-compressed bytes == uncompressed bytes
-```
-
-### Artifact identity
-
-固定 entry 顺序：
-
-```text
-validation-report-text
-validation-report-json
-validation-report-json-sha256
-```
-
-每项必须与当前 extraction 一致：
-
-- kind
-- filename
-- byte size
-- CRC-32
-- SHA-256
-- exact stored bytes
-
-完整 archive 还会重新计算 SHA-256。
-
-## HUD control
-
-新增：
+固定顺序批量下载：
 
 ```ts
-createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportControl(
-  extraction,
-  options,
+downloadRuntimeNavMissionDiagnosticsManifestHudValidationImportedArchiveArtifacts(
+  result,
 )
 ```
 
-控件行为：
+下载流程：
 
-- 隐藏 `<input type="file">`
-- picker hint：`.zip`、`application/zip`、`application/x-zip-compressed`
-- 支持重复选择同一个文件
-- 读取与验证期间禁用 action button
-- 成功 details 默认折叠
-- 失败 details 自动展开
-- 显示完整 issue code、JSON-style path 与 message
-- 不把导入内容写入 `innerHTML`
-- 不解压到文件系统
-- 不创建 object URL
-- 不自动触发下载
+```text
+copied Uint8Array
+  → isolated ArrayBuffer
+  → MIME-aware Blob
+  → temporary object URL
+  → anchor download
+  → guaranteed URL revocation
+```
 
-### Callbacks
+未提取成功的 result 无法触发批量下载。
+
+## Clipboard API
+
+```ts
+copyRuntimeNavMissionDiagnosticsManifestHudValidationImportedArchiveArtifactText(
+  artifact,
+)
+```
+
+仅复制 already-verified `artifact.text`。Clipboard API 不可用或写入失败时返回明确错误，不会使用隐藏 textarea 或 DOM command fallback。
+
+## Callbacks
+
+Archive import control 新增：
 
 ```ts
 {
-  onImport(result, extraction),
-  onVerify(verification, result, extraction),
-  onStatus(message),
+  onExtract(entryExtraction, importResult, extraction),
+  onImportedArtifactDownload(artifact, entryExtraction),
+  onImportedDownloadAll(entryExtraction),
+  onImportedArtifactCopy(artifact, entryExtraction),
 }
 ```
 
-Extraction action options 同时增加：
+顶层 extraction actions 透传：
 
 ```ts
-onArchiveImport
-onArchiveImportVerify
+{
+  onArchiveImportExtract,
+  onArchiveImportedArtifactDownload,
+  onArchiveImportedDownloadAll,
+  onArchiveImportedArtifactCopy,
+}
 ```
 
-## HUD workflow
+## HUD data attributes
 
-Verified extraction 区域现在包含：
+Import root：
 
 ```text
-Verified artifact extraction
-  ├── Deterministic ZIP archive
-  │   ├── Download verified artifacts ZIP
-  │   └── Verify verified artifacts ZIP
-  ├── Import and verify external artifacts ZIP
-  ├── Download all verified artifacts
-  ├── Download verified validation text report
-  ├── Download verified validation JSON report
-  └── Download verified validation JSON SHA-256
+data-bundle-imported-archive-extraction-status
+data-bundle-imported-archive-extraction-artifact-count
+data-bundle-imported-archive-extraction-total-bytes
+data-bundle-imported-archive-extraction-source-filename
 ```
 
-外部 ZIP 验证成功：
+Imported artifact details：
 
 ```text
-<filename> · verified · 3 entries · <bytes> · 0 issues
+data-bundle-imported-archive-artifact-kind
+data-bundle-imported-archive-artifact-filename
+data-bundle-imported-archive-artifact-bytes
+data-bundle-imported-archive-artifact-crc32
+data-bundle-imported-archive-artifact-checksum
+data-bundle-imported-archive-artifact-data-offset
+data-bundle-imported-archive-artifact-data-end
 ```
 
-验证失败时展示：
+Actions：
 
 ```text
-archive SHA-256
-EOCD
-central directory
-entry order
-local header count
-CRC-32 count
-SHA-256 count
-all structured issues
-```
-
-## Data attributes
-
-Import control：
-
-```text
-data-bundle-extraction-archive-import-status
-data-bundle-extraction-archive-import-filename
-data-bundle-extraction-archive-import-mime-type
-data-bundle-extraction-archive-import-file-bytes
-data-bundle-extraction-archive-import-bytes
-data-bundle-extraction-archive-import-verification-valid
-data-bundle-extraction-archive-import-verification-issue-count
-data-bundle-extraction-archive-import-verification-entry-count
-data-bundle-extraction-archive-import-verification-crc32-count
-data-bundle-extraction-archive-import-verification-sha256-count
-data-bundle-extraction-archive-import-verification-checksum
+data-bundle-imported-archive-action="copy"
+data-bundle-imported-archive-action="download"
+data-bundle-imported-archive-action="download-all"
 ```
 
 ## Security boundary
 
-- File extension 和 MIME type 不决定可信度。
-- 在读取前检查 reported `File.size`。
-- 在读取后检查 actual `ArrayBuffer.byteLength`。
-- ZIP verifier 不向文件系统提取内容。
-- 所有 ZIP offset 和 length 在访问前检查 bounds。
-- 拒绝路径型 filename、控制字符和非法 UTF-8。
-- 拒绝 compression、encryption、data descriptor、ZIP64、multi-disk、extra fields、comments 与 trailing data。
-- CRC-32 用于 ZIP container integrity。
-- SHA-256 与 exact bytes comparison 用于可信 artifact identity。
-- 新导入会替换控件中的旧结果，不保留旧 verification UI 状态。
+- 不信任 file extension 或 reported MIME type。
+- 不从 verification-failed ZIP 暴露任何 entry bytes。
+- 不向文件系统解压 ZIP。
+- 不解释或执行 imported text。
+- 不使用 `innerHTML` 渲染 preview。
+- 所有 offset 与 length 在读取前验证。
+- Entry filename 必须与 trusted extraction 完全一致。
+- Entry bytes 必须通过 CRC-32、SHA-256 与 exact byte comparison。
+- 公开 artifact 使用 copied bytes，不共享原 import buffer。
+- Blob URL 只在用户显式下载时创建，并在点击后立即回收。
 
-## 版本
-
-```text
-package version: 0.78.0
-runtime label: runtime 0.78
-```
-
-## Checklist
-
-- [x] Mission diagnostics policy editor presets
-- [x] Mission diagnostics editor preset picker UI
-- [x] Mission diagnostics policy editor custom overrides UI
-- [x] Mission diagnostics policy editor apply / reload workflow
-- [x] Mission diagnostics policy editor shareable URL export
-- [x] Mission diagnostics policy manifest export scaffold
-- [x] Mission diagnostics policy manifest import / apply workflow
-- [x] Mission diagnostics policy manifest package target picker
-- [x] Mission diagnostics policy manifest package patch preview
-- [x] Mission diagnostics policy manifest package patch copy/apply polish
-- [x] Mission diagnostics policy manifest save / authoring workflow
-- [x] Mission diagnostics policy manifest HUD download integration
-- [x] Mission diagnostics policy manifest HUD panel wiring
-- [x] Mission diagnostics policy manifest download summary preview
-- [x] Mission diagnostics policy manifest authoring validation
-- [x] Mission diagnostics policy manifest validation HUD issue details
-- [x] Mission diagnostics policy manifest validation issue copy workflow
-- [x] Mission diagnostics policy manifest validation report download workflow
-- [x] Mission diagnostics policy manifest validation JSON report workflow
-- [x] Mission diagnostics policy manifest validation JSON report copy workflow
-- [x] Mission diagnostics policy manifest validation JSON report checksum workflow
-- [x] Mission diagnostics policy manifest validation JSON checksum download workflow
-- [x] Mission diagnostics policy manifest validation artifact bundle workflow
-- [x] Mission diagnostics policy manifest validation artifact bundle verification workflow
-- [x] Mission diagnostics policy manifest validation artifact bundle import / verification workflow
-- [x] Mission diagnostics policy manifest validation artifact bundle verified artifact extraction workflow
-- [x] Mission diagnostics policy manifest validation artifact bundle verified extraction archive workflow
-- [x] Mission diagnostics policy manifest validation artifact bundle verified extraction archive verification workflow
-- [x] Mission diagnostics policy manifest validation artifact bundle verified extraction archive import / verification workflow
-- [ ] Mission diagnostics policy manifest validation artifact bundle verified imported archive entry inspection / extraction workflow
-
-## 运行 Runtime
-
-```bash
-npm install
-npm run dev
-```
-
-打开大场景 Mission HUD：
+## Version
 
 ```text
-http://localhost:5173?world=/worlds/large-demo/world.json&clickToMove=1&missionDebug=1
+package version: 0.79.0
+runtime label: runtime 0.79
 ```
 
-验证：
+## Roadmap
 
-```bash
-npm run typecheck
-npm run build
-npm run preview
-```
+- [x] Mission diagnostics manifest validation text report
+- [x] Mission diagnostics manifest validation JSON report
+- [x] Mission diagnostics manifest validation JSON SHA-256
+- [x] Mission diagnostics manifest validation artifact bundle
+- [x] Mission diagnostics validation artifact bundle import / verification
+- [x] Mission diagnostics verified artifact extraction
+- [x] Mission diagnostics deterministic verified artifact ZIP archive
+- [x] Mission diagnostics verified artifact ZIP archive verification
+- [x] Mission diagnostics external verified artifact ZIP import / verification
+- [x] Mission diagnostics verified imported ZIP artifact inspection / extraction
+- [ ] Mission diagnostics verified imported archive provenance report workflow
 
-## 下一项 roadmap
+## Next
 
 ```text
 Mission diagnostics policy manifest validation artifact bundle
-verified imported archive entry inspection / extraction workflow
+verified imported archive provenance report workflow
 ```
 
-下一版将只在 external ZIP verification 成功后，从已验证 local-header data ranges 创建 typed imported artifacts，保留 exact bytes、filename、kind、CRC-32 与 SHA-256，并提供安全的 preview / copy / download 能力。
+下一阶段将基于 verified import 与 imported artifacts 生成 canonical provenance text/JSON artifact，记录 source ZIP SHA-256、entry order、local data ranges、CRC-32、entry SHA-256、trusted extraction relationship 与完整 verification checks。
