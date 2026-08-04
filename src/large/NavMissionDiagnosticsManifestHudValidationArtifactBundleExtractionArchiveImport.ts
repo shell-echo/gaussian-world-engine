@@ -2,6 +2,14 @@ import type {
   RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtraction.js";
 import {
+  createRuntimeNavMissionDiagnosticsManifestHudValidationImportedArchiveArtifactActions,
+  extractRuntimeNavMissionDiagnosticsManifestHudValidationArtifactsFromVerifiedArchiveImport,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactExtraction.js";
+import type {
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveArtifact,
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactExtraction.js";
+import {
   formatRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerification,
   verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveBytes,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerification.js";
@@ -16,6 +24,7 @@ export const RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE
 export type RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportStatus =
   | "verified"
   | "verification-failed"
+  | "entry-extraction-failed"
   | "rejected"
   | "read-failed"
   | "verification-error";
@@ -32,6 +41,7 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
   archiveBytes: number | null;
   data: Uint8Array | null;
   verification: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerificationResult | null;
+  entryExtraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult | null;
   error: string | null;
 }
 
@@ -49,6 +59,22 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
     verification: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerificationResult,
     result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
     extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
+  ) => void;
+  onExtract?: (
+    entryExtraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
+    result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
+    extraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionResult,
+  ) => void;
+  onImportedArtifactDownload?: (
+    artifact: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveArtifact,
+    entryExtraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
+  ) => void;
+  onImportedDownloadAll?: (
+    entryExtraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
+  ) => void;
+  onImportedArtifactCopy?: (
+    artifact: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveArtifact,
+    entryExtraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
   ) => void;
   onStatus?: (message: string) => void;
 }
@@ -70,6 +96,7 @@ export async function importRuntimeNavMissionDiagnosticsManifestHudValidationArt
       archiveBytes: null,
       data: null,
       verification: null,
+      entryExtraction: null,
       error: `ZIP file exceeds the ${formatByteSize(maxFileBytes)} import limit.`,
     };
   }
@@ -84,6 +111,7 @@ export async function importRuntimeNavMissionDiagnosticsManifestHudValidationArt
       archiveBytes: null,
       data: null,
       verification: null,
+      entryExtraction: null,
       error: formatErrorMessage(error),
     };
   }
@@ -95,6 +123,7 @@ export async function importRuntimeNavMissionDiagnosticsManifestHudValidationArt
       archiveBytes: data.byteLength,
       data,
       verification: null,
+      entryExtraction: null,
       error: `Decoded ZIP bytes exceed the ${formatByteSize(maxFileBytes)} import limit.`,
     };
   }
@@ -105,13 +134,27 @@ export async function importRuntimeNavMissionDiagnosticsManifestHudValidationArt
         data,
         { expectedExtraction: extraction },
       );
-    return {
+    const verifiedResult: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult = {
       status: verification.valid ? "verified" : "verification-failed",
       file: metadata,
       archiveBytes: data.byteLength,
       data,
       verification,
+      entryExtraction: null,
       error: null,
+    };
+    if (!verification.valid) return verifiedResult;
+
+    const entryExtraction =
+      await extractRuntimeNavMissionDiagnosticsManifestHudValidationArtifactsFromVerifiedArchiveImport(
+        verifiedResult,
+        extraction,
+      );
+    return {
+      ...verifiedResult,
+      status: entryExtraction.status === "extracted" ? "verified" : "entry-extraction-failed",
+      entryExtraction,
+      error: entryExtraction.status === "extracted" ? null : entryExtraction.error,
     };
   } catch (error) {
     return {
@@ -120,6 +163,7 @@ export async function importRuntimeNavMissionDiagnosticsManifestHudValidationArt
       archiveBytes: data.byteLength,
       data,
       verification: null,
+      entryExtraction: null,
       error: formatErrorMessage(error),
     };
   }
@@ -128,10 +172,15 @@ export async function importRuntimeNavMissionDiagnosticsManifestHudValidationArt
 export function formatRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult(
   result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
 ): string {
+  if (result.status === "verified" && result.verification && result.entryExtraction) {
+    return `Imported ${result.file.filename} · ${formatRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerification(
+      result.verification,
+    )} · ${result.entryExtraction.artifactCount} imported artifacts extracted`;
+  }
   if (result.verification) {
     return `Imported ${result.file.filename} · ${formatRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerification(
       result.verification,
-    )}`;
+    )}${result.error ? ` · ${result.error}` : ""}`;
   }
   return `ZIP import ${result.status.replaceAll("-", " ")} · ${result.file.filename} · ${
     result.error ?? "Unknown import failure."
@@ -149,6 +198,7 @@ export function createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactB
   const root = document.createElement("section");
   root.className = "mission-debug-diagnostics-manifest-validation-bundle-extraction-archive-import";
   root.dataset.bundleExtractionArchiveImportStatus = "idle";
+  root.dataset.bundleImportedArchiveExtractionStatus = "unavailable";
   Object.assign(root.style, {
     display: "grid",
     gap: "4px",
@@ -226,7 +276,9 @@ async function handleArchiveImport(
   label.textContent = "Importing external artifacts ZIP…";
   preview.textContent = `${file.name || "unnamed-artifacts.zip"} · ${formatByteSize(file.size)} · reading exact bytes`;
   root.dataset.bundleExtractionArchiveImportStatus = "reading";
+  root.dataset.bundleImportedArchiveExtractionStatus = "unavailable";
   clearImportVerificationDataset(root);
+  clearImportedExtractionDataset(root);
   try {
     const result =
       await importRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveFile(
@@ -235,7 +287,7 @@ async function handleArchiveImport(
         options,
       );
     applyImportDataset(root, result);
-    renderImportResult(details, result);
+    renderImportResult(details, result, options);
     const summary =
       formatRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult(
         result,
@@ -247,10 +299,14 @@ async function handleArchiveImport(
     if (result.verification) {
       options.onVerify?.(result.verification, result, extraction);
     }
+    if (result.entryExtraction?.status === "extracted") {
+      options.onExtract?.(result.entryExtraction, result, extraction);
+    }
     options.onStatus?.(createStatusMessage(result));
   } catch (error) {
     const message = formatErrorMessage(error);
     root.dataset.bundleExtractionArchiveImportStatus = "verification-error";
+    root.dataset.bundleImportedArchiveExtractionStatus = "unavailable";
     preview.textContent = `${file.name || "unnamed-artifacts.zip"} · import error · ${message}`;
     details.hidden = false;
     details.open = true;
@@ -269,6 +325,7 @@ async function handleArchiveImport(
 function renderImportResult(
   details: HTMLDetailsElement,
   result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
+  options: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportControlOptions,
 ): void {
   details.hidden = false;
   details.open = result.status !== "verified";
@@ -332,6 +389,27 @@ function renderImportResult(
     error.style.overflowWrap = "anywhere";
     body.append(error);
   }
+
+  if (result.entryExtraction?.status === "extracted") {
+    body.append(
+      createRuntimeNavMissionDiagnosticsManifestHudValidationImportedArchiveArtifactActions(
+        result.entryExtraction,
+        {
+          onArtifactDownload: options.onImportedArtifactDownload,
+          onDownloadAll: options.onImportedDownloadAll,
+          onArtifactCopy: options.onImportedArtifactCopy,
+          onStatus: options.onStatus,
+        },
+      ),
+    );
+  } else if (result.entryExtraction?.error) {
+    const extractionError = document.createElement("small");
+    extractionError.textContent = `Verified imported entry extraction unavailable: ${result.entryExtraction.error}`;
+    extractionError.style.color = "#ffb4b4";
+    extractionError.style.overflowWrap = "anywhere";
+    body.append(extractionError);
+  }
+
   details.replaceChildren(summary, body);
 }
 
@@ -412,6 +490,21 @@ function applyImportDataset(
   } else {
     clearImportVerificationDataset(root);
   }
+
+  if (result.entryExtraction) {
+    root.dataset.bundleImportedArchiveExtractionStatus = result.entryExtraction.status;
+    root.dataset.bundleImportedArchiveExtractionArtifactCount = String(
+      result.entryExtraction.artifactCount,
+    );
+    root.dataset.bundleImportedArchiveExtractionTotalBytes = String(
+      result.entryExtraction.totalBytes,
+    );
+    root.dataset.bundleImportedArchiveExtractionSourceFilename =
+      result.entryExtraction.sourceArchiveFilename;
+  } else {
+    root.dataset.bundleImportedArchiveExtractionStatus = "unavailable";
+    clearImportedExtractionDataset(root);
+  }
 }
 
 function clearImportVerificationDataset(root: HTMLElement): void {
@@ -423,9 +516,20 @@ function clearImportVerificationDataset(root: HTMLElement): void {
   delete root.dataset.bundleExtractionArchiveImportVerificationChecksum;
 }
 
+function clearImportedExtractionDataset(root: HTMLElement): void {
+  delete root.dataset.bundleImportedArchiveExtractionArtifactCount;
+  delete root.dataset.bundleImportedArchiveExtractionTotalBytes;
+  delete root.dataset.bundleImportedArchiveExtractionSourceFilename;
+}
+
 function createImportPreview(
   result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
 ): string {
+  if (result.status === "verified" && result.verification && result.entryExtraction) {
+    return `${result.file.filename} · verified · ${result.entryExtraction.artifactCount} imported artifacts ready · ${formatByteSize(
+      result.archiveBytes ?? result.file.bytes,
+    )}`;
+  }
   if (result.verification) {
     return `${result.file.filename} · ${result.status} · ${result.verification.entryCount} entries · ${formatByteSize(
       result.archiveBytes ?? result.file.bytes,
@@ -437,11 +541,14 @@ function createImportPreview(
 function createDetailsSummary(
   result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
 ): string {
-  if (result.status === "verified" && result.verification) {
-    return `External ZIP verification · passed · ${result.verification.entryCount} entries`;
+  if (result.status === "verified" && result.verification && result.entryExtraction) {
+    return `External ZIP verification · passed · ${result.entryExtraction.artifactCount} imported artifacts ready`;
   }
   if (result.status === "verification-failed" && result.verification) {
     return `External ZIP verification · failed · ${formatIssueCount(result.verification.issues.length)}`;
+  }
+  if (result.status === "entry-extraction-failed") {
+    return "External ZIP verification · passed · imported entry extraction failed";
   }
   return `External ZIP import · ${result.status.replaceAll("-", " ")}`;
 }
@@ -449,13 +556,16 @@ function createDetailsSummary(
 function createStatusMessage(
   result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportResult,
 ): string {
-  if (result.status === "verified" && result.verification) {
-    return `Imported and verified external artifact ZIP ${result.file.filename} with ${result.verification.entryCount} entries.`;
+  if (result.status === "verified" && result.verification && result.entryExtraction) {
+    return `Imported and verified external artifact ZIP ${result.file.filename}; ${result.entryExtraction.artifactCount} artifacts are ready for inspection and extraction.`;
   }
   if (result.status === "verification-failed" && result.verification) {
     return `External artifact ZIP ${result.file.filename} verification failed with ${formatIssueCount(
       result.verification.issues.length,
     )}.`;
+  }
+  if (result.status === "entry-extraction-failed") {
+    return `External artifact ZIP ${result.file.filename} passed ZIP verification but imported entry extraction failed: ${result.error ?? "Unknown failure."}`;
   }
   return `External artifact ZIP import ${result.status.replaceAll("-", " ")}: ${
     result.error ?? "Unknown failure."
