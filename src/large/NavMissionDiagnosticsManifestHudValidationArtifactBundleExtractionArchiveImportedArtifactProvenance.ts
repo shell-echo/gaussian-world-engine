@@ -7,6 +7,9 @@ import type {
 import type {
   RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactExtraction.js";
+import type {
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationResult,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerification.js";
 
 export const RUNTIME_NAV_MISSION_DIAGNOSTICS_MANIFEST_VALIDATION_ARTIFACT_BUNDLE_IMPORTED_ARCHIVE_PROVENANCE_SCHEMA =
   "splat-world-engine/mission-diagnostics-policy-manifest-verified-imported-archive-provenance";
@@ -135,6 +138,10 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
 export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceActionsOptions {
   maxPreviewCharacters?: number;
   onCreate?: (
+    result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceResult,
+  ) => void;
+  onVerify?: (
+    verification: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationResult,
     result: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceResult,
   ) => void;
   onArtifactDownload?: (
@@ -430,6 +437,18 @@ async function prepareActions(
   heading.textContent = `Verified import provenance · ${result.artifactCount} artifacts · ${formatBytes(result.totalBytes)}`;
   heading.style.fontWeight = "750";
 
+  const verificationModule =
+    await import("./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerification.js");
+  const verification =
+    verificationModule.createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationControl(
+      result,
+      entryExtraction,
+      {
+        onVerify: (verificationResult, verifiedResult) => options.onVerify?.(verificationResult, verifiedResult),
+        onStatus: options.onStatus,
+      },
+    );
+
   const downloadAll = button(
     "Download all provenance artifacts",
     `${result.artifactCount} artifacts · canonical fixed order · ${formatBytes(result.totalBytes)}`,
@@ -450,7 +469,7 @@ async function prepareActions(
   Object.assign(list.style, { display: "grid", gap: "5px" });
   const maxPreview = normalizePreview(options.maxPreviewCharacters);
   for (const artifact of result.artifacts) list.append(inspection(artifact, result, maxPreview, options));
-  root.replaceChildren(heading, downloadAll, list);
+  root.replaceChildren(heading, verification, downloadAll, list);
 }
 
 function inspection(
