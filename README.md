@@ -1,6 +1,6 @@
-# Splat World Engine — Mission Diagnostics Verified Import Provenance
+# Splat World Engine — Imported ZIP Provenance Verification
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime 原型。Runtime/Builder 0.80 在 0.79 的 verified imported ZIP artifact extraction 之上增加确定性 provenance report workflow：只有外部 ZIP 完整通过 archive verification、entry extraction 与 trusted artifact relationship 复核后，Runtime 才会生成 provenance text、canonical JSON 与 JSON SHA-256 artifact。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime / Builder 原型。Runtime/Builder 0.81 在 0.80 的 deterministic verified imported ZIP provenance artifacts 之上增加独立 provenance verifier：它直接解析 provenance JSON、验证 canonical bytes、重新锚定 source ZIP 与 trusted/imported extraction，并验证 provenance JSON SHA-256 artifact；不会调用 provenance creator 重新生成结果后做简单字符串比较。
 
 ```text
 Validation artifact bundle
@@ -11,367 +11,280 @@ Validation artifact bundle
   ├── bounded external ZIP import
   ├── independent ZIP verification
   ├── verified imported entry extraction
-  └── deterministic provenance artifacts
-      ├── source archive SHA-256
-      ├── ZIP verification checks
-      ├── trusted artifact metadata
-      ├── imported entry data ranges
-      ├── CRC-32 relationships
-      ├── entry SHA-256 relationships
-      ├── exact text relationships
-      ├── canonical provenance JSON
-      └── provenance JSON SHA-256
+  ├── deterministic provenance artifacts
+  └── independent provenance verification
+      ├── strict JSON parsing and bounded values
+      ├── recursive canonical JSON verification
+      ├── schema and schemaVersion verification
+      ├── source ZIP checksum anchoring
+      ├── trusted extraction anchoring
+      ├── imported byte-range / CRC-32 / SHA-256 verification
+      ├── relationship verification
+      ├── provenance JSON checksum artifact verification
+      └── anchored / self-consistent / untrusted trust classification
 ```
 
-## Runtime/Builder 0.80 能力
+## Runtime/Builder 0.81 能力
 
 新增：
 
 ```text
 src/large/
-└── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenance.ts
+└── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerification.ts
 ```
 
 更新：
 
 ```text
-src/large/NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImport.ts
-src/large/NavMissionDiagnosticsManifestHudValidationArtifactBundleExtraction.ts
+src/large/NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenance.ts
 ```
 
-## Provenance creation gate
+## Core APIs
 
-核心 API：
+验证已创建的完整 provenance artifact result，并使用当前 trusted entry extraction 锚定：
 
 ```ts
-createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenance(
+verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact(
+  provenance,
   entryExtraction,
 )
 ```
 
-该 API 同时要求：
+验证独立 provenance JSON text：
 
-```text
-importResult.status === "verified"
-importResult.verification.valid === true
-importResult.verification.issues.length === 0
-importResult.verification.archiveChecksumHex !== null
-importResult.data !== null
-entryExtraction.status === "extracted"
-entryExtraction.extraction.status === "extracted"
+```ts
+verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceText(
+  text,
+  options,
+)
 ```
 
-任何未验证 ZIP、缺少 exact ZIP bytes、ZIP verification issue、entry extraction failure 或 trusted extraction failure 都不会产生 provenance artifacts。
-
-## 生成前重新验证
-
-Provenance builder 不会直接复制 0.77、0.78 或 0.79 返回的 metadata。
-
-生成前会重新执行：
-
-1. 对 exact source ZIP bytes 重新计算 SHA-256。
-2. 核对 source ZIP SHA-256 与 archive verifier 结果。
-3. 核对 verified entries、imported artifacts 与 trusted artifacts 数量均为三项。
-4. 核对固定 artifact kind 和 entry order。
-5. 核对 filename、MIME type 与 byte size。
-6. 核对 imported `dataEnd - dataOffset` 与 artifact byte size。
-7. 对 copied imported entry bytes 重新计算 CRC-32。
-8. 对 copied imported entry bytes 重新计算 SHA-256。
-9. 核对 verifier、imported artifact 与 trusted artifact checksums。
-10. 将 trusted artifact text 重新编码为 UTF-8，并逐字节比较 imported data。
-11. 核对 imported text 与 trusted text 完全一致。
-
-任一关系发生变化时，provenance result 返回 `relationship-invalid`，且 artifact 数量为零。
-
-## Provenance schema
-
-```text
-splat-world-engine/
-mission-diagnostics-policy-manifest-verified-imported-archive-provenance
-```
-
-Schema version：
-
-```text
-1
-```
-
-Document 结构：
+`options` 可提供：
 
 ```ts
 {
-  schema,
-  schemaVersion,
-  target,
-  sourceArchive: {
-    filename,
-    reportedMimeType,
-    reportedBytes,
-    exactBytes,
-    checksum: {
-      algorithm: "SHA-256",
-      input: "archive-bytes",
-      hex,
-    },
-  },
-  verification: {
-    valid: true,
-    issueCount: 0,
-    archiveBytes,
-    entryCount,
-    totalUncompressedBytes,
-    checks: {
-      archiveChecksum: true,
-      eocd: true,
-      centralDirectory: true,
-      entryOrder: true,
-      localHeadersVerified,
-      deterministicMetadataVerified,
-      crc32Verified,
-      sha256Verified,
-    },
-  },
-  trustedExtraction: {
-    status: "extracted",
-    bundleStatus,
-    artifactCount,
-    totalBytes,
-    artifacts,
-  },
-  importedExtraction: {
-    status: "extracted",
-    sourceArchiveFilename,
-    artifactCount,
-    totalBytes,
-    artifacts,
-  },
-  relationships,
+  jsonFilename,
+  checksumArtifactText,
+  checksumArtifactFilename,
+  expectedProvenance,
+  expectedEntryExtraction,
+  expectedSourceArchiveChecksumHex,
+  maxTextBytes,
+  maxStringCharacters,
+  maxArrayEntries,
+  maxObjectFields,
+  maxDepth,
 }
 ```
 
-## Relationship records
+Text API 不要求 trusted anchor。一个结构和校验关系完全自洽、但未提供可信外部锚点的 document 可以通过验证，但 trust 只能是 `self-consistent`。
 
-每个固定顺序 artifact 都生成一条 relationship：
+## Verification result
 
 ```ts
 {
-  index,
-  kind,
-  filenameMatches: true,
-  mimeTypeMatches: true,
-  byteSizeMatches: true,
-  dataRangeMatches: true,
-  crc32Matches: true,
-  checksumMatches: true,
-  exactTextMatches: true,
+  valid,
+  trust: "anchored" | "self-consistent" | "untrusted",
+  document,
+  canonicalText,
+  bytes,
+  checksumHex,
+  issues,
+  checks: {
+    parsed,
+    schema,
+    canonical,
+    sourceArchive,
+    verification,
+    trustedExtraction,
+    importedExtraction,
+    relationships,
+    jsonChecksum,
+  },
+  anchors: {
+    expectedProvenance,
+    entryExtraction,
+    sourceArchiveChecksum,
+    jsonChecksumArtifact,
+  },
 }
 ```
 
-Imported artifact metadata 包含：
+Trust 语义：
 
 ```text
-kind
-filename
-mimeType
-bytes
-dataOffset
-dataEnd
-CRC-32
-SHA-256
+anchored
+  document 有效，并且至少一个 trusted anchor 存在，所有已提供 trusted anchors 均匹配
+
+self-consistent
+  document 有效，但没有 trusted provenance / entry extraction / source ZIP checksum anchor
+
+untrusted
+  document、checksum artifact 或任何已提供 trusted anchor 验证失败
 ```
 
-Trusted artifact metadata 包含：
+JSON checksum artifact 证明 JSON bytes 与 checksum claim 自洽，但它本身不构成外部 trusted anchor。
+
+## Strict document verification
+
+Verifier 会验证：
+
+1. 输入必须是 bounded UTF-8 text，byte size 不超过配置上限。
+2. JSON 必须严格解析成功，顶层只能是 plain object。
+3. 顶层与所有固定 schema object 禁止未知字段。
+4. schema 必须精确匹配：
 
 ```text
-kind
-filename
-mimeType
-bytes
-artifact-text UTF-8 SHA-256
+splat-world-engine/mission-diagnostics-policy-manifest-verified-imported-archive-provenance
 ```
 
-Provenance 报告只记录审计 metadata，不嵌入 validation report 原始内容。
-
-## Deterministic serialization
-
-Provenance JSON 使用：
+5. schemaVersion 必须精确为 `1`。
+6. Canonical JSON 必须满足：
 
 ```text
 recursive object-key ordering
 array order preserved
-2-space JSON formatting
-one trailing newline
+two-space indentation
+exactly one trailing newline
 ```
 
-报告不会包含：
+7. `sourceArchive` 验证 filename、reported MIME、reported/exact bytes 与 SHA-256 descriptor。
+8. `verification` 必须声明 `valid: true`、`issueCount: 0`、`entryCount: 3`，所有 archive checks 必须完成三项验证。
+9. `trustedExtraction` 与 `importedExtraction` 必须为 `extracted`，并验证 artifact count、total bytes、固定顺序、filename、MIME、bytes 与 SHA-256。
+10. Imported artifacts 还必须验证 ordered/non-overlapping source ranges、`dataEnd - dataOffset`、CRC-32 与 SHA-256 descriptor。
+11. 三条 relationship 必须保持固定顺序，所有 relationship booleans 必须为 `true`。
+12. Provenance JSON SHA-256 artifact 必须使用严格语法：
 
 ```text
-current timestamp
-random ID
-browser user agent
-machine path
-session ID
-locale-dependent formatting
+<64 lowercase hex>  <provenance-json-filename>\n
 ```
 
-相同 verified import 和 trusted extraction 会产生逐字节一致的 provenance artifacts。
+## Trusted anchor verification
 
-## Provenance artifacts
+提供 `expectedEntryExtraction` 后，verifier 会重新计算并比较：
 
-固定顺序：
+- retained exact source ZIP bytes 的 SHA-256
+- source ZIP filename、reported MIME、reported bytes 与 exact bytes
+- archive verifier 的 valid / issue count / bytes / entry count / total bytes / checks
+- trusted artifact text 的 exact UTF-8 bytes 与 SHA-256
+- imported artifact copied bytes 的 CRC-32 与 SHA-256
+- imported artifact 的 source ZIP `dataOffset` / `dataEnd` range
+- retained source ZIP range 与 imported copied bytes
+- imported bytes 与 trusted UTF-8 text bytes
+- fixed artifact order、kind、filename、MIME 与 byte size
 
-```text
-1. provenance-report-text
-2. provenance-report-json
-3. provenance-report-json-sha256
-```
+这使 verifier 与 provenance creator 保持职责独立：creator 负责生成审计 artifacts，verifier 负责从输入反向证明 document 自洽并验证可用 trusted anchors。
 
-Target-specific filenames：
+## Stable verification issues
 
-```text
-large-world-manifest.diagnostics-policy.verified-import-provenance.txt
-large-world-manifest.diagnostics-policy.verified-import-provenance.json
-large-world-manifest.diagnostics-policy.verified-import-provenance.json.sha256
-```
-
-Mission package 使用：
-
-```text
-mission-package-<index>.diagnostics-policy.verified-import-provenance.*
-```
-
-Checksum artifact 内容：
-
-```text
-<SHA-256>  <provenance-json-filename>
-```
-
-每个 provenance artifact 自身也记录 SHA-256。
-
-## Provenance result
+每个失败项返回：
 
 ```ts
 {
-  status: "created",
-  entryExtraction,
-  importResult,
-  document,
-  artifactCount: 3,
-  totalBytes,
-  artifacts: [
-    {
-      kind: "provenance-report-text",
-      filename,
-      mimeType,
-      bytes,
-      checksumHex,
-      text,
-    },
-    // provenance JSON
-    // provenance JSON SHA-256
-  ],
-  error: null,
+  code: string,
+  path: string,
+  message: string,
 }
 ```
 
-状态：
+稳定 issue code 包括：
 
 ```text
-created
-import-unavailable
-verification-unavailable
-entry-extraction-unavailable
-relationship-invalid
+text-invalid
+text-size-invalid
+json-parse-failed
+document-type-invalid
+field-type-invalid
+field-value-invalid
+array-size-invalid
+string-size-invalid
+schema-mismatch
+schema-version-mismatch
+unknown-field
+canonical-json-mismatch
+source-archive-mismatch
+source-archive-checksum-mismatch
+verification-check-mismatch
+trusted-extraction-mismatch
+imported-extraction-mismatch
+relationship-count-mismatch
+relationship-mismatch
+artifact-order-mismatch
+artifact-metadata-mismatch
+crc32-mismatch
+sha256-mismatch
+checksum-artifact-invalid
+expected-provenance-mismatch
 crypto-unavailable
-provenance-error
 ```
 
-失败结果不会包含部分 provenance artifacts。
+除 JSON 无法安全解析、root 类型错误或输入超过 hard limit 外，verifier 会尽可能一次返回所有可恢复 issues。
 
 ## HUD integration
 
-External ZIP 成功导入并提取后，details 中显示：
+Provenance artifacts 区域新增：
 
 ```text
-Verified imported ZIP entries
-  ├── imported artifact inspection / copy / download
-  └── Verified import provenance
-      ├── Download all provenance artifacts
-      ├── provenance text preview / copy / download
-      ├── canonical provenance JSON preview / copy / download
-      └── provenance JSON SHA-256 preview / copy / download
+Verify imported archive provenance report
 ```
 
-Provenance 生成是异步且独立的：
+成功后 details 显示：
 
-- Provenance failure 不会撤销已验证 imported artifact inspection。
-- 新导入结果替换整个 details，不会遗留旧 provenance actions。
-- Preview 使用 `textContent`。
-- Preview 默认最多显示 4096 个字符。
-- 截断仅影响 UI，不修改 artifact text。
-- Clipboard API 不可用时返回明确错误。
-- Blob URL 仅在显式下载时创建，并始终回收。
+```text
+schema / schemaVersion
+canonical JSON status
+source ZIP SHA-256
+trusted artifact count
+imported artifact count
+relationship count
+provenance JSON SHA-256
+issue count
+trust classification
+```
+
+失败时：
+
+- details 自动展开。
+- 显示全部 issue `code / path / message`。
+- 不移除 provenance preview、copy 或 download actions。
+- 不修改输入 artifacts，允许保留损坏样本继续检查。
+
+Provenance actions 新增 callback：
+
+```ts
+onVerify(verification, provenance)
+```
 
 ## Data attributes
 
-Provenance root：
-
 ```text
-data-bundle-imported-archive-provenance-status
-data-bundle-imported-archive-provenance-schema
-data-bundle-imported-archive-provenance-schema-version
-data-bundle-imported-archive-provenance-artifact-count
-data-bundle-imported-archive-provenance-total-bytes
-data-bundle-imported-archive-provenance-source-checksum
-data-bundle-imported-archive-provenance-json-checksum
-```
-
-Artifact details：
-
-```text
-data-bundle-imported-archive-provenance-artifact-kind
-data-bundle-imported-archive-provenance-artifact-filename
-data-bundle-imported-archive-provenance-artifact-bytes
-data-bundle-imported-archive-provenance-artifact-checksum
-```
-
-## Callbacks
-
-Archive import control：
-
-```ts
-onProvenanceCreate
-onProvenanceArtifactDownload
-onProvenanceDownloadAll
-onProvenanceArtifactCopy
-```
-
-顶层 extraction actions：
-
-```ts
-onArchiveImportedProvenanceCreate
-onArchiveImportedProvenanceArtifactDownload
-onArchiveImportedProvenanceDownloadAll
-onArchiveImportedProvenanceArtifactCopy
+data-bundle-imported-archive-provenance-verification-status
+data-bundle-imported-archive-provenance-verification-valid
+data-bundle-imported-archive-provenance-verification-trust
+data-bundle-imported-archive-provenance-verification-issue-count
+data-bundle-imported-archive-provenance-verification-schema-version
+data-bundle-imported-archive-provenance-verification-checksum
 ```
 
 ## Security boundary
 
-- 未验证 ZIP 不会产生 provenance。
-- Provenance 生成前重新计算 source ZIP SHA-256。
-- Provenance 生成前重新计算 entry CRC-32 和 SHA-256。
-- Imported bytes 与 trusted artifact UTF-8 bytes 再次逐字节比较。
-- Report 不包含原始 artifact text。
-- Source filename 和 reported MIME type 仅作为审计 metadata。
-- JSON serialization 不执行 imported text。
-- UI 使用 `textContent`，不使用 `innerHTML`。
-- 生成过程不访问文件系统、不执行 ZIP 内容、不发送网络请求。
+- Verifier 不调用 provenance creator 生成 expected document。
+- 不执行 provenance、artifact text 或 filename。
+- 不使用 `innerHTML`；所有 HUD 内容通过 `textContent` 写入。
+- 不根据信任前的 source filename 创建路径。
+- Verification 不创建 Blob URL、不触发下载、不写入 Clipboard。
+- 输入 text、string、array、object field count 与 nesting depth 均有上限。
+- 只有 plain JSON object 被接受，数组、class instance 与 prototype-bearing object 被拒绝。
+- Web Crypto 不可用时返回 `crypto-unavailable`，不会把 SHA-256 标记为已验证。
+- CRC-32 与 SHA-256 会从 trusted imported bytes 重新计算，而不是只相信 provenance metadata。
+- JSON checksum artifact 只建立 byte-level self-consistency，不会被误报为完整可信。
+- 失败不会撤销已完成的 imported ZIP verification、artifact inspection 或 provenance artifact preview/download。
 
 ## 版本
 
 ```text
-package version: 0.80.0
-runtime label: runtime 0.80
+package version: 0.81.0
+runtime label: runtime 0.81
 ```
 
 ## Mission diagnostics roadmap
@@ -384,26 +297,14 @@ runtime label: runtime 0.80
 - [x] External ZIP import verification
 - [x] Verified imported entry inspection / extraction
 - [x] Verified imported archive provenance report workflow
-- [ ] Verified imported archive provenance report verification workflow
+- [x] Verified imported archive provenance report verification workflow
+- [ ] Verified imported archive provenance verification report artifacts
 
 ## Next
 
 ```text
 Mission diagnostics policy manifest validation artifact bundle
-verified imported archive provenance report verification workflow
+verified imported archive provenance verification report artifacts
 ```
 
-下一版将从 provenance JSON text 反向解析并验证：
-
-```text
-schema / schemaVersion
-canonical JSON serialization
-source archive checksum relationship
-verification check counts
-trusted extraction metadata
-imported data ranges
-CRC-32 relationships
-entry SHA-256 relationships
-exact-text relationship declarations
-provenance JSON SHA-256 artifact
-```
+下一版建议把 0.81 的结构化 verification result 固化为 deterministic text、canonical JSON 与 JSON SHA-256 artifacts，使 Runtime、Builder 与 CI 可以保存、复制、下载和比较 provenance verification evidence，而不是只保留内存结果。
