@@ -10,6 +10,13 @@ import type {
   RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactExtraction.js";
 import {
+  createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceActions,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenance.js";
+import type {
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact,
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceResult,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenance.js";
+import {
   formatRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerification,
   verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveBytes,
 } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveVerification.js";
@@ -75,6 +82,20 @@ export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundle
   onImportedArtifactCopy?: (
     artifact: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveArtifact,
     entryExtraction: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveExtractionResult,
+  ) => void;
+  onProvenanceCreate?: (
+    provenance: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceResult,
+  ) => void;
+  onProvenanceArtifactDownload?: (
+    artifact: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact,
+    provenance: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceResult,
+  ) => void;
+  onProvenanceDownloadAll?: (
+    provenance: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceResult,
+  ) => void;
+  onProvenanceArtifactCopy?: (
+    artifact: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceArtifact,
+    provenance: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceResult,
   ) => void;
   onStatus?: (message: string) => void;
 }
@@ -398,6 +419,16 @@ function renderImportResult(
           onArtifactDownload: options.onImportedArtifactDownload,
           onDownloadAll: options.onImportedDownloadAll,
           onArtifactCopy: options.onImportedArtifactCopy,
+          onStatus: options.onStatus,
+        },
+      ),
+      createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceActions(
+        result.entryExtraction,
+        {
+          onCreate: options.onProvenanceCreate,
+          onArtifactDownload: options.onProvenanceArtifactDownload,
+          onDownloadAll: options.onProvenanceDownloadAll,
+          onArtifactCopy: options.onProvenanceArtifactCopy,
           onStatus: options.onStatus,
         },
       ),
