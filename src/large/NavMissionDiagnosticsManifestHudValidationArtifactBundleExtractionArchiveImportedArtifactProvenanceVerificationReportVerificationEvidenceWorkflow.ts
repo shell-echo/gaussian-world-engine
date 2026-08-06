@@ -9,9 +9,16 @@ import { createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleIm
 import type { RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceActionsOptions as EvidenceOptions, RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceResult as Evidence } from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationEvidenceContract.js";
 
 export type RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceWorkflowOptions =
-  VerifiedOptions & Omit<EvidenceOptions, "maxPreviewCharacters" | "onCreate"> & {
+  VerifiedOptions &
+  Omit<
+    EvidenceOptions,
+    "maxPreviewCharacters" | "onCreate" | "onArtifactDownload" | "onDownloadAll" | "onArtifactCopy"
+  > & {
     maxEvidencePreviewCharacters?: number;
     onEvidenceCreate?: (evidence: Evidence, verification: ReportVerification, report: Report) => void;
+    onEvidenceArtifactDownload?: EvidenceOptions["onArtifactDownload"];
+    onEvidenceDownloadAll?: EvidenceOptions["onDownloadAll"];
+    onEvidenceArtifactCopy?: EvidenceOptions["onArtifactCopy"];
   };
 
 export function createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceWorkflow(
