@@ -1,251 +1,210 @@
-# Splat World Engine — Provenance Verification Report Verification
+# Splat World Engine — Provenance Verification Report Verifier Evidence Artifacts
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime / Builder 原型。Runtime/Builder 0.83 在 0.82 的 deterministic provenance verification evidence artifacts 之上增加独立 verification-report verifier：它直接解析 report JSON、验证 canonical bytes、固定 artifact envelope、text report、JSON SHA-256 artifact，并可使用原 provenance verification result 与 provenance result 作为 trusted anchors；不会调用 0.82 report creator 重新生成结果后做字符串比较。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime / Builder 原型。Runtime/Builder 0.84 在 0.83 的独立 verification-report verifier 之上增加 deterministic verifier evidence artifacts：每次验证完成后，Runtime 可以把 verifier result 固化为 text、canonical JSON 与 JSON SHA-256 三件套，供 Runtime、Builder 和 CI 保存、复制、下载与比较。
 
 ```text
 Validation artifact bundle
   ├── exact-text bundle verification
   ├── trusted artifact extraction
   ├── deterministic ZIP creation
-  ├── generated ZIP verification
-  ├── bounded external ZIP import
-  ├── independent ZIP verification
+  ├── generated / external ZIP verification
   ├── verified imported entry extraction
   ├── deterministic provenance artifacts
   ├── independent provenance verification
   ├── deterministic provenance verification reports
-  └── independent verification-report verification
-      ├── strict JSON parsing and bounded values
-      ├── exact schema and schemaVersion
-      ├── recursive canonical JSON verification
-      ├── recorded result / trust relationship verification
-      ├── verification checks and anchors verification
-      ├── stable issue evidence verification
-      ├── exact provenance input anchoring
-      ├── text report verification
-      ├── fixed artifact order and envelope verification
-      ├── report JSON SHA-256 artifact verification
-      └── anchored / self-consistent / untrusted verifier trust
+  ├── independent provenance verification-report verification
+  └── deterministic report-verifier evidence artifacts
+      ├── exact verification-report JSON SHA-256
+      ├── report artifact envelope relationships
+      ├── report-verifier valid / trust / issue count
+      ├── verifier checks and trusted anchors
+      ├── canonical/checksum availability relationships
+      ├── stable normalized verifier issues
+      ├── canonical evidence JSON
+      └── evidence JSON SHA-256 artifact
 ```
 
-## Runtime/Builder 0.83 能力
+## Runtime/Builder 0.84 能力
 
 新增：
 
 ```text
 src/large/
-├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationContract.ts
-├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationSupport.ts
-├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationEvidence.ts
-├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationDocument.ts
-├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerification.ts
-├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportAnchorVerification.ts
-├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportArtifactVerification.ts
-└── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationControl.ts
+├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationEvidenceContract.ts
+├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationEvidenceIssue.ts
+├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationEvidenceSupport.ts
+├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationEvidenceSerialization.ts
+├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationEvidenceArtifacts.ts
+├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationEvidenceArtifactActions.ts
+├── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationEvidenceActions.ts
+└── NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationEvidenceWorkflow.ts
 ```
 
-这些模块把 fixed contract、stable formatting、issue evidence、document audit、trusted-anchor audit、artifact envelope audit 与 HUD control 分离。它们只依赖 0.81 verifier 与 0.82 report contracts，不修改 report creator 的输出，也不把 creator 当作验证器。
+0.84 通过 additive workflow 组合现有 0.82 report actions 与 0.83 verifier control，不修改旧模块的验证职责。
 
-## Core APIs
-
-验证完整的 0.82 verification report artifact result：
+## Core API
 
 ```ts
-verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportArtifact(
+createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidence(
+  verification,
   report,
-  expectedVerification,
-  expectedProvenance,
 )
 ```
 
-验证独立的 verification report JSON text：
+该 API 接收 0.83 已完成的 verification result 与 0.82 report artifact result。它不会：
 
-```ts
-verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportText(
-  text,
-  options,
-)
-```
+- 调用 0.83 verifier 再次验证。
+- 调用 0.82 report creator 重新生成 expected report。
+- 修改 verifier 的 `valid`、`trust`、checks、anchors 或 issues。
+- 把失败验证改写成成功。
 
-`options` 支持：
+## Evidence creation boundary
 
-```ts
-{
-  jsonFilename,
-  checksumArtifactText,
-  checksumArtifactFilename,
-  textReportText,
-  textReportFilename,
-  expectedReport,
-  expectedVerification,
-  expectedProvenance,
-  maxTextBytes,
-  maxStringCharacters,
-  maxArrayEntries,
-  maxObjectFields,
-  maxDepth,
-}
-```
-
-仅提供 canonical report JSON 时，可以验证 document 自洽性，但 verifier trust 只能是 `self-consistent`。
-
-提供独立可信的 `expectedVerification`、`expectedProvenance` 或 `expectedReport` 后，所有已提供 anchors 都匹配时，verifier trust 为 `anchored`。
-
-## 两层 trust 语义
-
-Verification report document 内部记录的是 0.81 provenance verifier 的结果：
+只有以下基础条件满足时才生成完整三件套：
 
 ```text
-document.result.valid
-document.result.trust
+report.status === "created"
+exactly one provenance-verification-report-json artifact exists
+exact report JSON UTF-8 bytes <= 4 MiB
+Web Crypto SHA-256 is available
+serialization completes successfully
 ```
 
-0.83 verifier 返回的是“该 verification report 本身是否可信”的独立结果：
+不满足时返回：
 
 ```text
-verification.valid
-verification.trust
+report-unavailable
+input-too-large
+crypto-unavailable
+evidence-error
 ```
 
-两者不能混为一层：
+失败不会返回部分 artifact set：
 
 ```text
-recorded result
-  描述 provenance report 在 0.81 中是否通过验证
-
-report verifier result
-  描述 0.82 evidence report 的 schema、bytes、artifacts 和 anchors 是否可信
+artifactCount: 0
+totalBytes: 0
+artifacts: []
 ```
 
-例如，一个记录 `invalid / untrusted` provenance 结果的 report，只要它准确、canonical、未被篡改，0.83 report verifier 仍可返回：
+## Failure evidence is first-class
+
+以下 verifier result 都可生成 evidence：
 
 ```text
-valid: true
-trust: anchored | self-consistent
+valid / anchored
+valid / self-consistent
+invalid / untrusted
 ```
 
-失败证据本身仍然可以是有效审计证据。
-
-## Verification result
-
-```ts
-{
-  valid,
-  trust: "anchored" | "self-consistent" | "untrusted",
-  document,
-  canonicalText,
-  bytes,
-  checksumHex,
-  issues,
-  checks: {
-    parsed,
-    schema,
-    canonical,
-    input,
-    sourceArchive,
-    result,
-    verificationChecks,
-    anchors,
-    evidence,
-    issues,
-    jsonChecksum,
-    textReport,
-    artifactEnvelope,
-  },
-  anchors: {
-    expectedReport,
-    verification,
-    provenance,
-    jsonChecksumArtifact,
-    textReportArtifact,
-  },
-}
-```
-
-Trust 规则：
+因此，0.84 evidence 证明的是“0.83 verifier 当时产生了什么结果”，而不是自行声明被验证 report 一定可信。
 
 ```text
-anchored
-  report 有效，并且至少一个独立 trusted anchor 被提供，所有已提供 trusted anchors 都匹配
+recorded report result
+  provenance verification report 内记录的上一层 provenance 结果
 
-self-consistent
-  report 有效，但未提供 expected report / verification / provenance trusted anchor
+report-verifier result
+  0.83 对 report artifact set 的独立验证结果
 
-untrusted
-  report schema、canonical bytes、artifact envelope、checksum、text report 或任一 trusted anchor 验证失败
+0.84 evidence artifacts
+  对 report-verifier result 的确定性留存
 ```
 
-JSON checksum artifact 与 text report artifact 属于 report 自身 envelope，不单独构成外部 trusted anchor。
-
-## Strict report schema verification
-
-Verifier 验证固定顶层字段：
-
-```text
-schema
-schemaVersion
-target
-input
-sourceArchive
-result
-checks
-anchors
-evidence
-issues
-```
-
-固定 schema：
+## Evidence schema
 
 ```text
 splat-world-engine/
-mission-diagnostics-policy-manifest-verified-imported-archive-provenance-verification-report
+mission-diagnostics-policy-manifest-provenance-verification-report-verification-evidence
 ```
 
-固定 schema version：
+Schema version：
 
 ```text
 1
 ```
 
-所有固定 schema object：
+Document 结构：
 
-- 必须是 plain JSON object。
-- 必须包含全部 required fields。
-- 禁止 unknown fields。
-- 不接受 class instance、array root 或 prototype-bearing object。
-
-## Canonical JSON verification
-
-Report JSON 必须满足：
-
-```text
-recursive object-key ordering
-array order preserved
-two-space indentation
-exactly one trailing newline
+```ts
+{
+  schema,
+  schemaVersion,
+  target,
+  input: {
+    verificationReportJsonFilename,
+    verificationReportJsonMimeType,
+    declaredBytes,
+    exactBytes,
+    declaredChecksumHex,
+    exactChecksum: {
+      algorithm: "SHA-256",
+      input: "verification-report-json-utf8",
+      hex,
+    },
+    envelope: {
+      filenameSafe,
+      mimeTypeMatches,
+      byteSizeMatches,
+      checksumMatches,
+    },
+  },
+  recordedReport: {
+    schema,
+    schemaVersion,
+    provenanceResultValid,
+    provenanceResultTrust,
+  },
+  result: {
+    valid,
+    trust,
+    issueCount,
+  },
+  checks,
+  anchors,
+  evidence: {
+    documentAvailable,
+    canonicalTextAvailable,
+    canonicalTextMatchesInput,
+    verificationChecksumAvailable,
+    verificationChecksumMatchesInput,
+    issuesTruncated,
+  },
+  issues,
+}
 ```
 
-Verifier 直接对输入 bytes 重新 canonicalize 并比较，不调用 report creator。
+Evidence 不嵌入：
 
-## Result relationship verification
+- 原始 provenance JSON。
+- verification-report JSON 原文。
+- ZIP bytes。
+- validation report 内容。
+- imported artifact text。
+- browser、session 或 machine metadata。
 
-Verifier 验证：
+## Exact input relationship
 
-- `result.valid` 必须是 boolean。
-- `result.trust` 只能是 `anchored`、`self-consistent` 或 `untrusted`。
-- valid result 不得记录 `untrusted`。
-- invalid result 必须记录 `untrusted`。
-- valid result 的 issue count 必须为零。
-- invalid result 必须保留至少一条 issue。
-- valid result 要求所有 provenance verification checks 为 true。
-- recorded `anchored` 必须存在至少一个 trusted provenance / extraction / source checksum anchor，且全部为 true。
-- recorded `self-consistent` 不得声称存在 trusted provenance / extraction / source checksum anchor。
+Creator 会对 retained verification-report JSON text 重新计算：
 
-这里验证的是 report 对 0.81 result 的准确记录，不重新运行 0.81 creator。
+```text
+UTF-8 exact bytes
+SHA-256 of exact UTF-8 bytes
+```
 
-## Stable issue evidence
+并记录 artifact envelope 是否匹配：
 
-每条 report issue evidence 必须包含：
+```text
+filenameSafe
+mimeTypeMatches
+byteSizeMatches
+checksumMatches
+```
+
+即使 envelope 被损坏，也可以生成用于调查的失败证据；evidence 会如实记录这些关系，而不会修复输入 artifact。
+
+## Stable verifier issues
+
+0.83 的 issue 使用：
 
 ```ts
 {
@@ -255,153 +214,16 @@ Verifier 验证：
 }
 ```
 
-Verifier 验证：
-
-- issue code 必须属于 0.81 固定 issue code 集合。
-- path 必须从 `$` 开始。
-- path 最长 2048 characters。
-- message 必须与 issue code 对应的稳定规范化 message 完全一致。
-- 未截断时，`issues.length` 必须等于 `result.issueCount`。
-- 截断时，必须正好保留 512 条，并且原 issue count 必须更大。
-
-这会拒绝 engine-specific JSON parse message、动态异常文本和被修改的审计文案。
-
-## Exact provenance anchor
-
-提供 `expectedProvenance` 后，verifier 会重新计算并比较：
-
-- exact provenance JSON UTF-8 bytes
-- exact provenance JSON SHA-256
-- source artifact filename normalization
-- source MIME normalization
-- declared / exact byte relationships
-- declared / exact checksum relationships
-- input envelope booleans
-- normalized target
-- source archive filename
-- source archive exact bytes
-- source archive SHA-256
-
-Report 不嵌入 provenance 原文，但可以通过 SHA-256 与独立 provenance result 建立 byte-level anchor。
-
-## Expected verification anchor
-
-提供 `expectedVerification` 后，verifier 会比较：
-
-- `valid`
-- `trust`
-- full issue count
-- all verification checks
-- all provenance verifier anchors
-- document / canonical text / checksum availability evidence
-- issues truncation state
-- normalized stable issue evidence
-
-若同时提供 `expectedProvenance`，还会验证 `canonicalTextMatchesInput` 与 exact provenance JSON text 的关系。
-
-## Artifact envelope verification
-
-完整 artifact result 固定顺序：
+0.84 只保留 bounded issue evidence：
 
 ```text
-1. provenance-verification-report-text
-2. provenance-verification-report-json
-3. provenance-verification-report-json-sha256
+maximum issues: 512
+maximum issue path: 2048 characters
 ```
 
-每个 artifact 都验证：
+`message` 根据 issue code 转换为稳定文本，不复制 JavaScript engine、browser 或运行时产生的原始错误文案。因此相同 verifier failure 在不同环境中仍可生成逐字节一致的 evidence JSON。
 
-- fixed kind order
-- safe basename
-- expected MIME type
-- exact UTF-8 byte size
-- exact artifact SHA-256
-- total artifact bytes
-
-JSON SHA-256 artifact 必须使用严格语法：
-
-```text
-<64 lowercase hex>  <verification-report-json-filename>\n
-```
-
-Checksum filename 必须为：
-
-```text
-<verification-report-json-filename>.sha256
-```
-
-## Independent text report verification
-
-Verifier 不信任 text report，也不会只验证它自己的 SHA-256。
-
-它会根据 parsed report document 和固定字段顺序独立格式化 expected text report，并验证：
-
-- exact text bytes
-- fixed heading
-- schema / version
-- target
-- result / trust / issue count
-- provenance input metadata
-- source archive metadata
-- verification checks order
-- trusted anchors order
-- stable issue evidence order
-- final result line
-- filename 与 JSON basename relationship
-
-## Workflow UI
-
-独立 verification control：
-
-```ts
-createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationControl(
-  report,
-  options,
-)
-```
-
-按钮：
-
-```text
-Verify provenance verification report artifacts
-```
-
-Composite workflow helper：
-
-```ts
-createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerifiedActions(
-  verification,
-  provenance,
-  options,
-)
-```
-
-该 helper 组合：
-
-```text
-0.82 report creation / preview / copy / download actions
-                         ↓
-0.83 independent report verification control
-```
-
-它保留 0.82 原 actions API，允许现有调用方逐步迁移，不强制破坏旧集成。
-
-## Data attributes
-
-```text
-data-bundle-imported-archive-provenance-verification-report-verification-status
-data-bundle-imported-archive-provenance-verification-report-verification-valid
-data-bundle-imported-archive-provenance-verification-report-verification-trust
-data-bundle-imported-archive-provenance-verification-report-verification-issue-count
-data-bundle-imported-archive-provenance-verification-report-verification-schema-version
-data-bundle-imported-archive-provenance-verification-report-verification-result-valid
-data-bundle-imported-archive-provenance-verification-report-verification-result-trust
-data-bundle-imported-archive-provenance-verification-report-verification-checksum
-```
-
-## Stable verifier issues
-
-0.83 report verifier issue codes：
+覆盖的 verifier issue code 包括：
 
 ```text
 text-invalid
@@ -436,30 +258,160 @@ sha256-mismatch
 crypto-unavailable
 ```
 
-除输入无法安全解析、超过 hard limit 或 Web Crypto 不可用外，verifier 会尽量返回全部可恢复 issues。
+## Deterministic serialization
+
+Evidence JSON 使用：
+
+```text
+recursive object-key ordering
+array order preserved
+2-space JSON formatting
+exactly one trailing newline
+```
+
+不包含：
+
+```text
+timestamp
+random ID
+session ID
+browser user agent
+machine path
+locale-dependent formatting
+engine-specific error message
+```
+
+相同 report JSON 与相同 verifier result 会生成逐字节一致的 evidence artifacts。
+
+## Fixed artifact order
+
+```text
+1. provenance-verification-report-verification-evidence-text
+2. provenance-verification-report-verification-evidence-json
+3. provenance-verification-report-verification-evidence-json-sha256
+```
+
+Checksum artifact 使用严格格式：
+
+```text
+<64 lowercase hex>  <evidence-json-filename>\n
+```
+
+核心 artifact API：
+
+```ts
+createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceActions(
+  verification,
+  report,
+  options,
+)
+```
+
+```ts
+createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceResultActions(
+  evidence,
+  options,
+)
+```
+
+```ts
+downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifact(
+  artifact,
+)
+```
+
+```ts
+downloadRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifacts(
+  result,
+)
+```
+
+```ts
+copyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifact(
+  artifact,
+)
+```
+
+## HUD integration
+
+执行：
+
+```text
+Verify provenance verification report artifacts
+```
+
+完成后自动追加：
+
+```text
+Verification-report verifier evidence
+  ├── verifier valid / trust / issue count
+  ├── evidence artifact count / total bytes
+  ├── exact input report JSON checksum
+  ├── evidence JSON checksum
+  ├── Download all verifier evidence artifacts
+  ├── evidence text preview / copy / download
+  ├── canonical evidence JSON preview / copy / download
+  └── evidence JSON SHA-256 preview / copy / download
+```
+
+重新执行 verifier 时：
+
+- 旧 evidence 区域先移除。
+- 使用 sequence guard 阻止旧异步任务覆盖新结果。
+- 原有 0.82 report preview、copy 和 download 保留。
+- 原有 0.83 verification details 保留。
+
+新增 callbacks：
+
+```ts
+onEvidenceCreate(evidence, verification, report)
+onEvidenceArtifactDownload(artifact, evidence)
+onEvidenceDownloadAll(evidence)
+onEvidenceArtifactCopy(artifact, evidence)
+```
+
+## Data attributes
+
+```text
+data-bundle-imported-archive-provenance-verification-report-verification-evidence-status
+data-bundle-imported-archive-provenance-verification-report-verification-evidence-valid
+data-bundle-imported-archive-provenance-verification-report-verification-evidence-trust
+data-bundle-imported-archive-provenance-verification-report-verification-evidence-issue-count
+data-bundle-imported-archive-provenance-verification-report-verification-evidence-artifact-count
+data-bundle-imported-archive-provenance-verification-report-verification-evidence-total-bytes
+data-bundle-imported-archive-provenance-verification-report-verification-evidence-input-checksum
+data-bundle-imported-archive-provenance-verification-report-verification-evidence-json-checksum
+```
+
+每个 artifact 还暴露：
+
+```text
+data-bundle-imported-archive-provenance-verification-report-verification-evidence-artifact-kind
+data-bundle-imported-archive-provenance-verification-report-verification-evidence-artifact-filename
+data-bundle-imported-archive-provenance-verification-report-verification-evidence-artifact-bytes
+data-bundle-imported-archive-provenance-verification-report-verification-evidence-artifact-checksum
+```
 
 ## Security boundary
 
-- Verifier 不调用 0.82 report creator。
-- 不执行 report、provenance、issue、artifact text 或 filename。
-- 不使用 `innerHTML`；所有 HUD 内容通过 `textContent`。
-- 不从 untrusted filename 创建目录或路径。
-- Verification 本身不下载、不创建 Blob URL、不写 Clipboard。
-- Report JSON 默认上限为 4 MiB。
-- String、array、object field count 与 nesting depth 均有 hard limits。
-- Issue evidence 最多 512 条，path 最长 2048 characters。
-- 只接受 plain JSON objects。
-- SHA-256 始终基于 exact retained UTF-8 bytes 重新计算。
-- Web Crypto 不可用时返回 `crypto-unavailable`，不会声称 checksum 已验证。
-- Checksum artifact 和 text artifact 只证明 report envelope 自洽，不会被误报为外部 trusted anchor。
-- `invalid / untrusted` recorded result 不会被改写为 provenance verification success。
-- Verification 失败不会移除现有 report preview、copy 或 download artifacts。
+- 不执行 report、verification result、issue 或 artifact 内容。
+- 不使用 `innerHTML`；所有 UI 内容通过 `textContent`。
+- 不从未信任 filename 创建目录或路径。
+- 只有 safe basename 可以影响输出文件名。
+- arbitrary target object 只规范化 `scope` 与 `packageIndex`。
+- exact input JSON 限制为 4 MiB。
+- issue evidence 与 path 均有 hard limit。
+- Creator 不自动下载、不写 Clipboard、不创建 Blob URL。
+- Blob URL 只在用户显式下载时创建，并始终 revoke。
+- Web Crypto 不可用时不生成缺少 checksum 的部分三件套。
+- Creator 不改变 verifier trust，也不把 checksum artifact 当作外部 authority。
+- 失败 evidence creation 不撤销已有 report verification result。
 
 ## 版本
 
 ```text
-package version: 0.83.0
-runtime label: runtime 0.83
+package version: 0.84.0
+runtime label: runtime 0.84
 ```
 
 ## Mission diagnostics roadmap
@@ -474,14 +426,17 @@ runtime label: runtime 0.83
 - [x] Verified imported archive provenance report workflow
 - [x] Verified imported archive provenance report verification workflow
 - [x] Verified imported archive provenance verification report artifacts
-- [x] Verified imported archive provenance verification report artifact verification
-- [ ] Verification-report verification evidence artifacts
+- [x] Provenance verification report artifact verification workflow
+- [x] Provenance verification-report verifier evidence artifacts
+- [ ] Provenance verification-report verifier evidence artifact verification
 
 ## Next
 
+建议 Runtime/Builder `0.85`：
+
 ```text
 Mission diagnostics policy manifest validation artifact bundle
-provenance verification-report verification evidence artifacts
+provenance verification-report verifier evidence artifact verification
 ```
 
-下一版建议把 0.83 verifier result 固化为 deterministic text、canonical JSON 与 JSON SHA-256 artifacts，使 Runtime、Builder 和 CI 可以保留“verification report 已被独立验证”的第二层 evidence，并继续避免递归地把 creator 当作 authority。
+下一版建议为 0.84 evidence 三件套增加独立 verifier，直接验证 evidence schema、canonical JSON、exact input report checksum、recorded verifier checks/anchors/issues、固定 artifact order、artifact UTF-8 bytes 与 evidence JSON SHA-256；该 verifier 不应调用 0.84 creator 重新生成 expected evidence 后做字符串比较。
