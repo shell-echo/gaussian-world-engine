@@ -1,0 +1,63 @@
+import type {
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportResult,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReport.js";
+import type {
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportTrust,
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationResult,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerification.js";
+import type {
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceDocument,
+  RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceResult,
+} from "./NavMissionDiagnosticsManifestHudValidationArtifactBundleExtractionArchiveImportedArtifactProvenanceVerificationReportVerificationEvidenceContract.js";
+
+export type RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationIssueCode =
+  | "text-invalid" | "text-size-invalid" | "json-parse-failed" | "document-type-invalid"
+  | "field-type-invalid" | "field-value-invalid" | "array-size-invalid" | "string-size-invalid"
+  | "schema-mismatch" | "schema-version-mismatch" | "unknown-field" | "canonical-json-mismatch"
+  | "input-envelope-mismatch" | "recorded-report-mismatch" | "result-mismatch"
+  | "verification-check-mismatch" | "anchor-mismatch" | "evidence-mismatch"
+  | "issue-count-mismatch" | "issue-evidence-mismatch" | "artifact-count-mismatch"
+  | "artifact-order-mismatch" | "artifact-metadata-mismatch" | "text-evidence-mismatch"
+  | "checksum-artifact-invalid" | "expected-verification-mismatch" | "expected-report-mismatch"
+  | "expected-input-checksum-mismatch" | "sha256-mismatch" | "crypto-unavailable";
+
+export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationIssue {
+  code: RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationIssueCode;
+  path: string;
+  message: string;
+}
+export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationChecks {
+  parsed:boolean; schema:boolean; canonical:boolean; input:boolean; recordedReport:boolean;
+  result:boolean; verificationChecks:boolean; anchors:boolean; evidence:boolean; issues:boolean;
+  jsonChecksum:boolean; textEvidence:boolean; artifactEnvelope:boolean;
+}
+export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationAnchors {
+  expectedVerification:boolean|null; expectedReport:boolean|null; inputReportChecksum:boolean|null;
+  jsonChecksumArtifact:boolean|null; textEvidenceArtifact:boolean|null;
+}
+export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationResult {
+  valid:boolean;
+  trust:RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportTrust;
+  document:RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceDocument|null;
+  canonicalText:string|null; bytes:number; checksumHex:string|null;
+  issues:RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationIssue[];
+  checks:RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationChecks;
+  anchors:RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationAnchors;
+}
+export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationOptions {
+  maxTextBytes?:number; maxStringCharacters?:number; maxArrayEntries?:number; maxObjectFields?:number; maxDepth?:number;
+  jsonFilename?:string; checksumArtifactText?:string; checksumArtifactFilename?:string;
+  textEvidenceText?:string; textEvidenceFilename?:string; expectedInputReportChecksumHex?:string;
+}
+export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceAnchoredVerificationOptions
+  extends RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationOptions {
+  expectedVerification?:RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationResult;
+  expectedReport?:RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportResult;
+}
+export interface RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationControlOptions {
+  expectedVerification?:RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationResult;
+  expectedReport?:RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportResult;
+  expectedInputReportChecksumHex?:string;
+  onVerify?:(result:RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationResult,evidence:RuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceResult)=>void;
+  onStatus?:(message:string)=>void;
+}
