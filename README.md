@@ -1,55 +1,69 @@
-# Splat World Engine — Report Verifier Evidence Artifact Verification
+# Splat World Engine — Evidence Verification Result Artifacts
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime / Builder 原型。Runtime/Builder 0.85 为 0.84 的 report-verifier evidence 三件套增加独立 verifier。它直接验证 evidence JSON、canonical bytes、recorded result、trusted anchors、text evidence、artifact envelope 与 JSON SHA-256，不调用 evidence creator 重新生成 expected output。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime / Builder 原型。Runtime/Builder 0.86 将 0.85 对 report-verifier evidence 的独立验证结果固化为 deterministic text、canonical JSON 与 JSON SHA-256 三件套，供 Runtime、Builder 与 CI 留存第二层验证证据。
 
-## Runtime/Builder 0.85
-
-新增模块位于 `src/large/`，按 contract、support、fields、relationships、document、core、anchors、artifact envelope、render 与 control/workflow 分层。
+## Runtime/Builder 0.86
 
 核心 API：
 
 ```ts
-verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceText(text, options)
-
-verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceTextAnchored(text, options)
-
-verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifact(
+createRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationResult(
+  verification,
   evidence,
-  expectedVerification,
-  expectedReport,
-  expectedInputReportChecksumHex,
 )
 ```
 
-HUD：
+Creator 只记录已经完成的 0.85 verifier result，不重新运行 verifier，也不调用 0.84 evidence creator 作为 authority。以下结果都可以生成完整三件套：
 
 ```text
-Verify report verifier evidence artifacts
+valid / anchored
+valid / self-consistent
+invalid / untrusted
 ```
 
-Verifier 覆盖 fixed schema/version、unknown fields、recursive canonical JSON、input report exact bytes/SHA-256、recorded verifier checks/anchors/issues、stable issue evidence、fixed artifact order、safe filenames、MIME、UTF-8 byte sizes、per-artifact SHA-256、text evidence 与 strict `.sha256` syntax。
-
-Trust：
+固定 artifact 顺序：
 
 ```text
-anchored         evidence 有效，且全部已提供 trusted anchors 匹配
-self-consistent  evidence 有效，但没有独立 trusted anchor
-untrusted        schema、bytes、relationships、artifacts、checksum 或 anchor 失败
+1. report-verifier-evidence-verification-result-text
+2. report-verifier-evidence-verification-result-json
+3. report-verifier-evidence-verification-result-json-sha256
 ```
 
-Evidence 中记录的 `document.result` 是 0.83 report-verifier 的历史结论；0.85 返回值描述 evidence 本身是否可信。因此，准确记录 `invalid / untrusted` 历史结果的 evidence 仍可成为 anchored 或 self-consistent 的失败审计证据。
+Evidence document 记录：被验证的 0.84 evidence JSON exact UTF-8 bytes/SHA-256、input envelope、recorded evidence metadata、0.85 verifier `valid/trust/issueCount`、checks、anchors、canonical/checksum relationships，以及 bounded stable normalized issues。它不嵌入原始 provenance JSON、verification report JSON、ZIP bytes、validation report 或 imported artifact text。
 
-安全边界：不执行输入、不使用 `innerHTML`、不从 filename 创建路径、verification 不下载或写 Clipboard、所有输入有界、SHA-256 从 exact UTF-8 bytes 重算、Web Crypto 不可用时返回 `crypto-unavailable`，text/checksum artifacts 不作为 external authority。
+失败状态：
 
 ```text
-package version: 0.85.0
-runtime label: runtime 0.85
+evidence-unavailable
+input-too-large
+crypto-unavailable
+result-error
+```
+
+失败不会返回部分 artifact set。输入 evidence JSON 限制为 4 MiB；没有 Web Crypto 时不会生成缺少 checksum 的 artifact。
+
+完整 HUD workflow：
+
+```text
+0.82 provenance verification report artifacts
+  -> 0.83 independent report verification
+  -> 0.84 report-verifier evidence artifacts
+  -> 0.85 independent evidence verification
+  -> 0.86 deterministic evidence-verification result artifacts
+```
+
+安全边界：不执行输入、不使用 `innerHTML`、不从 filename 创建路径、creator 不自动下载/写 Clipboard、Blob URL 仅显式下载时创建并 revoke、issue message 按 code 稳定化、无 timestamp/random/session/browser/machine/locale 字段。
+
+```text
+package version: 0.86.0
+runtime label: runtime 0.86
 ```
 
 ## Roadmap
 
 - [x] Report-verifier evidence artifacts
 - [x] Report-verifier evidence artifact verification
-- [ ] Report-verifier evidence verification result artifacts
+- [x] Report-verifier evidence verification result artifacts
+- [ ] Report-verifier evidence verification-result artifact verification
 
-下一版建议把 0.85 verifier result 固化为 deterministic text、canonical JSON 与 JSON SHA-256 artifacts，供 Runtime、Builder 与 CI 留存第二层 evidence verification 结果。
+下一版建议为 0.86 三件套增加独立 verifier，验证 fixed schema、canonical JSON、exact input evidence checksum、recorded 0.85 checks/anchors/issues、text artifact、artifact envelope 与 result JSON SHA-256，而不是调用 0.86 creator 重新生成 expected output。
