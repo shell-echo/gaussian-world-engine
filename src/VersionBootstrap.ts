@@ -1,2 +1,2 @@
 const version = document.querySelector<HTMLElement>(".version");
-if (version) version.textContent = "runtime 0.94";
+if (version) version.textContent = "runtime 0.95";
