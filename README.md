@@ -1,53 +1,55 @@
-# Splat World Engine — Verification Result Verifier Evidence Artifact Verification
+# Splat World Engine — Verification Result Verifier Evidence Verification Result Artifacts
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime / Builder 原型。Runtime/Builder 0.93 为 0.92 verification-result verifier-evidence 三件套增加独立 verifier，直接审计 verifier-evidence JSON、canonical bytes、recorded 0.91 verifier result、trusted anchors、text evidence、artifact envelope 与 JSON SHA-256，不调用 0.92 creator 重新生成 expected output。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime / Builder 原型。Runtime/Builder 0.94 把 0.93 对 0.92 verification-result verifier-evidence 三件套的独立验证结论固化为 deterministic text、canonical JSON 与 JSON SHA-256 verification-result artifacts，供 Runtime、Builder 与 CI 留存下一层审计结果。
 
-## Runtime/Builder 0.93
+## Runtime/Builder 0.94
 
 核心 API：
 
 ```ts
-verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationResultArtifactVerificationEvidenceArtifactVerificationResultArtifactVerificationVerifierEvidenceText(text, options)
-
-verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationResultArtifactVerificationEvidenceArtifactVerificationResultArtifactVerificationVerifierEvidenceTextAnchored(text, options)
-
-verifyRuntimeNavMissionDiagnosticsManifestHudValidationArtifactBundleImportedArchiveProvenanceVerificationReportVerificationEvidenceArtifactVerificationResultArtifactVerificationEvidenceArtifactVerificationResultArtifactVerificationVerifierEvidenceArtifact(
-  evidence,
-  expectedVerification,
-  expectedSource,
-  expectedInputResultChecksumHex,
+createRuntimeNavMissionDiagnosticsResultVerificationVerifierEvidenceVerificationResult(
+  verification,
+  source,
 )
 ```
 
-HUD：
+Creator 只记录已经完成的 0.93 verifier result，不重新运行 0.93 verifier，也不调用 0.92 creator 作为 authority。以下结果都可以生成完整三件套：
 
 ```text
-Verify verification-result verifier evidence artifacts
+valid / anchored
+valid / self-consistent
+invalid / untrusted
 ```
 
-Verifier 覆盖 fixed 0.92 schema/version、unknown fields、recursive canonical JSON、0.90 verification-result input exact UTF-8 bytes/SHA-256、recorded 0.90 schema/version 与 historical 0.89 verifier result、recorded 0.91 `valid/trust/checks/anchors/issues`、stable issue evidence、text evidence、fixed artifact order、safe filenames、MIME、UTF-8 byte sizes、per-artifact SHA-256、totalBytes 与 strict `.sha256` syntax。
-
-Trust：
+固定 artifact 顺序：
 
 ```text
-anchored         verifier-evidence artifacts 有效，且全部已提供 trusted anchors 匹配
-self-consistent  verifier-evidence artifacts 有效，但没有独立 trusted anchor
-untrusted        schema、bytes、relationships、artifacts、checksum 或 anchor 失败
+1. result-verifier-evidence-verification-result-verifier-evidence-verification-result-text
+2. result-verifier-evidence-verification-result-verifier-evidence-verification-result-json
+3. result-verifier-evidence-verification-result-verifier-evidence-verification-result-json-sha256
 ```
 
-0.92 document 中的 `result.valid/result.trust` 是 0.91 verification-result artifact verifier 的历史结论；0.93 返回值描述 0.92 verifier-evidence artifact set 本身是否可信。因此，准确记录 `invalid / untrusted` 历史验证结果的 0.92 三件套仍可成为 anchored 或 self-consistent 的失败审计证据。
-
-Trusted authority 仅来自：
+Schema：
 
 ```text
-expectedVerification
-expectedSource
-expectedInputResultChecksumHex
+splat-world-engine/mission-diagnostics-policy-manifest-provenance-verification-report-verification-evidence-verification-result-verifier-evidence-verification-result-verifier-evidence-verification-result
+schema version: 1
 ```
 
-0.92 text 与 `.sha256` artifacts 只证明 envelope consistency，不作为 external authority。
+Verification-result document 记录：0.92 verifier-evidence JSON exact UTF-8 bytes/SHA-256、input envelope、recorded 0.92 schema/version 与 historical 0.91 verification-result artifact verifier result、0.93 verifier `valid/trust/issueCount`、全部 checks/anchors、canonical/checksum relationships，以及 bounded stable normalized 0.93 issues。
 
-默认边界：输入 JSON 最大 4 MiB；字符串最大 1 MiB；array 最大 512 entries；object 最大 64 fields；嵌套深度最大 32。SHA-256 始终从 exact UTF-8 bytes 重算；Web Crypto 不可用时返回 `crypto-unavailable`。
+失败状态：
+
+```text
+evidence-unavailable
+input-too-large
+crypto-unavailable
+result-error
+```
+
+失败不会返回部分 artifact set。输入 0.92 verifier-evidence JSON 限制为 4 MiB；没有 Web Crypto 时不会生成缺少 checksum 的 artifact。
+
+Determinism：object keys 递归排序、array order 保持、JSON 使用 2-space indentation 与 exactly one trailing newline；issue message 按 0.93 issue code 稳定化，最多保留 512 条 issue，path 最长 2048 characters；不记录 timestamp、random ID、session、browser/machine metadata、locale-dependent values 或 raw runtime error message。
 
 完整 workflow：
 
@@ -64,13 +66,16 @@ expectedInputResultChecksumHex
   -> 0.91 independent verification-result artifact verification
   -> 0.92 deterministic verification-result verifier evidence artifacts
   -> 0.93 independent verification-result verifier-evidence verification
+  -> 0.94 deterministic verifier-evidence verification-result artifacts
 ```
 
-安全边界：verification 不调用 0.92 creator、不执行输入、不使用 `innerHTML`、不从 filename 创建路径、不自动下载、创建 Blob URL 或写 Clipboard。0.93 继续使用短内部 module filename family，避免递归链重新引入常见 255-byte 单文件名限制风险，同时保留完整公开 API 与 schema 语义。
+HUD 在 0.93 verification 完成后追加 verification-result 区域，支持 deterministic preview、copy、individual download 与 fixed-order download-all；sequence guard 防止旧异步 result creation 覆盖新的 verifier result。
+
+安全边界：creator 不重新运行 verifier、不执行输入、不使用 `innerHTML`、不从 filename 创建路径、不自动下载或写 Clipboard；Blob URL 仅显式下载时创建并 revoke；checksum artifact 不作为 external authority。0.94 继续使用短内部 module filename family，避免递归链重新引入常见 255-byte 单文件名限制风险，同时保留完整 schema 与公开语义。
 
 ```text
-package version: 0.93.0
-runtime label: runtime 0.93
+package version: 0.94.0
+runtime label: runtime 0.94
 ```
 
 ## Roadmap
@@ -85,6 +90,7 @@ runtime label: runtime 0.93
 - [x] Result-verifier evidence verification-result artifact verification
 - [x] Result-verifier evidence verification-result verifier evidence artifacts
 - [x] Result-verifier evidence verification-result verifier evidence artifact verification
-- [ ] Verification-result verifier-evidence verification result artifacts
+- [x] Verification-result verifier-evidence verification result artifacts
+- [ ] Verification-result verifier-evidence verification-result artifact verification
 
-下一版建议把 0.93 verifier result 固化为 deterministic text、canonical JSON 与 JSON SHA-256 verification-result artifacts；creator 仍只记录已完成 verifier 结论，不重新执行 0.93 verifier，也不调用 0.92 creator 作为 authority。
+下一版建议为 0.94 verification-result 三件套增加独立 verifier，直接验证 fixed schema、canonical JSON、exact 0.92 verifier-evidence checksum、recorded 0.93 checks/anchors/issues、text result、artifact envelope 与 result JSON SHA-256，而不是调用 0.94 creator 重新生成 expected output。
