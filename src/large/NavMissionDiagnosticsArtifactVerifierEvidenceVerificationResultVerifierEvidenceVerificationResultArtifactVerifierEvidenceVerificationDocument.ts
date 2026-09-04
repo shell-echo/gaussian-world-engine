@@ -1,0 +1,208 @@
+import {
+  RUNTIME_NAV_MISSION_DIAGNOSTICS_ARTIFACT_VERIFIER_EVIDENCE_VERIFICATION_RESULT_VERIFIER_EVIDENCE_VERIFICATION_RESULT_SCHEMA as RESULT_SCHEMA,
+  RUNTIME_NAV_MISSION_DIAGNOSTICS_ARTIFACT_VERIFIER_EVIDENCE_VERIFICATION_RESULT_VERIFIER_EVIDENCE_VERIFICATION_RESULT_SCHEMA_VERSION as RESULT_VERSION,
+} from "./NavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultContract.js";
+import {
+  RUNTIME_NAV_MISSION_DIAGNOSTICS_ARTIFACT_VERIFIER_EVIDENCE_VERIFICATION_RESULT_VERIFIER_EVIDENCE_VERIFICATION_RESULT_ARTIFACT_VERIFIER_EVIDENCE_SCHEMA as SCHEMA,
+  RUNTIME_NAV_MISSION_DIAGNOSTICS_ARTIFACT_VERIFIER_EVIDENCE_VERIFICATION_RESULT_VERIFIER_EVIDENCE_VERIFICATION_RESULT_ARTIFACT_VERIFIER_EVIDENCE_SCHEMA_VERSION as VERSION,
+} from "./NavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceContract.js";
+import type {RuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceDocument as Document} from "./NavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceContract.js";
+import type {
+  RuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationChecks as Checks,
+  RuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationIssue as Issue,
+} from "./NavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationContract.js";
+import {
+  SOURCE_ANCHOR_FIELDS,
+  SOURCE_CHECK_FIELDS,
+  SOURCE_EVIDENCE_FIELDS,
+  add,
+  booleanField,
+  boolRecord,
+  bounds,
+  checksumField,
+  exact,
+  expectedIssueMessage,
+  filenameField,
+  integerField,
+  record,
+  safe,
+  stringField,
+  trustField,
+  type Limits,
+  type RecordValue,
+} from "./NavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationSupport.js";
+
+const TOP=["schema","schemaVersion","target","input","recordedResult","result","checks","anchors","evidence","issues"] as const;
+const TARGET=["packageIndex","scope"] as const;
+const INPUT=["verificationResultJsonFilename","verificationResultJsonMimeType","declaredBytes","exactBytes","declaredChecksumHex","exactChecksum","envelope"] as const;
+const CHECKSUM=["algorithm","input","hex"] as const;
+const ENVELOPE=["filenameSafe","mimeTypeMatches","byteSizeMatches","checksumMatches"] as const;
+const RECORDED=["schema","schemaVersion","verificationResultVerifierEvidenceArtifactVerificationValid","verificationResultVerifierEvidenceArtifactVerificationTrust"] as const;
+const RESULT=["valid","trust","issueCount"] as const;
+const ISSUE=["code","path","message"] as const;
+const MAX_ISSUES=512;
+
+export function verifyRuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceDocument(
+  value:RecordValue,
+  limits:Limits,
+  issues:Issue[],
+  checks:Checks,
+):Document|null{
+  bounds(value,"$",0,limits,issues);
+  exact(value,TOP,"$",issues);
+  checks.schema=verifySchema(value,issues);
+  verifyTarget(value.target,issues);
+  const input=record(value.input,"$.input",issues);
+  const recorded=record(value.recordedResult,"$.recordedResult",issues);
+  const result=record(value.result,"$.result",issues);
+  const sourceChecks=record(value.checks,"$.checks",issues);
+  const anchors=record(value.anchors,"$.anchors",issues);
+  const evidence=record(value.evidence,"$.evidence",issues);
+  const entries=Array.isArray(value.issues)?value.issues:null;
+  if(!entries)add(issues,"field-type-invalid","$.issues","issues must be an array.");
+  checks.input=verifyInput(input,issues);
+  checks.recordedResult=verifyRecorded(recorded,issues);
+  checks.result=verifyResult(result,issues);
+  checks.verificationChecks=boolRecord(sourceChecks,SOURCE_CHECK_FIELDS,"$.checks",issues);
+  checks.anchors=boolRecord(anchors,SOURCE_ANCHOR_FIELDS,"$.anchors",issues,true);
+  checks.evidence=verifyEvidence(evidence,issues);
+  checks.issues=verifyIssues(entries,issues);
+  verifyRelationships(result,sourceChecks,anchors,evidence,entries,checks,issues);
+  return checks.schema&&checks.input&&checks.recordedResult&&checks.result&&checks.verificationChecks&&checks.anchors&&checks.evidence&&checks.issues
+    ? value as unknown as Document
+    : null;
+}
+
+function verifySchema(value:RecordValue,issues:Issue[]):boolean{
+  const start=issues.length;
+  if(value.schema!==SCHEMA)add(issues,"schema-mismatch","$.schema","Artifact-verifier evidence schema mismatch.");
+  if(value.schemaVersion!==VERSION)add(issues,"schema-version-mismatch","$.schemaVersion","Artifact-verifier evidence schema version mismatch.");
+  return issues.length===start;
+}
+
+function verifyTarget(value:unknown,issues:Issue[]):void{
+  if(value===null)return;
+  const target=record(value,"$.target",issues);
+  if(!target)return;
+  exact(target,TARGET,"$.target",issues);
+  if(target.scope!==null)stringField(target.scope,"$.target.scope",64,issues);
+  if(target.packageIndex!==null)integerField(target.packageIndex,"$.target.packageIndex",issues);
+}
+
+function verifyInput(value:RecordValue|null,issues:Issue[]):boolean{
+  if(!value)return false;
+  const start=issues.length;
+  exact(value,INPUT,"$.input",issues);
+  const name=filenameField(value.verificationResultJsonFilename,"$.input.verificationResultJsonFilename",issues);
+  const mime=stringField(value.verificationResultJsonMimeType,"$.input.verificationResultJsonMimeType",255,issues);
+  const declared=integerField(value.declaredBytes,"$.input.declaredBytes",issues);
+  const exactBytes=integerField(value.exactBytes,"$.input.exactBytes",issues);
+  const declaredHash=checksumField(value.declaredChecksumHex,"$.input.declaredChecksumHex",issues);
+  const sum=record(value.exactChecksum,"$.input.exactChecksum",issues);
+  const envelope=record(value.envelope,"$.input.envelope",issues);
+  if(sum){
+    exact(sum,CHECKSUM,"$.input.exactChecksum",issues);
+    if(sum.algorithm!=="SHA-256")add(issues,"field-value-invalid","$.input.exactChecksum.algorithm","Algorithm must be SHA-256.");
+    if(sum.input!=="artifact-verifier-evidence-verification-result-verifier-evidence-verification-result-json-utf8")add(issues,"field-value-invalid","$.input.exactChecksum.input","Checksum input mismatch.");
+    checksumField(sum.hex,"$.input.exactChecksum.hex",issues);
+  }
+  boolRecord(envelope,ENVELOPE,"$.input.envelope",issues);
+  if(envelope){
+    const expectedSafe=name!==null&&safe(name);
+    if(
+      envelope.filenameSafe!==expectedSafe||
+      envelope.mimeTypeMatches!==(mime==="application/json;charset=utf-8")||
+      envelope.byteSizeMatches!==(declared!==null&&declared===exactBytes)||
+      envelope.checksumMatches!==(declaredHash!==null&&sum?.hex===declaredHash)
+    )add(issues,"input-envelope-mismatch","$.input.envelope","Input envelope booleans are inconsistent.");
+  }
+  return issues.length===start;
+}
+
+function verifyRecorded(value:RecordValue|null,issues:Issue[]):boolean{
+  if(!value)return false;
+  const start=issues.length;
+  exact(value,RECORDED,"$.recordedResult",issues);
+  if(value.schema!==null&&value.schema!==RESULT_SCHEMA)add(issues,"recorded-result-mismatch","$.recordedResult.schema","Recorded 0.102 verification-result schema mismatch.");
+  if(value.schemaVersion!==null&&value.schemaVersion!==RESULT_VERSION)add(issues,"recorded-result-mismatch","$.recordedResult.schemaVersion","Recorded 0.102 verification-result schema version mismatch.");
+  if(value.verificationResultVerifierEvidenceArtifactVerificationValid!==null)booleanField(value.verificationResultVerifierEvidenceArtifactVerificationValid,"$.recordedResult.verificationResultVerifierEvidenceArtifactVerificationValid",issues);
+  if(value.verificationResultVerifierEvidenceArtifactVerificationTrust!==null)trustField(value.verificationResultVerifierEvidenceArtifactVerificationTrust,"$.recordedResult.verificationResultVerifierEvidenceArtifactVerificationTrust",issues);
+  return issues.length===start;
+}
+
+function verifyResult(value:RecordValue|null,issues:Issue[]):boolean{
+  if(!value)return false;
+  const start=issues.length;
+  exact(value,RESULT,"$.result",issues);
+  const valid=booleanField(value.valid,"$.result.valid",issues);
+  const trust=trustField(value.trust,"$.result.trust",issues);
+  const count=integerField(value.issueCount,"$.result.issueCount",issues);
+  if(valid===true&&(trust==="untrusted"||count!==0))add(issues,"result-mismatch","$.result","Valid recorded verification cannot be untrusted or retain issues.");
+  if(valid===false&&(trust!=="untrusted"||count===0))add(issues,"result-mismatch","$.result","Invalid recorded verification must be untrusted and retain issues.");
+  return issues.length===start;
+}
+
+function verifyEvidence(value:RecordValue|null,issues:Issue[]):boolean{
+  if(!value)return false;
+  const start=issues.length;
+  boolRecord(value,SOURCE_EVIDENCE_FIELDS,"$.evidence",issues);
+  if(value.canonicalTextMatchesInput===true&&value.canonicalTextAvailable!==true)add(issues,"evidence-mismatch","$.evidence.canonicalTextMatchesInput","Canonical match requires canonical text.");
+  if(value.verificationChecksumMatchesInput===true&&value.verificationChecksumAvailable!==true)add(issues,"evidence-mismatch","$.evidence.verificationChecksumMatchesInput","Checksum match requires checksum evidence.");
+  return issues.length===start;
+}
+
+function verifyIssues(entries:unknown[]|null,issues:Issue[]):boolean{
+  if(!entries)return false;
+  const start=issues.length;
+  for(let index=0;index<entries.length;index++){
+    const value=record(entries[index],`$.issues[${index}]`,issues);
+    if(!value)continue;
+    exact(value,ISSUE,`$.issues[${index}]`,issues);
+    const code=stringField(value.code,`$.issues[${index}].code`,128,issues);
+    const path=stringField(value.path,`$.issues[${index}].path`,2048,issues);
+    const message=stringField(value.message,`$.issues[${index}].message`,512,issues);
+    if(path&&!path.startsWith("$"))add(issues,"issue-evidence-mismatch",`$.issues[${index}].path`,"Issue path must start with $.");
+    const expected=expectedIssueMessage(code);
+    if(code&&expected===null)add(issues,"issue-evidence-mismatch",`$.issues[${index}].code`,"Issue code is not part of the fixed 0.103 verifier contract.");
+    else if(expected!==null&&message!==expected)add(issues,"issue-evidence-mismatch",`$.issues[${index}].message`,"Issue message does not match the deterministic artifact-verifier evidence mapping.");
+  }
+  return issues.length===start;
+}
+
+function verifyRelationships(
+  result:RecordValue|null,
+  sourceChecks:RecordValue|null,
+  anchors:RecordValue|null,
+  evidence:RecordValue|null,
+  entries:unknown[]|null,
+  verification:Checks,
+  issues:Issue[],
+):void{
+  if(!result||!sourceChecks||!anchors||!evidence||!entries)return;
+  const valid=result.valid,trust=result.trust,count=result.issueCount;
+  if(valid===true)for(const field of SOURCE_CHECK_FIELDS)if(sourceChecks[field]!==true){
+    verification.verificationChecks=false;
+    add(issues,"verification-check-mismatch",`$.checks.${field}`,"Recorded valid result requires every 0.103 verification check.");
+  }
+  const trusted=SOURCE_ANCHOR_FIELDS.slice(0,3).map(field=>anchors[field]).filter((value):value is boolean=>typeof value==="boolean");
+  if(trust==="anchored"&&(trusted.length===0||!trusted.every(Boolean))){
+    verification.anchors=false;
+    add(issues,"anchor-mismatch","$.anchors","Recorded anchored trust requires matching trusted anchors.");
+  }
+  if(trust==="self-consistent"&&trusted.length>0){
+    verification.anchors=false;
+    add(issues,"anchor-mismatch","$.anchors","Recorded self-consistent trust cannot claim trusted anchors.");
+  }
+  if(valid===true&&(
+    evidence.documentAvailable!==true||
+    evidence.canonicalTextAvailable!==true||
+    evidence.canonicalTextMatchesInput!==true||
+    evidence.verificationChecksumAvailable!==true||
+    evidence.verificationChecksumMatchesInput!==true
+  )){
+    verification.evidence=false;
+    add(issues,"evidence-mismatch","$.evidence","Recorded valid result requires complete canonical and checksum evidence.");
+  }
+  if(evidence.issuesTruncated!==true&&count!==entries.length)add(issues,"issue-count-mismatch","$.result.issueCount","Issue count does not match retained issues.");
+  if(evidence.issuesTruncated===true&&(entries.length!==MAX_ISSUES||typeof count!=="number"||count<=entries.length))add(issues,"issue-count-mismatch","$.evidence.issuesTruncated","Truncated issue evidence is inconsistent.");
+}
