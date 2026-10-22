@@ -12,6 +12,8 @@ import type {
   RuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationResultActionsOptions as ResultOptions,
   RuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationResultEvidence as Result,
 } from "./NavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationResultContract.js";
+import {createRuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationResultVerificationControl as createVerificationControl} from "./NavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationResultVerificationControl.js";
+import type {RuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationResultVerificationResult as ResultVerification} from "./NavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationResultVerificationContract.js";
 
 type ParentOptions = Omit<VerifiedOptions, "onVerificationResultArtifactVerifierEvidenceVerify">;
 
@@ -25,6 +27,10 @@ export type RuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerificationResu
     onArtifactVerifierEvidenceVerificationResultArtifactCopy?: ResultOptions["onArtifactCopy"];
     onVerificationResultArtifactVerifierEvidenceVerify?: (result: Verification, evidence: Source) => void;
     onArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerify?: (result: Verification, evidence: Source) => void;
+    expectedArtifactVerifierEvidenceVerificationResultVerification?: Verification;
+    expectedArtifactVerifierEvidenceVerificationResultSource?: Source;
+    expectedArtifactVerifierEvidenceVerificationResultInputChecksumHex?: string;
+    onArtifactVerifierEvidenceVerificationResultVerify?: (result: ResultVerification, source: Result) => void;
   };
 
 export function createRuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationResultWorkflow(
@@ -38,6 +44,7 @@ export function createRuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerifi
   const {
     onVerificationResultArtifactVerifierEvidenceVerify: currentVerify,
     onArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerify: stageVerify,
+    onArtifactVerifierEvidenceVerificationResultVerify: resultVerify,
     ...parentOptions
   } = options;
   const workflow = createVerifiedWorkflow(verification, provenance, {
@@ -47,7 +54,7 @@ export function createRuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerifi
       stageVerify?.(value, source);
       const current = ++sequence;
       root.dataset.artifactVerifierEvidenceVerificationResultSequence = String(current);
-      void render(root, current, value, source, options);
+      void render(root, current, value, source, options, resultVerify);
     },
   });
   root.append(workflow);
@@ -60,10 +67,12 @@ async function render(
   verification: Verification,
   source: Source,
   options: RuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationResultWorkflowOptions,
+  resultVerify: ((result: ResultVerification, source: Result) => void) | undefined,
 ): Promise<void> {
   const result = await createResult(verification, source);
   if (sequence !== Number(root.dataset.artifactVerifierEvidenceVerificationResultSequence)) return;
   root.querySelector<HTMLElement>("[data-artifact-verifier-evidence-verification-result-actions]")?.remove();
+  root.querySelector<HTMLElement>("[data-artifact-verifier-evidence-verification-result-verifier]")?.remove();
   options.onArtifactVerifierEvidenceVerificationResultCreate?.(result, verification, source);
   const actions = createActions(result, {
     ...(options.maxArtifactVerifierEvidenceVerificationResultPreviewCharacters === undefined ? {} : {maxPreviewCharacters: options.maxArtifactVerifierEvidenceVerificationResultPreviewCharacters}),
@@ -74,4 +83,14 @@ async function render(
   });
   actions.dataset.artifactVerifierEvidenceVerificationResultActions = "true";
   root.append(actions);
+  if (result.status !== "created") return;
+  const control = createVerificationControl(result, {
+    expectedVerification: options.expectedArtifactVerifierEvidenceVerificationResultVerification ?? verification,
+    expectedSource: options.expectedArtifactVerifierEvidenceVerificationResultSource ?? source,
+    ...(options.expectedArtifactVerifierEvidenceVerificationResultInputChecksumHex === undefined ? {} : {expectedInputArtifactVerifierEvidenceChecksumHex: options.expectedArtifactVerifierEvidenceVerificationResultInputChecksumHex}),
+    onVerify: (value, artifactSet) => resultVerify?.(value, artifactSet),
+    ...(options.onStatus === undefined ? {} : {onStatus: options.onStatus}),
+  });
+  control.dataset.artifactVerifierEvidenceVerificationResultVerifier = "true";
+  root.append(control);
 }

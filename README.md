@@ -1,27 +1,41 @@
-# Splat World Engine — Artifact-Verifier Evidence Verification-Result Verifier-Evidence Verification-Result Artifact-Verifier Evidence Verification Result Artifacts
+# Splat World Engine — Artifact-Verifier Evidence Verification-Result Verifier-Evidence Verification-Result Artifact-Verifier Evidence Verification-Result Artifact Verification
 
-一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime / Builder 原型。Runtime/Builder 0.106 把 0.105 对 0.104 artifact-verifier evidence 三件套的独立验证结论固化为 deterministic verification-result text、canonical JSON 与 JSON SHA-256，供 Runtime、Builder 与 CI 留存下一层可审计结果。
+一个 **Gaussian-first、Mesh-assisted** 的浏览器游戏 Runtime / Builder 原型。Runtime/Builder 0.107 为 0.106 artifact-verifier evidence verification-result 三件套增加独立 verifier，直接审计 fixed schema、canonical JSON、exact 0.104 artifact-verifier evidence bytes/SHA-256、recorded 0.105 checks/anchors/issues、text result、artifact envelope 与 JSON SHA-256，不调用 0.106 creator 重新生成 expected output。
 
-## Runtime/Builder 0.106
+## Runtime/Builder 0.107
 
 核心 API：
 
 ```ts
-createRuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationResult(
-  verification,
+verifyRuntimeNavMissionDiagnosticsArtifactVerifierEvidenceVerificationResultVerifierEvidenceVerificationResultArtifactVerifierEvidenceVerificationResultArtifact(
   source,
+  expectedVerification?,
+  expectedSource?,
+  expectedInputArtifactVerifierEvidenceChecksumHex?,
 )
 ```
 
-Creator 只记录已经完成的 0.105 verifier result 和实际 0.104 artifact-verifier evidence source，不重新运行 0.105 verifier，也不调用 0.104 creator 重新生成 expected output。以下历史结论都可以被完整固化：
+Verifier 覆盖：
 
 ```text
-valid / anchored
-valid / self-consistent
-invalid / untrusted
+0.106 fixed schema / schemaVersion
+recursive canonical JSON
+exact 0.106 JSON UTF-8 bytes / SHA-256
+0.104 artifact-verifier evidence input envelope
+recorded 0.104 schema / schemaVersion
+recorded historical 0.103 verifier-evidence verification-result artifact verification valid / trust
+recorded completed 0.105 valid / trust / issueCount
+all recorded 0.105 checks / anchors
+stable normalized 0.105 issue evidence
+text / JSON relationship
+fixed three-artifact order
+safe filenames / MIME / exact UTF-8 byte sizes
+per-artifact SHA-256 / totalBytes
+strict .sha256 relationship
+trusted expected 0.105 verification / actual 0.104 evidence source / exact input checksum anchors
 ```
 
-固定 artifact 顺序：
+固定 0.106 artifact 顺序：
 
 ```text
 1. result-verifier-evidence-verification-result-verifier-evidence-verification-result-verifier-evidence-verification-result-verifier-evidence-verification-result-verifier-evidence-verification-result-artifact-verifier-evidence-verification-result-text
@@ -29,50 +43,28 @@ invalid / untrusted
 3. result-verifier-evidence-verification-result-verifier-evidence-verification-result-verifier-evidence-verification-result-verifier-evidence-verification-result-verifier-evidence-verification-result-artifact-verifier-evidence-verification-result-json-sha256
 ```
 
-Schema：
+0.106 schema 保持不变：
 
 ```text
 splat-world-engine/mission-diagnostics-policy-manifest-provenance-verification-report-verification-evidence-verification-result-verifier-evidence-verification-result-verifier-evidence-verification-result-verifier-evidence-verification-result-verifier-evidence-verification-result-artifact-verifier-evidence-verification-result
 schema version: 1
 ```
 
-Verification-result document 记录：
+0.107 不新增 artifact schema；新增的是 independent verifier contract/result surface。验证结果继续使用：
 
 ```text
-0.104 artifact-verifier evidence JSON
-  exact UTF-8 bytes
-  exact SHA-256
-  filename / MIME
-  declared bytes/checksum
-  envelope relationships
-
-recorded 0.104 evidence
-  schema / schemaVersion
-  recorded 0.103 verifier-evidence verification-result artifact verification valid / trust
-
-completed 0.105 verifier
-  valid / trust / full issueCount
-  all checks
-  all anchors
-
-canonical/checksum relationships
-stable normalized 0.105 issues
+valid / anchored
+valid / self-consistent
+invalid / untrusted
 ```
 
-失败状态：
+`anchored` 只来自调用方显式提供且匹配的 trusted inputs：completed 0.105 verification、actual 0.104 artifact-verifier evidence source、或 trusted exact 0.104 JSON SHA-256。0.106 text / JSON / `.sha256` 的内部一致性只能支持 `self-consistent`，不能自行建立 external authority。
 
-```text
-evidence-unavailable
-input-too-large
-crypto-unavailable
-result-error
-```
+历史失败语义保持不变：0.106 正确记录的 `invalid / untrusted` 0.105 verifier result 是有效失败证据；如果 artifact 对该 trusted historical result 的记录完全一致，0.107 可以把 artifact 自身验证为 `valid / anchored`，但不会把历史 failure 改写成 success。
 
-失败不会返回部分 artifact set。输入 0.104 artifact-verifier evidence JSON 最大 4 MiB；没有 Web Crypto 时不会生成不完整 checksum artifact。Issue 最多保留 512 条，path 最长 2048 characters。
+Determinism / limits：JSON object keys 递归排序、array order 保持、2-space indentation、exactly one trailing newline；默认 JSON 最大 4 MiB、string 最大 1 MiB、array 最大 512 entries、object 最大 64 fields、depth 最大 32。SHA-256 从 exact UTF-8 text 重算。
 
-Determinism：object keys 递归排序、array order 保持、JSON 使用 2-space indentation 与 exactly one trailing newline；issue message 按 0.105 issue code 稳定化，不记录 raw runtime message、timestamp、random ID、session、browser/machine metadata 或 locale-dependent values。`.sha256` 严格使用 `<64 lowercase hex>  <json filename>\n`。
-
-安全边界：creator 不重新运行 verifier、不调用 0.104 creator 作为 authority、不执行 provenance/input/issue/artifact text、不使用 `innerHTML`、不从 untrusted filename 创建路径、不自动下载或写 Clipboard；Blob URL 仅在用户显式下载时创建并立即 revoke。
+安全边界：verifier 不调用 0.106 creator 作为 authority、不重新运行 0.105 verifier、不执行 provenance/input/issue/artifact text、不使用 `innerHTML`、不从 untrusted filename 创建路径、不自动下载或写 Clipboard；没有 Web Crypto 时验证失败为 `untrusted`，不会伪造 checksum authority。
 
 完整 workflow：
 
@@ -102,13 +94,14 @@ Determinism：object keys 递归排序、array order 保持、JSON 使用 2-spac
   -> 0.104 deterministic verification-result artifact-verifier evidence artifacts
   -> 0.105 independent verification-result artifact-verifier evidence verification
   -> 0.106 deterministic artifact-verifier evidence verification-result artifacts
+  -> 0.107 independent artifact-verifier evidence verification-result artifact verification
 ```
 
-HUD workflow 在 0.105 verification callback 完成后创建 replaceable verification-result 区域，支持 deterministic preview、copy、individual download 与 fixed-order download-all；sequence guard 防止旧异步 result creation 覆盖新的 verifier result。0.106 workflow 使用独立 stage callback boundary，不把当前 verification callback 泄漏到更老的 workflow 层。
+HUD workflow 在 0.106 verification-result 创建后追加显式 verification control；sequence guard 继续阻止旧异步 result creation 覆盖较新的 verifier result。0.107 control 只在用户显式操作时运行 verifier，不自动触发下载或 Clipboard。
 
 ```text
-package version: 0.106.0
-runtime label: runtime 0.106
+package version: 0.107.0
+runtime label: runtime 0.107
 ```
 
 ## Roadmap
@@ -136,6 +129,7 @@ runtime label: runtime 0.106
 - [x] Artifact-verifier evidence verification-result verifier-evidence verification-result artifact-verifier evidence artifacts
 - [x] Artifact-verifier evidence verification-result verifier-evidence verification-result artifact-verifier evidence artifact verification
 - [x] Artifact-verifier evidence verification-result verifier-evidence verification-result artifact-verifier evidence verification result artifacts
-- [ ] Artifact-verifier evidence verification-result verifier-evidence verification-result artifact-verifier evidence verification-result artifact verification
+- [x] Artifact-verifier evidence verification-result verifier-evidence verification-result artifact-verifier evidence verification-result artifact verification
+- [ ] Artifact-verifier evidence verification-result verifier-evidence verification-result artifact-verifier evidence verification-result verifier evidence artifacts
 
-下一版建议为 0.106 verification-result 三件套增加独立 verifier，直接验证 fixed schema、canonical JSON、exact 0.104 artifact-verifier evidence checksum、recorded 0.105 checks/anchors/issues、text result、artifact envelope 与 JSON SHA-256，而不是调用 0.106 creator 重新生成 expected output。
+下一版建议把完成的 0.107 independent verifier result 固化为 deterministic verifier-evidence text、canonical JSON 与 JSON SHA-256；creator 只记录已经完成的 0.107 结论，不重新执行 verifier，也不调用 0.106 creator 作为 authority。
